@@ -1,8 +1,96 @@
 # SmartGraphical
 SmartGraphical: a Solidity Contract Logical Vulnerability Scanner and Graphical representation
 
+## Origin and this fork
+
+The foundation comes from the original project by **[mohamadpishdar](https://github.com/mohamadpishdar)**:
+[github.com/mohamadpishdar/SmartGraphical](https://github.com/mohamadpishdar/SmartGraphical). Thank you for the initial idea and implementation.
+
+This repository **continues, improves, and extends** that work (robustness, features, checks, and documentation evolve over time). The goal is to keep the same overall approach while making the tool more useful and maintainable.
+
+The upstream project did not include a standalone `LICENSE` file; this README keeps **clear attribution** to the original author. If a license is added upstream later, this fork should stay aligned with it.
+
 # How to Use:
-Python SmartGraphical.py ContractFile (ex: python SmartGraphical.py contract1.sol)
+Legacy entrypoint:
+
+- `python SmartGraphical.py ContractFile`
+
+New modular CLI entrypoint:
+
+- `python sg_cli.py ContractFile`
+- `python sg_cli.py ContractFile 8`
+- `python sg_cli.py ContractFile 13 auditor`
+- `python sg_cli.py ContractFile 12 explore`
+
+The modular CLI supports both the original interactive flow and direct task execution.
+
+Available output modes:
+
+- `legacy` keeps the original alert-style output
+- `auditor` prints findings with category, portability, confidence, evidence, and remediation hint
+- `explore` prints a normalized model summary before the findings or graph
+
+Dependency note:
+
+- analysis modes work without `graphviz`
+- graph rendering requires the `graphviz` Python package to be installed
+
+## Internal Architecture
+
+The current implementation keeps the original Solidity-focused heuristics, but now also provides a first modular architecture that can grow into a CLI tool and a web application:
+
+- `SolidityAdapterV0` parses Solidity source and preserves compatibility with the original logic
+- `NormalizedAuditModel` stores language-agnostic entities such as types, functions, state entities, guards, mutations, transfers, computations, and call edges
+- `RuleEngine` maps Task `1`-`11` into grouped rule specifications and converts legacy alerts into structured findings
+- `GraphBuilder` renders the graph from the normalized model instead of directly from ad-hoc runtime globals
+
+## Project Structure
+
+```text
+smartgraphical/
+  core/
+    model.py
+    findings.py
+    engine.py
+    graph.py
+  adapters/
+    solidity/
+      adapter.py
+  services/
+    analysis_service.py
+  interfaces/
+    cli/
+      main.py
+    web_api/
+    web_app/
+SmartGraphical.py
+sg_cli.py
+```
+
+Current roles:
+
+- `SmartGraphical.py` remains the legacy compatibility module
+- `sg_cli.py` is the thin entrypoint for the new modular CLI
+- `smartgraphical/core` contains the common model, findings, engine, and graph code
+- `smartgraphical/adapters/solidity/adapter.py` wraps the current Solidity parser and heuristics as `SolidityAdapterV0`
+- `smartgraphical/services/analysis_service.py` orchestrates parsing, rule execution, and graph rendering
+- `smartgraphical/interfaces/web_api` and `smartgraphical/interfaces/web_app` are placeholders for the future web layers
+
+## Rule Groups
+
+- `NamingAndConsistency`: Tasks `1`, `10`
+- `StateAndMutation`: Tasks `2`, `4`, `11`
+- `FlowAndOrdering`: Tasks `6`, `8`, `9`
+- `ComputationAndEconomics`: Tasks `3`, `5`, `7`
+- `VisualizationOnly`: Task `12`
+
+## Portability Direction
+
+The long-term direction is to keep the review principle portable across languages such as `Rust` and `C++`. The current codebase now defines a normalized layer and a minimal second-language proof-of-concept target:
+
+- extract `FunctionLike`, `StateEntity`, `CallSite`, `Guard`, and `Mutation`
+- run at least two portable rules on that normalized model
+- render the same overview graph from the normalized model
 
 # SmartGraphical checks the Tasks below:
 
