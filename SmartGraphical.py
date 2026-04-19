@@ -1,9 +1,12 @@
 import re
+import sys
 from copy import deepcopy
+from dataclasses import dataclass, field
 import difflib
-import numpy as np
-from IPython.display import display
-import graphviz
+try:
+    import graphviz
+except ImportError:
+    graphviz = None
 
 ## removes all comments of the form: /* comment */
 def comment_remover(text):
@@ -894,84 +897,15 @@ class ContractReader:
 #####################################################################
 #####################################################################
 
-# import argparse
-# parser = argparse.ArgumentParser()
-
-# parser.add_argument('--contract_name', default='default')
-
-import sys
-
-if len(sys.argv) != 2:
-    print("Error: Please provide a Solidity filename as an argument (ex: python SmartgGraphical.py contract1.sol)")
-    sys.exit(1)
-if not sys.argv[1]:
-    print("Error: Filename cannot be empty or None.")
-    sys.exit(1)
-filename = sys.argv[1]
-
-
-reader = ContractReader()
-# filename = 'contract2.sol'
-# filename = 'Theta.sol'
-# filename = 'yaml.sol'
-# filename = 'contract5.sol'
-# filename = 'contract6.sol'
-# filename = 'contract7.sol'
-# filename = 'contract_rebase.sol'
-# filename = 'contract_supp.sol'
-# filename = 'contract8.sol'
-# filename = 'contract_trycatch.sol'
-ln = reader.read_file(filename)
-# print("ln   ", ln)
-unified_code = reader.unify_text(ln)
-rets, hierarchy, high_connections = reader(unified_code)
-
-
-
-
-help = " ------------------------------------------------------------------\n \
-   Help:\n \
-\n Task 1: The signatures associated with the function definitions in every function of the smart contract code must be examined and updated if the contract is the outcome of a rewrite or update of another contract. If this isn't done, the contract may have a logical issue, and information from the previous signature may be given to the functions using the programmer\'s imagination. This inevitably indicates that the contract code contains a runtime error.\n \
------\n\
-Task 2: In the event that the developer modifies contract parameters, such as the maximum fee or user balance, or other elements, like totalSupply, that are determined by another contract. This could be risky and result in warnings being generated. Generally speaking, obtaining any value from a source outside the contract may have a different value under various circumstances, which could lead to a smart contract logical error. For instance, the programmer might not have incorporated the input's fluctuation or range into the program logic\n \
------\n\
-Task 3: The quantity of collateral determines one of the typical actions in DeFi smart contracts, in addition to stake and unstake. Attacks like multiple borrowing without collateral might result from logical mistakes made by the developer when releasing this collateral, determining the maximum loan amount that can be given, and determining the kind and duration of the collateral encumbrance\n \
------\n\
-Tasks 3 and 5 and 9: When a smart contract receives value, like financial tokens or game points (from staking assets, depositing points, or depositing tokens), it must perform a logical check when the assets are removed from the system to ensure that no user can circumvent the program's logic and take more money out of the contract than they are actually entitled to. \n \
------\n\
-Tasks 2 and 4: All token supply calculations must be performed accurately and completely. Even system security and authentication might be taken into account, but the communication method specification is entirely incorrect. For instance, one of the several errors made by developers has been the presence of a function like burn that can remove tokens from the pool or functions identical to it that can add tokens to the pool. To determine whether this is necessary in terms of program logic and whether other supply changes are taken into account in this computation, these conditions should be looked at. No specific function is required, and burning tokens can be moved to an address as a transaction without being returned. \n \
------\n\
-Task 2 and 5 and 9: There are various incentive aspects in many smart contracts that defy logic. For instance, if the smart contract has a point system for burning tokens, is it possible to use that point in other areas of the contract? It is crucial to examine the income and spending points in this situation. For instance, the developer can permit spending without making sure the user validates the point earning. The program logic may be abused as a result of this. \n \
------\n\
-Task 6: The code's error conditions need to be carefully examined. For instance, a logical error and a serious blow to the smart contract can result from improperly validating the error circumstances. Assume, for instance, that the programmer uses a system function to carry out a non-deterministic transport, but its error management lacks a proper understanding of the system state. In the event of an error, for instance, the coder attempts to reverse the system state; however, this may not be logically sound and could result in misuse of the smart contract by, for instance, reproducing an unauthorized activity in the normal state. \n \
------\n\
-Task 7: Logical errors can result from any complicated coding calculations. For instance, a cyber attacker may exploit the program logic by forcing their desired computation output if the coder fails to properly analyze the code output under various scenarios. \n \
------\n\
-Tasks 8 and 9: A smart contract's execution output might be impacted by the sequence in which certain procedures are carried out. The developer measuring or calculating the price of a token (or anything similar) and then transferring the asset at a certain time period is one of the most prevalent examples of this kind of vulnerability. Given that the attacker can manipulate the market through fictitious fluctuations, this is a logical issue. Thus, this gives the attacker the ability to remove the asset from the agreement. \n \
------\n\
-Task 10: In a smart contract, using names that are spelled similarly to one another may cause logical issues. For instance, the coder might inadvertently substitute one of these definitions for another in the contract, which would be undetectable during the coder's initial tests. There is a chance that a cybercriminal will take advantage of this scenario. \n \
------\n\
-Task 11: A smart contract's function that can be called fully publicly and without limitations may be risky and necessitate additional research from the developer if it modifies variables, delivers inventory, or does something similar\n \
- -------------------------------------------------------------------------------\n\
-"
-
-print(help)
-
-task = input('\n 1: Old version\n \
-2: Unallowed manipulation\n \
-3: Stake function\n \
-4: Pool interactions\n \
-5: Local points\n \
-6: Exceptions\n \
-7: Complicated calculations\n \
-8: Order of calls\n \
-9: Withdraw actions\n \
-10: Similar names\n \
-11: Outer calls\n \
-12: Graphical demonstration\n \
-13: Run all tasks\n \
-Enter task number:  ')
-print("task    ", task)
+filename = ''
+task = ''
+ln = []
+unified_code = ''
+rets = []
+hierarchy = {}
+high_connections = []
+reader = None
+analysis_context = None
 
 
 ######################################################
@@ -2202,6 +2136,527 @@ def outer_calls():
 #################    oke
 
 
+@dataclass
+class NormalizedArtifact:
+    path: str
+    language: str
+    adapter_name: str
+
+
+@dataclass
+class NormalizedStateEntity:
+    name: str
+    owner: str
+    kind: str
+    raw_signature: str = ''
+
+
+@dataclass
+class NormalizedEvent:
+    name: str
+    owner: str
+    inputs: list = field(default_factory=list)
+
+
+@dataclass
+class NormalizedObjectUse:
+    object_name: str
+    contract_name: str
+    label: str = ''
+
+
+@dataclass
+class NormalizedFunction:
+    name: str
+    owner: str
+    inputs: list = field(default_factory=list)
+    modifiers: list = field(default_factory=list)
+    body: str = ''
+    conditionals: list = field(default_factory=list)
+    guards: list = field(default_factory=list)
+    internal_calls: list = field(default_factory=list)
+    system_calls: list = field(default_factory=list)
+    object_calls: list = field(default_factory=list)
+    mutations: list = field(default_factory=list)
+    transfers: list = field(default_factory=list)
+    computations: list = field(default_factory=list)
+    is_entrypoint: bool = False
+
+
+@dataclass
+class NormalizedType:
+    name: str
+    kind: str
+    parents: list = field(default_factory=list)
+    functions: list = field(default_factory=list)
+    state_entities: list = field(default_factory=list)
+    events: list = field(default_factory=list)
+    objects: list = field(default_factory=list)
+
+
+@dataclass
+class NormalizedCallEdge:
+    source_type: str
+    source_name: str
+    target_type: str
+    target_name: str
+    edge_kind: str
+    label: str = ''
+
+
+@dataclass
+class AdapterBlueprint:
+    target_language: str
+    required_entities: list = field(default_factory=list)
+    portable_rule_tasks: list = field(default_factory=list)
+    success_criteria: list = field(default_factory=list)
+
+
+@dataclass
+class NormalizedAuditModel:
+    artifact: NormalizedArtifact
+    types: list = field(default_factory=list)
+    call_edges: list = field(default_factory=list)
+    rule_groups: dict = field(default_factory=dict)
+    second_language_poc: AdapterBlueprint = None
+
+
+@dataclass
+class FindingEvidence:
+    kind: str
+    summary: str
+    type_name: str = ''
+    function_name: str = ''
+    statement: str = ''
+
+
+@dataclass
+class Finding:
+    task_id: str
+    legacy_code: int
+    rule_id: str
+    title: str
+    category: str
+    portability: str
+    confidence: str
+    message: str
+    remediation_hint: str
+    evidences: list = field(default_factory=list)
+
+
+@dataclass
+class RuleSpec:
+    task_id: str
+    legacy_code: int
+    slug: str
+    title: str
+    category: str
+    portability: str
+    confidence: str
+    remediation_hint: str
+    runner: object
+
+
+@dataclass
+class AnalysisContext:
+    path: str
+    language: str
+    reader: object
+    lines: list
+    unified_code: str
+    rets: list
+    hierarchy: dict
+    high_connections: list
+    normalized_model: object = None
+
+
+TASK_GROUPS = {
+    'NamingAndConsistency': ['1', '10'],
+    'StateAndMutation': ['2', '4', '11'],
+    'FlowAndOrdering': ['6', '8', '9'],
+    'ComputationAndEconomics': ['3', '5', '7'],
+    'VisualizationOnly': ['12'],
+}
+
+
+SECOND_LANGUAGE_POC = AdapterBlueprint(
+    target_language='rust_or_cpp',
+    required_entities=[
+        'FunctionLike',
+        'StateEntity',
+        'CallSite',
+        'Guard',
+        'Mutation',
+    ],
+    portable_rule_tasks=['3', '6', '7', '8', '9', '10', '11'],
+    success_criteria=[
+        'Extract the normalized entities for one non-trivial source file.',
+        'Run at least two portable rules on the normalized model.',
+        'Render the same overview graph from the normalized model.',
+    ],
+)
+
+
+def build_rule_registry():
+    return {
+        '1': RuleSpec('1', 1, 'contract_version', 'Old Version Markers', 'NamingAndConsistency', 'portable', 'low', 'Review rewrite markers and keep comments aligned with the current implementation.', contract_version),
+        '2': RuleSpec('2', 2, 'unallowed_manipulation', 'External State Manipulation', 'StateAndMutation', 'portable_with_adapter', 'medium', 'Check assignments sourced from inputs or external values before they update sensitive state.', unallowed_manipulation),
+        '3': RuleSpec('3', 3, 'staking', 'Stake And Release Logic', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Verify that stake and release paths are symmetric and guard the manipulated amount.', staking),
+        '4': RuleSpec('4', 4, 'pool_interactions', 'Pool Supply Operations', 'StateAndMutation', 'portable_with_adapter', 'medium', 'Review mint or burn style flows for missing access control and accounting assumptions.', pool_interactions),
+        '5': RuleSpec('5', 5, 'local_points', 'Local Incentive Accounting', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Confirm that earning and spending paths validate the tracked balance or allowance state.', local_points),
+        '6': RuleSpec('6', 6, 'exceptions', 'Error Path Consistency', 'FlowAndOrdering', 'portable_with_adapter', 'medium', 'Inspect try/catch handlers and ensure the error path preserves valid state transitions.', exceptions),
+        '7': RuleSpec('7', 7, 'complicated_calculations', 'Complicated Calculations', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Review arithmetic-heavy expressions and simplify or guard the most complex branches.', complicated_calculations),
+        '8': RuleSpec('8', 8, 'check_order', 'Sensitive Call Ordering', 'FlowAndOrdering', 'portable_with_adapter', 'medium', 'Check whether fetch, price, or preparation logic happens immediately before transfer-like effects.', check_order),
+        '9': RuleSpec('9', 9, 'withdraw_check', 'Withdraw Preconditions', 'FlowAndOrdering', 'portable_with_adapter', 'medium', 'Ensure withdraw-style operations are preceded by guards, conditions, or validated system checks.', withdraw_check),
+        '10': RuleSpec('10', 11, 'similar_names', 'Similar Names', 'NamingAndConsistency', 'portable', 'medium', 'Rename near-duplicate identifiers when they can confuse reviewers or callers.', similar_names),
+        '11': RuleSpec('11', 12, 'outer_calls', 'Outer Calls', 'StateAndMutation', 'portable_with_adapter', 'medium', 'Review public entrypoints that consume inputs and mutate state without stronger constraints.', outer_calls),
+    }
+
+
+def normalize_statement(statement):
+    return statement.replace('\n', ' ').replace('\t', ' ').strip()
+
+
+def split_body_statements(body):
+    return [normalize_statement(part) for part in body.split(';') if normalize_statement(part)]
+
+
+def collect_function_guards(body, conditionals):
+    guards = []
+    for conditional in conditionals:
+        if conditional not in guards:
+            guards.append(conditional)
+    for requirement in extract_requirements([body])[0]:
+        if requirement not in guards:
+            guards.append(requirement)
+    for assertion in extract_asserts([body])[0]:
+        if assertion not in guards:
+            guards.append(assertion)
+    return guards
+
+
+def collect_mutations(body, state_names):
+    mutations = []
+    for statement in split_body_statements(body):
+        for state_name in state_names:
+            if state_name in statement and ('=' in statement or '+=' in statement or '-=' in statement):
+                if statement not in mutations:
+                    mutations.append(statement)
+    return mutations
+
+
+def collect_transfers(body):
+    transfers = []
+    transfer_tokens = ['.transfer(', ' transfer(', '.send(', '.call{value:', 'withdraw(', 'unstake(']
+    for statement in split_body_statements(body):
+        for token in transfer_tokens:
+            if token in statement:
+                if statement not in transfers:
+                    transfers.append(statement)
+    return transfers
+
+
+def collect_computations(body):
+    computations = []
+    operator_tokens = ['.mul', '.div', '.add', '.sub', 'math.', '+', '-', '*', '/']
+    for statement in split_body_statements(body):
+        hit_count = 0
+        for token in operator_tokens:
+            if token in statement:
+                hit_count += 1
+        if hit_count >= 2 and statement not in computations:
+            computations.append(statement)
+    return computations
+
+
+def sanitize_graph_token(token):
+    return re.sub(r'[^A-Za-z0-9_]', '_', token)
+
+
+def build_normalized_model(context):
+    artifact = NormalizedArtifact(context.path, context.language, 'SolidityAdapterV0')
+    model = NormalizedAuditModel(
+        artifact=artifact,
+        rule_groups=deepcopy(TASK_GROUPS),
+        second_language_poc=deepcopy(SECOND_LANGUAGE_POC),
+    )
+    type_index = {}
+
+    for contract_data in context.rets:
+        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, objs, using = contract_data
+        type_entry = NormalizedType(contract_name, 'contract_like', parents=context.hierarchy.get(contract_name, []))
+
+        for variable in vars:
+            raw_signature = ' '.join(variable)
+            type_entry.state_entities.append(NormalizedStateEntity(variable[-1], contract_name, 'state_variable', raw_signature))
+        for struct in structs:
+            type_entry.state_entities.append(NormalizedStateEntity(struct[0], contract_name, 'struct', struct[1]))
+        for obj in objs:
+            object_use = NormalizedObjectUse(obj[-1], obj[0], '')
+            type_entry.objects.append(object_use)
+            type_entry.state_entities.append(NormalizedStateEntity(obj[-1], contract_name, 'object_instance', ' '.join(obj)))
+
+        state_names = [entity.name for entity in type_entry.state_entities]
+        for index, func in enumerate(funcs):
+            func_name, input_details, ext_params, body = func
+            conditionals = func_conditionals[index] if index < len(func_conditionals) else []
+            system_calls = [sys_name for sys_name, users in sysfunc_func_mapping.items() if func_name in users]
+            object_calls = []
+            for object_name, mappings in obj_func_mapping.items():
+                for mapping in mappings:
+                    target_func = mapping[0]
+                    label = mapping[1]
+                    if target_func == func_name:
+                        object_calls.append({'object': object_name, 'label': label})
+
+            normalized_function = NormalizedFunction(
+                name=func_name,
+                owner=contract_name,
+                inputs=input_details,
+                modifiers=ext_params,
+                body=body,
+                conditionals=conditionals,
+                guards=collect_function_guards(body, conditionals),
+                internal_calls=deepcopy(func_func_mapping.get(func_name, [])),
+                system_calls=system_calls,
+                object_calls=object_calls,
+                mutations=collect_mutations(body, state_names),
+                transfers=collect_transfers(body),
+                computations=collect_computations(body),
+                is_entrypoint=('external' in ext_params or 'public' in ext_params),
+            )
+            type_entry.functions.append(normalized_function)
+
+        for event in events:
+            type_entry.events.append(NormalizedEvent(event[0], contract_name, event[1]))
+
+        type_index[contract_name] = type_entry
+        model.types.append(type_entry)
+
+        for variable_name, used_by in var_func_mapping.items():
+            for function_name in used_by:
+                model.call_edges.append(NormalizedCallEdge(contract_name, variable_name, contract_name, function_name, 'state_to_function'))
+        for source_name, targets in func_func_mapping.items():
+            for target_name in targets:
+                clean_target = target_name.replace('super.', '')
+                model.call_edges.append(NormalizedCallEdge(contract_name, source_name, contract_name, clean_target, 'function_to_function'))
+        for sys_name, users in sysfunc_func_mapping.items():
+            for function_name in users:
+                model.call_edges.append(NormalizedCallEdge(contract_name, function_name, contract_name, sys_name, 'function_to_system'))
+        for object_name, mappings in obj_func_mapping.items():
+            for mapping in mappings:
+                model.call_edges.append(NormalizedCallEdge(contract_name, mapping[0], contract_name, object_name, 'function_to_object', mapping[1]))
+
+    for connection in context.high_connections:
+        parent_name = connection['parent']
+        child_name = connection['child']
+        for variable_name, used_by in connection['var_func_mapping'].items():
+            for function_name in used_by:
+                model.call_edges.append(NormalizedCallEdge(parent_name, variable_name, child_name, function_name, 'cross_type_state'))
+        for source_name, targets in connection['func_func_mapping'].items():
+            for target_name in targets:
+                model.call_edges.append(NormalizedCallEdge(parent_name, source_name, child_name, target_name, 'cross_type_call'))
+
+    return model
+
+
+def bind_runtime_context(context):
+    global filename, task, ln, unified_code, rets, hierarchy, high_connections, reader, analysis_context
+    filename = context.path
+    ln = context.lines
+    unified_code = context.unified_code
+    rets = context.rets
+    hierarchy = context.hierarchy
+    high_connections = context.high_connections
+    reader = context.reader
+    analysis_context = context
+
+
+def infer_evidence_from_message(message, model):
+    evidence = FindingEvidence(kind='message', summary=message)
+    quoted_parts = re.findall(r"'([^']+)'", message)
+    if 'line:' in message:
+        evidence.statement = message.split('line:', 1)[1].strip()
+    elif len(quoted_parts) > 0:
+        evidence.statement = quoted_parts[-1]
+
+    for type_entry in model.types:
+        if type_entry.name in message:
+            evidence.type_name = type_entry.name
+        for function in type_entry.functions:
+            if function.name in message:
+                evidence.type_name = type_entry.name
+                evidence.function_name = function.name
+                return evidence
+    return evidence
+
+
+def convert_alerts_to_findings(rule_spec, alerts, context):
+    findings = []
+    for alert in alerts:
+        message = alert.get('message', '')
+        findings.append(Finding(
+            task_id=rule_spec.task_id,
+            legacy_code=alert.get('code', rule_spec.legacy_code),
+            rule_id=rule_spec.slug,
+            title=rule_spec.title,
+            category=rule_spec.category,
+            portability=rule_spec.portability,
+            confidence=rule_spec.confidence,
+            message=message,
+            remediation_hint=rule_spec.remediation_hint,
+            evidences=[infer_evidence_from_message(message, context.normalized_model)],
+        ))
+    return findings
+
+
+def summarize_model(context):
+    model = context.normalized_model
+    function_count = 0
+    state_count = 0
+    guard_count = 0
+    for type_entry in model.types:
+        function_count += len(type_entry.functions)
+        state_count += len(type_entry.state_entities)
+        for function in type_entry.functions:
+            guard_count += len(function.guards)
+    print("--------------------------------------------------------------------------")
+    print("Exploration summary")
+    print(f"Artifact: {model.artifact.path}")
+    print(f"Adapter: {model.artifact.adapter_name}")
+    print(f"Types: {len(model.types)}")
+    print(f"Functions: {function_count}")
+    print(f"State entities: {state_count}")
+    print(f"Guards: {guard_count}")
+    print(f"Call edges: {len(model.call_edges)}")
+    print("Portable rule core candidates: " + ", ".join(model.second_language_poc.portable_rule_tasks))
+    print("Second-language PoC criteria:")
+    for criterion in model.second_language_poc.success_criteria:
+        print(f"- {criterion}")
+
+
+def demonstrate_findings(findings, output_mode='auditor'):
+    if output_mode == 'legacy':
+        legacy_alerts = [{'code': finding.legacy_code, 'message': finding.message} for finding in findings]
+        demonstrate_alerts(legacy_alerts)
+        return
+
+    if len(findings) == 0:
+        print("No findings.")
+        return
+
+    for finding in findings:
+        print(f"[Task {finding.task_id}] {finding.title}")
+        print(f"Category: {finding.category}")
+        print(f"Portability: {finding.portability}")
+        print(f"Confidence: {finding.confidence}")
+        print(f"Message: {finding.message}")
+        if finding.remediation_hint:
+            print(f"Hint: {finding.remediation_hint}")
+        for evidence in finding.evidences:
+            print(f"Evidence: {evidence.summary}")
+            if evidence.type_name:
+                print(f"Type: {evidence.type_name}")
+            if evidence.function_name:
+                print(f"Function: {evidence.function_name}")
+            if evidence.statement:
+                print(f"Statement: {evidence.statement}")
+        print("\n    ----------------------      \n")
+
+
+class SolidityAdapterV0:
+    def __init__(self):
+        self.reader = ContractReader()
+
+    def parse_source(self, source_path):
+        lines = self.reader.read_file(source_path)
+        unified_source = self.reader.unify_text(lines)
+        parsed_rets, parsed_hierarchy, parsed_high_connections = self.reader(unified_source)
+        context = AnalysisContext(
+            path=source_path,
+            language='solidity',
+            reader=self.reader,
+            lines=lines,
+            unified_code=unified_source,
+            rets=parsed_rets,
+            hierarchy=parsed_hierarchy,
+            high_connections=parsed_high_connections,
+        )
+        context.normalized_model = build_normalized_model(context)
+        bind_runtime_context(context)
+        return context
+
+
+class RuleEngine:
+    def __init__(self, rule_registry):
+        self.rule_registry = rule_registry
+
+    def run_task(self, context, task_id):
+        bind_runtime_context(context)
+        rule_spec = self.rule_registry[task_id]
+        alerts = rule_spec.runner()
+        return convert_alerts_to_findings(rule_spec, alerts, context)
+
+    def run_all(self, context):
+        findings = []
+        for task_id in sorted(self.rule_registry.keys(), key=int):
+            findings.extend(self.run_task(context, task_id))
+        return findings
+
+
+class GraphBuilder:
+    def render(self, model, output_label):
+        if graphviz is None:
+            print("Error: graphviz Python package is not installed.")
+            return
+        print("--------------------------------------------------------------------------")
+        print("Generating plot ... ")
+        dot = graphviz.Digraph('round-table', format='png', graph_attr={'label': output_label, 'splines': 'ortho', 'nodesep': '1.2'})
+        dot.attr(rankdir='LR')
+
+        for index, type_entry in enumerate(model.types):
+            with dot.subgraph(name=f"cluster_{index}") as cluster:
+                cluster.attr(label=type_entry.name, color=cluster_border_color, penwidth='2', bgcolor=cluster_background_color, fontcolor=cluster_border_color, fontsize='26pt')
+                with cluster.subgraph() as section:
+                    section.attr('node', shape='ellipse', style='filled')
+                    for state_entity in type_entry.state_entities:
+                        if state_entity.kind == 'object_instance':
+                            continue
+                        section.node(f"var_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(state_entity.name)}", state_entity.name, fillcolor=var_fill_color, color=var_fill_color)
+
+                    section.attr('node', shape='cylinder')
+                    for object_use in type_entry.objects:
+                        object_node = f"obj_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(object_use.object_name)}"
+                        object_label = f"{object_use.object_name}\nContract: {object_use.contract_name}"
+                        section.node(object_node, object_label, fillcolor=var_fill_color, color=var_fill_color)
+
+                    section.attr('node', shape='rectangle')
+                    for function in type_entry.functions:
+                        function_node = f"func_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(function.name)}"
+                        function_label = f"{function.name}\nInputs: {function.inputs}\nConditionals: {function.conditionals}"
+                        section.node(function_node, function_label, fillcolor=func_fill_color, color=func_fill_color)
+                    for event in type_entry.events:
+                        event_node = f"func_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(event.name)}"
+                        event_label = f"{event.name}\nInputs: {event.inputs}"
+                        section.node(event_node, event_label, fillcolor=func_fill_color, color=func_fill_color)
+
+        for edge in model.call_edges:
+            source_type = sanitize_graph_token(edge.source_type)
+            target_type = sanitize_graph_token(edge.target_type)
+            if edge.edge_kind in ['state_to_function', 'cross_type_state']:
+                dot.edge(f"var_{source_type}_{sanitize_graph_token(edge.source_name)}", f"func_{target_type}_{sanitize_graph_token(edge.target_name)}", color=edge_color)
+            elif edge.edge_kind in ['function_to_function', 'cross_type_call']:
+                dot.edge(f"func_{source_type}_{sanitize_graph_token(edge.source_name)}", f"func_{target_type}_{sanitize_graph_token(edge.target_name)}", color=edge_color)
+            elif edge.edge_kind == 'function_to_system':
+                system_node = f"sysfunc_{target_type}_{sanitize_graph_token(edge.target_name)}"
+                dot.node(system_node, edge.target_name, shape='parallelogram', style='filled', fillcolor=sysfunc_fill_color, color=sysfunc_fill_color)
+                dot.edge(f"func_{source_type}_{sanitize_graph_token(edge.source_name)}", system_node, color=edge_color)
+            elif edge.edge_kind == 'function_to_object':
+                dot.edge(f"func_{source_type}_{sanitize_graph_token(edge.source_name)}", f"obj_{target_type}_{sanitize_graph_token(edge.target_name)}", xlabel=edge.label, fontsize='10pt', margin='1', pad='1', color=edge_color)
+
+        dot.render(output_label + '.gv', directory='', view=False)
+
+
 
 cluster_border_color = "#4D869C"
 cluster_background_color = "#F8F6F422"
@@ -2215,101 +2670,8 @@ sysfunc_fill_color = "#E3F4F4"
 
 edge_color = "#D77FA1"
 
-def plot_graph(rets):
-    print("--------------------------------------------------------------------------")
-    print("Generating plot ... ")
-    
-    dot = graphviz.Digraph('round-table',format='png',graph_attr={'label': filename,'splines': 'ortho','nodesep': '1.2'})
-
-    ff_edges = []
-    vf_edges = []
-
-    ## plot each contract in a seperated box
-    for i in range(len(rets)):
-        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, objs, using = rets[i]
-    
-        sys_funcs = [k for k,v in sysfunc_func_mapping.items() if len(v) > 0]
-
-        # print("--------------------------------------------------------------------------")
-        # print("contract name    ", contract_name)
-        # print("sys funcs   ", sys_funcs)
-        # print("func names    ", [i[0] for i in funcs])
-
-        dot.attr(rankdir='LR')
-        with dot.subgraph(name="cluster_{}".format(i)) as B:
-            B.attr(label=contract_name, color=cluster_border_color, penwidth='2', bgcolor=cluster_background_color, fontcolor=cluster_border_color, fontsize='26pt')
-            with B.subgraph() as s:
-                s.attr('node', shape='ellipse', style="filled")
-                # plot variables
-                for i in range(len(vars)):
-                    s.node('var_{}_{}'.format(contract_name,vars[i][-1]),vars[i][-1], fillcolor=var_fill_color, color=var_fill_color)
-                # plot structs
-                for i in range(len(structs)):
-                    s.node('var_{}_{}'.format(contract_name,structs[i][0]),structs[i][0], fillcolor=var_fill_color, color=var_fill_color)
-                #########
-                s.attr('node', shape='cylinder')
-                # plot objects
-                for i in range(len(objs)):
-                    s.node('obj_{}_{}'.format(contract_name,objs[i][-1]),"{}\nContract: {}".format(objs[i][-1], objs[i][0]), fillcolor=var_fill_color, color=var_fill_color)
-                #########
-                s.attr('node', shape='rectangle')
-                # plot functions
-                for i in range(len(funcs)):
-                    s.node('func_{}_{}'.format(contract_name, funcs[i][0]),"{}\nInputs: {}\nConditionals:  {}".format(funcs[i][0],funcs[i][1],func_conditionals[i]), fillcolor=func_fill_color, color=func_fill_color)
-                # plot events
-                for i in range(len(events)):
-                    s.node('func_{}_{}'.format(contract_name, events[i][0]),"{}\nInputs: {}".format(events[i][0],events[i][1]), fillcolor=func_fill_color, color=func_fill_color)
-                #########
-                s.attr('node', shape='parallelogram')
-                # plot system functions
-                for i in range(len(sys_funcs)):
-                    s.node('sysfunc_{}_{}'.format(contract_name, sys_funcs[i]), sys_funcs[i], fillcolor=sysfunc_fill_color, color=sysfunc_fill_color)
-                ##########
-                # plot variable-function mapping
-                for k,v in var_func_mapping.items():
-                    for i in range(len(v)):
-                        s.edge('var_{}_{}'.format(contract_name, k), 'func_{}_{}'.format(contract_name, v[i]), color=edge_color)
-                ##########
-                # plot function-function mapping
-                for k,v in func_func_mapping.items():
-                    for i in range(len(v)):
-                        if 'super' in v[i]:
-                            t = v[i].replace('super.','')
-                        else:
-                            t = v[i].replace('super.','')
-                            s.edge('func_{}_{}'.format(contract_name, k), 'func_{}_{}'.format(contract_name, t), color=edge_color)
-                ###########
-                # plot system_function-function mapping
-                for k,v in sysfunc_func_mapping.items():
-                    for i in range(len(v)):
-                        t = v[i]
-                        s.edge('func_{}_{}'.format(contract_name, t), 'sysfunc_{}_{}'.format(contract_name, k), color=edge_color)
-                ###########
-                # plot object-function mapping
-                for k,v in obj_func_mapping.items():
-                    for i in range(len(v)):
-                        t = v[i][0]
-                        label = v[i][1]
-                        s.edge('func_{}_{}'.format(contract_name, t), 'obj_{}_{}'.format(contract_name, k), xlabel=label, fontsize="10pt", margin="1", pad="1", color=edge_color)
-                
-            
-    #### plot connections between multiple contracts
-    for m in range(len(high_connections)):
-        conn = high_connections[m]
-        par = conn['parent']
-        chl = conn['child']
-        vf_map = conn['var_func_mapping']
-        ff_map = conn['func_func_mapping']
-        # print("vf mapping    ", vf_map)
-        for k,v in vf_map.items():
-            for n in range(len(v)):
-                dot.edge('var_{}_{}'.format(par, k), 'func_{}_{}'.format(chl, v[n]), color=edge_color)
-        for k,v in ff_map.items():
-            for n in range(len(v)):
-                dot.edge('func_{}_{}'.format(par, k), 'func_{}_{}'.format(chl, v[n]), color=edge_color)
-
-    ####
-    dot.render(filename+'.gv',directory='',view=False)
+def plot_graph(model):
+    GraphBuilder().render(model, filename)
 
 
 
@@ -2318,76 +2680,120 @@ def plot_graph(rets):
 #     display(graphviz.Source(dot))
 
 
-#############  run
-if task == '1':
-    alerts = contract_version()
-    demonstrate_alerts(alerts)
-elif task == '2':
-    alerts = unallowed_manipulation()
-    demonstrate_alerts(alerts)
-elif task == '3':
-    alerts = staking()
-    demonstrate_alerts(alerts)
-elif task == '4':
-    alerts = pool_interactions()
-    demonstrate_alerts(alerts)
-elif task == '5':
-    alerts = local_points()
-    demonstrate_alerts(alerts)
-elif task == '6':
-    alerts = exceptions()
-    demonstrate_alerts(alerts)
-elif task == '7':
-    alerts = complicated_calculations()
-    demonstrate_alerts(alerts)
-elif task == '8':
-    alerts = check_order()
-    demonstrate_alerts(alerts)
-elif task == '9':
-    alerts = withdraw_check()
-    demonstrate_alerts(alerts)
-elif task == '10':
-    alerts = similar_names()
-    # print(alerts)
-    demonstrate_alerts(alerts)
-elif task == '11':
-    alerts = outer_calls()
-    demonstrate_alerts(alerts)
-elif task == '12':
-    plot_graph(rets)
-elif task == '13':
-    alerts = contract_version()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = unallowed_manipulation()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = staking()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = pool_interactions()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = local_points()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = exceptions()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = complicated_calculations()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = check_order()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = withdraw_check()
-    demonstrate_alerts(alerts)
-    ##
-    alerts = similar_names()
-    # print(alerts)
-    demonstrate_alerts(alerts)
-    ##
-    alerts = outer_calls()
-    demonstrate_alerts(alerts)
-    ##
-    plot_graph(rets)
+HELP_TEXT = " ------------------------------------------------------------------\n \
+   Help:\n \
+\n Task 1: The signatures associated with the function definitions in every function of the smart contract code must be examined and updated if the contract is the outcome of a rewrite or update of another contract. If this isn't done, the contract may have a logical issue, and information from the previous signature may be given to the functions using the programmer\'s imagination. This inevitably indicates that the contract code contains a runtime error.\n \
+-----\n\
+Task 2: In the event that the developer modifies contract parameters, such as the maximum fee or user balance, or other elements, like totalSupply, that are determined by another contract. This could be risky and result in warnings being generated. Generally speaking, obtaining any value from a source outside the contract may have a different value under various circumstances, which could lead to a smart contract logical error. For instance, the programmer might not have incorporated the input's fluctuation or range into the program logic\n \
+-----\n\
+Task 3: The quantity of collateral determines one of the typical actions in DeFi smart contracts, in addition to stake and unstake. Attacks like multiple borrowing without collateral might result from logical mistakes made by the developer when releasing this collateral, determining the maximum loan amount that can be given, and determining the kind and duration of the collateral encumbrance\n \
+-----\n\
+Tasks 3 and 5 and 9: When a smart contract receives value, like financial tokens or game points (from staking assets, depositing points, or depositing tokens), it must perform a logical check when the assets are removed from the system to ensure that no user can circumvent the program's logic and take more money out of the contract than they are actually entitled to. \n \
+-----\n\
+Tasks 2 and 4: All token supply calculations must be performed accurately and completely. Even system security and authentication might be taken into account, but the communication method specification is entirely incorrect. For instance, one of the several errors made by developers has been the presence of a function like burn that can remove tokens from the pool or functions identical to it that can add tokens to the pool. To determine whether this is necessary in terms of program logic and whether other supply changes are taken into account in this computation, these conditions should be looked at. No specific function is required, and burning tokens can be moved to an address as a transaction without being returned. \n \
+-----\n\
+Task 2 and 5 and 9: There are various incentive aspects in many smart contracts that defy logic. For instance, if the smart contract has a point system for burning tokens, is it possible to use that point in other areas of the contract? It is crucial to examine the income and spending points in this situation. For instance, the developer can permit spending without making sure the user validates the point earning. The program logic may be abused as a result of this. \n \
+-----\n\
+Task 6: The code's error conditions need to be carefully examined. For instance, a logical error and a serious blow to the smart contract can result from improperly validating the error circumstances. Assume, for instance, that the programmer uses a system function to carry out a non-deterministic transport, but its error management lacks a proper understanding of the system state. In the event of an error, for instance, the coder attempts to reverse the system state; however, this may not be logically sound and could result in misuse of the smart contract by, for instance, reproducing an unauthorized activity in the normal state. \n \
+-----\n\
+Task 7: Logical errors can result from any complicated coding calculations. For instance, a cyber attacker may exploit the program logic by forcing their desired computation output if the coder fails to properly analyze the code output under various scenarios. \n \
+-----\n\
+Tasks 8 and 9: A smart contract's execution output might be impacted by the sequence in which certain procedures are carried out. The developer measuring or calculating the price of a token (or anything similar) and then transferring the asset at a certain time period is one of the most prevalent examples of this kind of vulnerability. Given that the attacker can manipulate the market through fictitious fluctuations, this is a logical issue. Thus, this gives the attacker the ability to remove the asset from the agreement. \n \
+-----\n\
+Task 10: In a smart contract, using names that are spelled similarly to one another may cause logical issues. For instance, the coder might inadvertently substitute one of these definitions for another in the contract, which would be undetectable during the coder's initial tests. There is a chance that a cybercriminal will take advantage of this scenario. \n \
+-----\n\
+Task 11: A smart contract's function that can be called fully publicly and without limitations may be risky and necessitate additional research from the developer if it modifies variables, delivers inventory, or does something similar\n \
+-------------------------------------------------------------------------------\n\
+"
+
+
+TASK_PROMPT = '\n 1: Old version\n \
+2: Unallowed manipulation\n \
+3: Stake function\n \
+4: Pool interactions\n \
+5: Local points\n \
+6: Exceptions\n \
+7: Complicated calculations\n \
+8: Order of calls\n \
+9: Withdraw actions\n \
+10: Similar names\n \
+11: Outer calls\n \
+12: Graphical demonstration\n \
+13: Run all tasks\n \
+Enter task number:  '
+
+
+def parse_cli_args(argv):
+    if len(argv) < 2:
+        print("Error: Please provide a Solidity filename as an argument (ex: python SmartGraphical.py contract1.sol)")
+        sys.exit(1)
+    if not argv[1]:
+        print("Error: Filename cannot be empty or None.")
+        sys.exit(1)
+
+    selected_task = None
+    output_mode = 'legacy'
+    if len(argv) >= 3:
+        selected_task = argv[2]
+    if len(argv) >= 4:
+        output_mode = argv[3].lower()
+    if output_mode not in ['legacy', 'auditor', 'explore']:
+        print("Error: mode must be one of legacy, auditor, or explore.")
+        sys.exit(1)
+    return argv[1], selected_task, output_mode
+
+
+def select_task_interactively():
+    print(HELP_TEXT)
+    selected_task = input(TASK_PROMPT)
+    print("task    ", selected_task)
+    return selected_task
+
+
+class SmartGraphicalApplication:
+    def __init__(self):
+        self.adapter = SolidityAdapterV0()
+        self.rule_engine = RuleEngine(build_rule_registry())
+        self.graph_builder = GraphBuilder()
+
+    def analyze(self, source_path):
+        return self.adapter.parse_source(source_path)
+
+    def execute(self, context, selected_task, output_mode):
+        if output_mode == 'explore':
+            summarize_model(context)
+
+        if selected_task in self.rule_engine.rule_registry:
+            findings = self.rule_engine.run_task(context, selected_task)
+            demonstrate_findings(findings, output_mode)
+            return
+
+        if selected_task == '12':
+            self.graph_builder.render(context.normalized_model, context.path)
+            return
+
+        if selected_task == '13':
+            findings = self.rule_engine.run_all(context)
+            demonstrate_findings(findings, output_mode)
+            self.graph_builder.render(context.normalized_model, context.path)
+            return
+
+        print("Error: task must be a value from 1 to 13.")
+        sys.exit(1)
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
+    source_path, selected_task, output_mode = parse_cli_args(argv)
+    application = SmartGraphicalApplication()
+    context = application.analyze(source_path)
+    if selected_task is None:
+        selected_task = select_task_interactively()
+    global task
+    task = selected_task
+    application.execute(context, selected_task, output_mode)
+
+
+if __name__ == '__main__':
+    main()
