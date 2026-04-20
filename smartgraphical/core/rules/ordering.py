@@ -119,6 +119,54 @@ def check_order(rets, reader):
     return alerts
 
 
+def _check_order_from_normalized(context):
+    """Normalized-first call ordering checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    fetch_tokens = ['rebase', 'fetch']
+    transfer_tokens = ['transfer', 'withdraw', 'unstake']
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            statements = function.exploration_statements
+            if not statements:
+                continue
+            transfer_indices = [
+                idx for idx, stmt in enumerate(statements)
+                if any(token in stmt for token in transfer_tokens)
+            ]
+            fetch_indices = [
+                idx for idx, stmt in enumerate(statements)
+                if any(token in stmt for token in fetch_tokens)
+            ]
+            if not transfer_indices and not fetch_indices:
+                continue
+
+            if transfer_indices:
+                first_transfer_idx = transfer_indices[0]
+                has_fetch_before_transfer = any(idx < first_transfer_idx for idx in fetch_indices)
+                if not has_fetch_before_transfer:
+                    alerts.append({
+                        'code': 8,
+                        'message': (
+                            f"Alert1: fetch function did not occur before transfer in "
+                            f"'{type_entry.name}.{function.name}' function"
+                        ),
+                    })
+
+            if fetch_indices:
+                first_fetch_idx = fetch_indices[0]
+                has_transfer_after_fetch = any(idx > first_fetch_idx for idx in transfer_indices)
+                if not has_transfer_after_fetch:
+                    alerts.append({
+                        'code': 8,
+                        'message': (
+                            f"Alert3: transfer function did not occur after fetch in "
+                            f"'{type_entry.name}.{function.name}' function"
+                        ),
+                    })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -132,5 +180,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = check_order(context.rets, context.reader)
+    alerts = _check_order_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

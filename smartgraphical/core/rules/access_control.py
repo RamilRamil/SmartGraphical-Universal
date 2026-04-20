@@ -39,6 +39,39 @@ def local_points(rets):
     return alerts
 
 
+def _local_points_from_normalized(context):
+    """Normalized-first local points checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    receive_names = ['recieve', 'take', 'burn', 'allowance', 'balance', 'point']
+    blocked_names = ['stake', 'unstake']
+    vars_to_check = ['allowance', 'balance', 'point']
+
+    for type_entry in model.types:
+        contract_vars = [entity.name for entity in type_entry.state_entities]
+        for function in type_entry.functions:
+            lowered_name = function.name.lower()
+            if not any(token in lowered_name for token in receive_names):
+                continue
+            if any(token in lowered_name for token in blocked_names):
+                continue
+            guard_expressions = [fact.expression for fact in function.guard_facts]
+            guard_expressions.extend(function.guards)
+            for variable_name in vars_to_check:
+                if variable_name not in contract_vars:
+                    continue
+                if any(variable_name in expression for expression in guard_expressions):
+                    continue
+                alerts.append({
+                    'code': 5,
+                    'message': (
+                        f"Alert, variable '{variable_name}' is unchecked in function "
+                        f"'{function.name}' in contract '{type_entry.name}'"
+                    ),
+                })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -52,5 +85,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = local_points(context.rets)
+    alerts = _local_points_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

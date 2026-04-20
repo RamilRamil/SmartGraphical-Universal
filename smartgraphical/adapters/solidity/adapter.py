@@ -9,7 +9,10 @@ from smartgraphical.core.model import (
     NormalizedAuditModel,
     NormalizedCallEdge,
     NormalizedEvent,
+    NormalizedExternalCall,
     NormalizedFunction,
+    NormalizedGuardFact,
+    NormalizedStateAccess,
     NormalizedObjectUse,
     NormalizedStateEntity,
     NormalizedType,
@@ -92,6 +95,32 @@ def _collect_guards(body, conditionals):
     return guards
 
 
+def _collect_guard_facts(body, conditionals):
+    facts = []
+    for conditional in conditionals:
+        facts.append(NormalizedGuardFact(
+            guard_type='conditional',
+            expression=conditional,
+            source_statement=conditional,
+            confidence_reason='parsed_function_conditional',
+        ))
+    for req in extract_requirements([body])[0]:
+        facts.append(NormalizedGuardFact(
+            guard_type='require',
+            expression=req,
+            source_statement=req,
+            confidence_reason='parsed_require_statement',
+        ))
+    for assertion in extract_asserts([body])[0]:
+        facts.append(NormalizedGuardFact(
+            guard_type='assert',
+            expression=assertion,
+            source_statement=assertion,
+            confidence_reason='parsed_assert_statement',
+        ))
+    return facts
+
+
 def _collect_mutations(body, state_names):
     mutations = []
     for stmt in _split_body(body):
@@ -100,6 +129,24 @@ def _collect_mutations(body, state_names):
                 if stmt not in mutations:
                     mutations.append(stmt)
     return mutations
+
+
+def _collect_state_accesses(body, state_names):
+    reads = []
+    writes = []
+    for stmt in _split_body(body):
+        for name in state_names:
+            if name not in stmt:
+                continue
+            if ('=' in stmt or '+=' in stmt or '-=' in stmt):
+                entry = NormalizedStateAccess(name, 'write', stmt)
+                if entry not in writes:
+                    writes.append(entry)
+            else:
+                entry = NormalizedStateAccess(name, 'read', stmt)
+                if entry not in reads:
+                    reads.append(entry)
+    return reads, writes
 
 
 def _collect_transfers(body):
@@ -111,6 +158,34 @@ def _collect_transfers(body):
     return result
 
 
+def _collect_external_calls(body, object_calls, system_calls):
+    calls = []
+    external_tokens = ['.call(', '.call{', '.delegatecall(', '.staticcall(', '.send(', '.transfer(']
+    for stmt in _split_body(body):
+        if any(token in stmt for token in external_tokens):
+            calls.append(NormalizedExternalCall(
+                call_kind='value_or_low_level',
+                target_name='unknown',
+                source_statement=stmt,
+                via_object='',
+            ))
+    for object_call in object_calls:
+        calls.append(NormalizedExternalCall(
+            call_kind='object_method',
+            target_name=object_call.get('label', ''),
+            source_statement='',
+            via_object=object_call.get('object', ''),
+        ))
+    for system_call in system_calls:
+        calls.append(NormalizedExternalCall(
+            call_kind='system_call',
+            target_name=system_call,
+            source_statement='',
+            via_object='',
+        ))
+    return calls
+
+
 def _collect_computations(body):
     tokens = ['.mul', '.div', '.add', '.sub', 'math.', '+', '-', '*', '/']
     result = []
@@ -118,6 +193,24 @@ def _collect_computations(body):
         if sum(1 for t in tokens if t in stmt) >= 2 and stmt not in result:
             result.append(stmt)
     return result
+
+
+def _extract_visibility(ext_params):
+    visibilities = ['public', 'external', 'internal', 'private']
+    for value in ext_params:
+        if value in visibilities:
+            return value
+    return ''
+
+
+def _extract_permissions(ext_params):
+    permissions = []
+    for value in ext_params:
+        lowered = value.lower()
+        if ('only' in lowered) or ('owner' in lowered) or ('admin' in lowered) or ('role' in lowered):
+            if value not in permissions:
+                permissions.append(value)
+    return permissions
 
 
 def build_normalized_model(context):
@@ -152,17 +245,61 @@ def build_normalized_model(context):
                 for obj_name, mappings in obj_func_mapping.items()
                 for m in mappings if m[0] == func_name
             ]
+            split_statements = _split_body(body)
+            guard_facts = _collect_guard_facts(body, conditionals)
+            guards = _collect_guards(body, conditionals)
+            read_accesses, mutation_accesses = _collect_state_accesses(body, state_names)
+            mutations = _collect_mutations(body, state_names)
+            visibility = _extract_visibility(ext_params)
+            permissions = _extract_permissions(ext_params)
+            external_calls = _collect_external_calls(body, object_calls, system_calls)
+            evidence_map = []
+            for mutation in mutations:
+                evidence_map.append({
+                    'type_name': contract_name,
+                    'function_name': func_name,
+                    'source_statement': mutation,
+                    'confidence_reason': 'mutation_detected_from_state_assignment',
+                })
+            for guard_fact in guard_facts:
+                evidence_map.append({
+                    'type_name': contract_name,
+                    'function_name': func_name,
+                    'source_statement': guard_fact.source_statement,
+                    'confidence_reason': guard_fact.confidence_reason,
+                })
             type_entry.functions.append(NormalizedFunction(
                 name=func_name, owner=contract_name, inputs=input_details,
                 modifiers=ext_params, body=body, conditionals=conditionals,
-                guards=_collect_guards(body, conditionals),
+                guards=guards,
+                guard_facts=guard_facts,
                 internal_calls=deepcopy(func_func_mapping.get(func_name, [])),
                 system_calls=system_calls, object_calls=object_calls,
-                mutations=_collect_mutations(body, state_names),
+                mutations=mutations,
+                read_accesses=read_accesses,
                 transfers=_collect_transfers(body),
+                external_calls=external_calls,
                 computations=_collect_computations(body),
                 is_entrypoint=('external' in ext_params or 'public' in ext_params),
+                visibility=visibility,
+                entrypoint_permissions=permissions,
+                findings_evidence_map=evidence_map,
+                exploration_statements=split_statements,
             ))
+            function_key = f"{contract_name}.{func_name}"
+            model.exploration_data.function_notes[function_key] = {
+                'statement_count': len(split_statements),
+                'raw_statements': split_statements,
+            }
+            model.findings_data.function_facts[function_key] = {
+                'guard_types': [fact.guard_type for fact in guard_facts],
+                'entrypoint': ('external' in ext_params or 'public' in ext_params),
+                'permissions': permissions,
+                'read_access_count': len(read_accesses),
+                'mutation_count': len(mutation_accesses),
+                'external_call_count': len(external_calls),
+            }
+            model.findings_data.evidence_index[function_key] = evidence_map
 
         for event in events:
             type_entry.events.append(NormalizedEvent(event[0], contract_name, event[1]))

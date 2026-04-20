@@ -58,6 +58,37 @@ def outer_calls(rets, reader, high_connections):
     return alerts
 
 
+def _outer_calls_from_normalized(context):
+    """Normalized-first outer call checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            # Keep the original intent: external entrypoints with inputs and state mutation,
+            # but without explicit guards/permissions should be reviewed.
+            if function.visibility != 'external':
+                continue
+            if not function.is_entrypoint:
+                continue
+            if not function.inputs or function.inputs == [['']]:
+                continue
+            if not function.mutations:
+                continue
+            has_guard = bool(function.guard_facts or function.guards)
+            has_permission = bool(function.entrypoint_permissions)
+            if has_guard or has_permission:
+                continue
+            first_mutation = function.mutations[0]
+            alerts.append({
+                'code': 12,
+                'message': (
+                    f"Outer manipulation in function {type_entry.name}.{function.name}, "
+                    f"line: {first_mutation}"
+                ),
+            })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -71,5 +102,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = outer_calls(context.rets, context.reader, context.high_connections)
+    alerts = _outer_calls_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

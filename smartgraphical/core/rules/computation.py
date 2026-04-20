@@ -113,6 +113,40 @@ def complicated_calculations(rets, reader):
     return alerts
 
 
+def _complicated_calculations_from_normalized(context):
+    """Normalized-first arithmetic complexity checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            # Directly rely on normalized computation extraction.
+            for statement in function.computations:
+                lowered = statement.lower()
+                if ('.mul' in lowered and '.div' in lowered) or ('*' in statement and '/' in statement):
+                    alerts.append({
+                        'code': 7,
+                        'message': f"Alert: Multiplication and division occured simultaneously in line: {statement}",
+                    })
+                if ('.div' in lowered) or ('/' in statement):
+                    alerts.append({
+                        'code': 7,
+                        'message': f"Alert: Division is occured in line: {statement}",
+                    })
+                if 'math.' in lowered:
+                    alerts.append({
+                        'code': 7,
+                        'message': f"Alert: Math functions are used in line: {statement}",
+                    })
+                if '((' in statement and (
+                    '.mul' in lowered or '.div' in lowered or '.sub' in lowered or '.add' in lowered
+                ):
+                    alerts.append({
+                        'code': 7,
+                        'message': f"Alert: Complicated parenthesis are used in line: {statement}",
+                    })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -126,5 +160,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = complicated_calculations(context.rets, context.reader)
+    alerts = _complicated_calculations_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

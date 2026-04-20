@@ -136,6 +136,69 @@ def pool_interactions(rets):
     return alerts
 
 
+def _unallowed_manipulation_from_normalized(context):
+    """Normalized-first check for risky state mutation patterns."""
+    alerts = []
+    model = context.normalized_model
+    sensitive_tokens = ['totalsupply', 'balance', 'fee', 'amount', 'supply']
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            if not function.mutations:
+                continue
+            if not function.inputs or function.inputs == [['']]:
+                continue
+            if function.entrypoint_permissions:
+                continue
+            has_guard = bool(function.guard_facts or function.guards)
+            if has_guard:
+                continue
+            for mutation in function.mutations:
+                lowered = mutation.lower()
+                if any(token in lowered for token in sensitive_tokens):
+                    alerts.append({
+                        'code': 2,
+                        'message': (
+                            f"Alert: Some value has been assigned to sensitive state from "
+                            f"function inputs in {type_entry.name}.{function.name}, line: {mutation}"
+                        ),
+                    })
+                    break
+    return alerts
+
+
+def _pool_interactions_from_normalized(context):
+    """Normalized-first check for mint/burn entrypoint safety."""
+    alerts = []
+    model = context.normalized_model
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            lowered_name = function.name.lower()
+            if ('mint' not in lowered_name) and ('burn' not in lowered_name):
+                continue
+            if function.visibility == 'external' and not function.entrypoint_permissions:
+                alerts.append({
+                    'code': 4,
+                    'message': (
+                        f"Alert: {function.name} function is external without explicit permissions "
+                        f"in {type_entry.name}.{function.name}"
+                    ),
+                })
+            if function.guard_facts:
+                for guard_fact in function.guard_facts:
+                    alerts.append({
+                        'code': 4,
+                        'message': f"{function.name} function: Condition: {guard_fact.expression}",
+                    })
+            if 'burn' in lowered_name:
+                for statement in function.exploration_statements:
+                    if 'address(0)' in statement:
+                        alerts.append({
+                            'code': 4,
+                            'message': f"zero address is used in line: {statement}",
+                        })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contracts (Phase 2)
 # ---------------------------------------------------------------------------
@@ -156,10 +219,10 @@ _META_POOL = dict(
 
 
 def run_unallowed_manipulation(context):
-    alerts = unallowed_manipulation(context.rets, context.reader)
+    alerts = _unallowed_manipulation_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META_UNALLOWED)
 
 
 def run_pool_interactions(context):
-    alerts = pool_interactions(context.rets)
+    alerts = _pool_interactions_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META_POOL)

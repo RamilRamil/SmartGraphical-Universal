@@ -65,6 +65,41 @@ def exceptions(rets):
     return alerts
 
 
+def _exceptions_from_normalized(context):
+    """Normalized-first exception path checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            lowered_body = function.body.lower()
+            if ('try' not in lowered_body) or ('catch' not in lowered_body):
+                continue
+            catch_index = lowered_body.find('catch')
+            catch_segment = function.body[catch_index:] if catch_index >= 0 else function.body
+            revert_statement = ''
+            for statement in function.exploration_statements:
+                if 'revert' in statement.lower():
+                    revert_statement = statement
+                    break
+            if 'revert' in catch_segment.lower():
+                message_line = revert_statement or catch_segment
+                alerts.append({
+                    'code': 6,
+                    'message': f"Alert: Revert action found in line: {message_line}",
+                })
+            assert_guards = [
+                fact.expression
+                for fact in function.guard_facts
+                if fact.guard_type == 'assert'
+            ]
+            if assert_guards:
+                alerts.append({
+                    'code': 6,
+                    'message': f"Alert: asserts:  {assert_guards}",
+                })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -78,5 +113,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = exceptions(context.rets)
+    alerts = _exceptions_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

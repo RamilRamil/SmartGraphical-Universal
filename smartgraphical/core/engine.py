@@ -19,19 +19,47 @@ class RuleSpec:
 
 
 def _infer_evidence(message, model):
-    evidence = FindingEvidence(kind='message', summary=message)
+    evidence = FindingEvidence(
+        kind='message',
+        summary=message,
+        confidence_reason='message_only_fallback',
+    )
     quoted_parts = re.findall(r"'([^']+)'", message)
     if 'line:' in message:
         evidence.statement = message.split('line:', 1)[1].strip()
     elif quoted_parts:
         evidence.statement = quoted_parts[-1]
+    evidence.source_statement = evidence.statement
+    findings_data = getattr(model, 'findings_data', None)
+    if findings_data:
+        for function_key, evidences in findings_data.evidence_index.items():
+            for mapped_evidence in evidences:
+                mapped_statement = mapped_evidence.get('source_statement', '')
+                if mapped_statement and mapped_statement in message:
+                    evidence.type_name = mapped_evidence.get('type_name', '')
+                    evidence.function_name = mapped_evidence.get('function_name', '')
+                    evidence.source_statement = mapped_statement
+                    evidence.statement = mapped_statement
+                    evidence.confidence_reason = mapped_evidence.get(
+                        'confidence_reason',
+                        'matched_statement_from_normalized_model',
+                    )
+                    return evidence
+            if function_key in message:
+                type_name, function_name = function_key.split('.', 1)
+                evidence.type_name = type_name
+                evidence.function_name = function_name
+                evidence.confidence_reason = 'matched_qualified_function_name'
+                return evidence
     for type_entry in model.types:
         if type_entry.name in message:
             evidence.type_name = type_entry.name
+            evidence.confidence_reason = 'matched_type_name'
         for function in type_entry.functions:
             if function.name in message:
                 evidence.type_name = type_entry.name
                 evidence.function_name = function.name
+                evidence.confidence_reason = 'matched_function_name'
                 return evidence
     return evidence
 
@@ -58,6 +86,22 @@ def make_findings(alerts, model, task_id, legacy_code, slug, title,
             evidences=[_infer_evidence(message, model)],
         ))
     return findings
+
+
+def merge_alerts(*alert_groups):
+    """Merge alert groups with stable ordering and deduplication."""
+    merged = []
+    seen = set()
+    for group in alert_groups:
+        for alert in group:
+            code = alert.get('code')
+            message = str(alert.get('message', '')).replace('\n', ' ').strip()
+            key = (code, message)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({'code': code, 'message': message})
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +176,8 @@ def demonstrate_findings(findings, output_mode='auditor'):
                 print(f"Function: {evidence.function_name}")
             if evidence.statement:
                 print(f"Statement: {evidence.statement}")
+            if evidence.confidence_reason:
+                print(f"Reason: {evidence.confidence_reason}")
         print("\n    ----------------------      \n")
 
 
