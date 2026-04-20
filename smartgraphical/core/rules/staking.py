@@ -86,6 +86,74 @@ def staking(rets):
     return alerts
 
 
+def _staking_from_normalized(context):
+    """Normalized-first stake/unstake symmetry checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    for type_entry in model.types:
+        stake_functions = []
+        unstake_functions = []
+        for function in type_entry.functions:
+            lowered_name = function.name.lower()
+            if 'stake' in lowered_name and 'unstake' not in lowered_name:
+                stake_functions.append(function)
+                alerts.append({
+                    'code': 3,
+                    'message': (
+                        f"Function '{function.name}' is related to 'stake' in '{type_entry.name}' contract."
+                    ),
+                })
+            if 'unstake' in lowered_name:
+                unstake_functions.append(function)
+                alerts.append({
+                    'code': 3,
+                    'message': (
+                        f"Function '{function.name}' is related to 'unstake' in '{type_entry.name}' contract."
+                    ),
+                })
+            for statement in function.exploration_statements:
+                lowered_statement = statement.lower()
+                if ' stake' in lowered_statement:
+                    alerts.append({
+                        'code': 3,
+                        'message': (
+                            f"Variable 'stake' is used in '{type_entry.name}' contract, "
+                            f"'{function.name}' function."
+                        ),
+                    })
+                if ' unstake' in lowered_statement:
+                    alerts.append({
+                        'code': 3,
+                        'message': (
+                            f"Variable 'unstake' is used in '{type_entry.name}' contract, "
+                            f"'{function.name}' function."
+                        ),
+                    })
+
+        if stake_functions and not unstake_functions:
+            alerts.append({
+                'code': 3,
+                'message': "No unstake function provided, while staking function exists.",
+            })
+
+        for function in stake_functions:
+            for mutation in function.mutations:
+                if ('+=' in mutation) or (' + ' in mutation):
+                    alerts.append({
+                        'code': 3,
+                        'message': f"In stake function {function.name}, Manipulation in line '{mutation}'.",
+                    })
+
+        for function in unstake_functions:
+            for mutation in function.mutations:
+                if ('-=' in mutation) or (' - ' in mutation):
+                    alerts.append({
+                        'code': 3,
+                        'message': f"In stake function {function.name}, Manipulation in line '{mutation}'.",
+                    })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -99,5 +167,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = staking(context.rets)
+    alerts = _staking_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)

@@ -8,6 +8,8 @@ class FindingEvidence:
     type_name: str = ""
     function_name: str = ""
     statement: str = ""
+    source_statement: str = ""
+    confidence_reason: str = ""
 
 
 @dataclass
