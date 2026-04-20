@@ -3,6 +3,7 @@ import re
 from copy import deepcopy
 
 from smartgraphical.adapters.solidity.helpers import extract_asserts
+from smartgraphical.core.engine import make_findings
 
 
 def exceptions(rets):
@@ -62,3 +63,20 @@ def exceptions(rets):
                 if len(asserts) > 0:
                     alerts.append({'code': 6, 'message': f"Alert: asserts:  {asserts}"})
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='6', legacy_code=6, slug='exceptions',
+    title='Error Path Consistency', category='FlowAndOrdering',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Inspect try/catch handlers and ensure the error path preserves valid state transitions.',
+)
+
+
+def run(context):
+    alerts = exceptions(context.rets)
+    return make_findings(alerts, context.normalized_model, **_META)

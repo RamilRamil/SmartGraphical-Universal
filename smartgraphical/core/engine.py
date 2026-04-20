@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from typing import Callable, List
 
 from smartgraphical.core.findings import Finding, FindingEvidence
 
@@ -14,17 +15,16 @@ class RuleSpec:
     portability: str
     confidence: str
     remediation_hint: str
-    runner: object
+    runner: Callable  # (AnalysisContext) -> list[Finding]
 
 
-def infer_evidence_from_message(message, model):
-    evidence = FindingEvidence(kind="message", summary=message)
+def _infer_evidence(message, model):
+    evidence = FindingEvidence(kind='message', summary=message)
     quoted_parts = re.findall(r"'([^']+)'", message)
-    if "line:" in message:
-        evidence.statement = message.split("line:", 1)[1].strip()
-    elif len(quoted_parts) > 0:
+    if 'line:' in message:
+        evidence.statement = message.split('line:', 1)[1].strip()
+    elif quoted_parts:
         evidence.statement = quoted_parts[-1]
-
     for type_entry in model.types:
         if type_entry.name in message:
             evidence.type_name = type_entry.name
@@ -36,37 +36,56 @@ def infer_evidence_from_message(message, model):
     return evidence
 
 
-def convert_alerts_to_findings(rule_spec, alerts, context):
+def make_findings(alerts, model, task_id, legacy_code, slug, title,
+                  category, portability, confidence, remediation_hint):
+    """Convert raw alert dicts into Finding objects.
+
+    This is the shared helper used by all rule run() functions.
+    """
     findings = []
     for alert in alerts:
-        message = alert.get("message", "")
-        findings.append(
-            Finding(
-                task_id=rule_spec.task_id,
-                legacy_code=alert.get("code", rule_spec.legacy_code),
-                rule_id=rule_spec.slug,
-                title=rule_spec.title,
-                category=rule_spec.category,
-                portability=rule_spec.portability,
-                confidence=rule_spec.confidence,
-                message=message,
-                remediation_hint=rule_spec.remediation_hint,
-                evidences=[infer_evidence_from_message(message, context.normalized_model)],
-            )
-        )
+        message = alert.get('message', '')
+        findings.append(Finding(
+            task_id=task_id,
+            legacy_code=alert.get('code', legacy_code),
+            rule_id=slug,
+            title=title,
+            category=category,
+            portability=portability,
+            confidence=confidence,
+            message=message,
+            remediation_hint=remediation_hint,
+            evidences=[_infer_evidence(message, model)],
+        ))
     return findings
 
 
+# ---------------------------------------------------------------------------
+# Kept for backward compatibility (SmartGraphical.py legacy path)
+# ---------------------------------------------------------------------------
+
+def infer_evidence_from_message(message, model):
+    return _infer_evidence(message, model)
+
+
+def convert_alerts_to_findings(rule_spec, alerts, context):
+    return make_findings(
+        alerts, context.normalized_model,
+        rule_spec.task_id, rule_spec.legacy_code, rule_spec.slug,
+        rule_spec.title, rule_spec.category, rule_spec.portability,
+        rule_spec.confidence, rule_spec.remediation_hint,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Model summary
+# ---------------------------------------------------------------------------
+
 def summarize_model(context):
     model = context.normalized_model
-    function_count = 0
-    state_count = 0
-    guard_count = 0
-    for type_entry in model.types:
-        function_count += len(type_entry.functions)
-        state_count += len(type_entry.state_entities)
-        for function in type_entry.functions:
-            guard_count += len(function.guards)
+    function_count = sum(len(t.functions) for t in model.types)
+    state_count = sum(len(t.state_entities) for t in model.types)
+    guard_count = sum(len(f.guards) for t in model.types for f in t.functions)
     print("--------------------------------------------------------------------------")
     print("Exploration summary")
     print(f"Artifact: {model.artifact.path}")
@@ -82,14 +101,18 @@ def summarize_model(context):
         print(f"- {criterion}")
 
 
-def demonstrate_findings(findings, output_mode="auditor"):
-    if output_mode == "legacy":
+# ---------------------------------------------------------------------------
+# Finding display
+# ---------------------------------------------------------------------------
+
+def demonstrate_findings(findings, output_mode='auditor'):
+    if output_mode == 'legacy':
         for finding in findings:
-            print({"code": finding.legacy_code, "message": finding.message})
+            print({'code': finding.legacy_code, 'message': finding.message})
             print("\n    ----------------------      \n")
         return
 
-    if len(findings) == 0:
+    if not findings:
         print("No findings.")
         return
 
@@ -112,15 +135,18 @@ def demonstrate_findings(findings, output_mode="auditor"):
         print("\n    ----------------------      \n")
 
 
+# ---------------------------------------------------------------------------
+# Rule engine
+# ---------------------------------------------------------------------------
+
 class RuleEngine:
     def __init__(self, rule_registry):
         self.rule_registry = rule_registry
 
     def run_task(self, context, task_id):
-        context.bind_legacy_runtime()
+        """Run a single rule. runner(context) -> list[Finding]."""
         rule_spec = self.rule_registry[task_id]
-        alerts = rule_spec.runner()
-        return convert_alerts_to_findings(rule_spec, alerts, context)
+        return rule_spec.runner(context)
 
     def run_all(self, context):
         findings = []

@@ -6,6 +6,7 @@ from smartgraphical.adapters.solidity.helpers import (
     extract_requirements,
     extract_exceptions,
 )
+from smartgraphical.core.engine import make_findings
 
 
 def withdraw_check(rets, reader):
@@ -69,3 +70,20 @@ def withdraw_check(rets, reader):
                         if sf in segment:
                             alerts.append({'code': 9, 'message': f"Function {sf} is before current line."})
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='9', legacy_code=9, slug='withdraw_check',
+    title='Withdraw Preconditions', category='FlowAndOrdering',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Ensure withdraw-style operations are preceded by guards, conditions, or validated system checks.',
+)
+
+
+def run(context):
+    alerts = withdraw_check(context.rets, context.reader)
+    return make_findings(alerts, context.normalized_model, **_META)
