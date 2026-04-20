@@ -72,6 +72,32 @@ def withdraw_check(rets, reader):
     return alerts
 
 
+def _withdraw_check_from_normalized(context):
+    """Normalized-first withdraw precondition checks (Phase 3)."""
+    alerts = []
+    model = context.normalized_model
+    transfer_tokens = ['withdraw', 'unstake', 'transfer']
+    for type_entry in model.types:
+        for function in type_entry.functions:
+            transfer_statements = []
+            for statement in function.transfers:
+                if any(token in statement for token in transfer_tokens):
+                    transfer_statements.append(statement)
+            if not transfer_statements:
+                continue
+            has_guards = bool(function.guard_facts or function.guards)
+            if has_guards:
+                continue
+            alerts.append({
+                'code': 9,
+                'message': (
+                    f"Alert: no explicit guards before withdraw-like operation in "
+                    f"{type_entry.name}.{function.name}, line: {transfer_statements[0]}"
+                ),
+            })
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Rule contract (Phase 2)
 # ---------------------------------------------------------------------------
@@ -85,5 +111,5 @@ _META = dict(
 
 
 def run(context):
-    alerts = withdraw_check(context.rets, context.reader)
+    alerts = _withdraw_check_from_normalized(context)
     return make_findings(alerts, context.normalized_model, **_META)
