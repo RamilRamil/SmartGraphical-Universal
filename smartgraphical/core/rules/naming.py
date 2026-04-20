@@ -2,6 +2,7 @@
 import difflib
 
 from smartgraphical.adapters.solidity.helpers import extract_comment_lines
+from smartgraphical.core.engine import make_findings
 
 
 def contract_version(ln, line_sep):
@@ -59,3 +60,32 @@ def similar_names(rets):
                             'message': f"Alert: similar variable names, variable '{name}' in contract '{var1[0]}' and variable '{name2}' in contract '{var2[0]}'"
                         })
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contracts (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META_CONTRACT_VERSION = dict(
+    task_id='1', legacy_code=1, slug='contract_version',
+    title='Old Version Markers', category='NamingAndConsistency',
+    portability='portable', confidence='low',
+    remediation_hint='Review rewrite markers and keep comments aligned with the current implementation.',
+)
+
+_META_SIMILAR_NAMES = dict(
+    task_id='10', legacy_code=11, slug='similar_names',
+    title='Similar Names', category='NamingAndConsistency',
+    portability='portable', confidence='medium',
+    remediation_hint='Rename near-duplicate identifiers when they can confuse reviewers or callers.',
+)
+
+
+def run_contract_version(context):
+    alerts = contract_version(context.lines, context.reader.line_sep)
+    return make_findings(alerts, context.normalized_model, **_META_CONTRACT_VERSION)
+
+
+def run_similar_names(context):
+    alerts = similar_names(context.rets)
+    return make_findings(alerts, context.normalized_model, **_META_SIMILAR_NAMES)

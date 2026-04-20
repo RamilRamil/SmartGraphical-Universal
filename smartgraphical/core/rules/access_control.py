@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from smartgraphical.adapters.solidity.helpers import extract_requirements
+from smartgraphical.core.engine import make_findings
 
 
 def local_points(rets):
@@ -36,3 +37,20 @@ def local_points(rets):
                                 'message': f"Alert, variable '{vc}' is unchecked in function '{all_funcs[j][1]}' in contract '{all_funcs[j][0]}'"
                             })
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='5', legacy_code=5, slug='local_points',
+    title='Local Incentive Accounting', category='ComputationAndEconomics',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Confirm that earning and spending paths validate the tracked balance or allowance state.',
+)
+
+
+def run(context):
+    alerts = local_points(context.rets)
+    return make_findings(alerts, context.normalized_model, **_META)

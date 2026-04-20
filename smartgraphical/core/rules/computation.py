@@ -3,6 +3,7 @@ import re
 from copy import deepcopy
 
 from smartgraphical.adapters.solidity.helpers import similar_string, find_uniques
+from smartgraphical.core.engine import make_findings
 
 
 def complicated_calculations(rets, reader):
@@ -110,3 +111,20 @@ def complicated_calculations(rets, reader):
                         if temp[i] == ")":
                             brack_iter -= 1
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='7', legacy_code=7, slug='complicated_calculations',
+    title='Complicated Calculations', category='ComputationAndEconomics',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Review arithmetic-heavy expressions and simplify or guard the most complex branches.',
+)
+
+
+def run(context):
+    alerts = complicated_calculations(context.rets, context.reader)
+    return make_findings(alerts, context.normalized_model, **_META)

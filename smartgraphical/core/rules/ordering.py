@@ -2,6 +2,8 @@
 import re
 from copy import deepcopy
 
+from smartgraphical.core.engine import make_findings
+
 
 def check_order(rets, reader):
     """Task 8 - verify that rebase/fetch calls appear before transfer/withdraw calls."""
@@ -115,3 +117,20 @@ def check_order(rets, reader):
                             'message': f"Alert4: transfer function did not occur in next line of fetch in '{all_funcs[i][1]}' function, '{all_funcs[i][0]}' contract"
                         })
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='8', legacy_code=8, slug='check_order',
+    title='Sensitive Call Ordering', category='FlowAndOrdering',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Check whether fetch, price, or preparation logic happens immediately before transfer-like effects.',
+)
+
+
+def run(context):
+    alerts = check_order(context.rets, context.reader)
+    return make_findings(alerts, context.normalized_model, **_META)

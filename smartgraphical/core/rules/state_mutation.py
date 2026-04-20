@@ -3,6 +3,7 @@ import re
 from copy import deepcopy
 
 from smartgraphical.adapters.solidity.helpers import similar_string, extract_requirements
+from smartgraphical.core.engine import make_findings
 
 
 def unallowed_manipulation(rets, reader):
@@ -133,3 +134,32 @@ def pool_interactions(rets):
                     if 'address(0)' in ln:
                         alerts.append({'code': 4, 'message': f"zero address is used in line: {ln}"})
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contracts (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META_UNALLOWED = dict(
+    task_id='2', legacy_code=2, slug='unallowed_manipulation',
+    title='External State Manipulation', category='StateAndMutation',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Check assignments sourced from inputs or external values before they update sensitive state.',
+)
+
+_META_POOL = dict(
+    task_id='4', legacy_code=4, slug='pool_interactions',
+    title='Pool Supply Operations', category='StateAndMutation',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Review mint or burn style flows for missing access control and accounting assumptions.',
+)
+
+
+def run_unallowed_manipulation(context):
+    alerts = unallowed_manipulation(context.rets, context.reader)
+    return make_findings(alerts, context.normalized_model, **_META_UNALLOWED)
+
+
+def run_pool_interactions(context):
+    alerts = pool_interactions(context.rets)
+    return make_findings(alerts, context.normalized_model, **_META_POOL)

@@ -2,6 +2,7 @@
 import re
 
 from smartgraphical.adapters.solidity.helpers import intra_contract_connection
+from smartgraphical.core.engine import make_findings
 
 
 def outer_calls(rets, reader, high_connections):
@@ -55,3 +56,20 @@ def outer_calls(rets, reader, high_connections):
                                             'message': f"Outer manipulation in function {kk}, line: {temp}"
                                         })
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='11', legacy_code=12, slug='outer_calls',
+    title='Outer Calls', category='StateAndMutation',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Review public entrypoints that consume inputs and mutate state without stronger constraints.',
+)
+
+
+def run(context):
+    alerts = outer_calls(context.rets, context.reader, context.high_connections)
+    return make_findings(alerts, context.normalized_model, **_META)

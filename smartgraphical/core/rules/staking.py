@@ -3,6 +3,7 @@ import re
 from copy import deepcopy
 
 from smartgraphical.adapters.solidity.helpers import extract_requirements, extract_operation
+from smartgraphical.core.engine import make_findings
 
 
 def staking(rets):
@@ -83,3 +84,20 @@ def staking(rets):
                     'message': f"In stake function {unstake_func_name[0]}, Manipulation in line '{item}'."
                 })
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Rule contract (Phase 2)
+# ---------------------------------------------------------------------------
+
+_META = dict(
+    task_id='3', legacy_code=3, slug='staking',
+    title='Stake And Release Logic', category='ComputationAndEconomics',
+    portability='portable_with_adapter', confidence='medium',
+    remediation_hint='Verify that stake and release paths are symmetric and guard the manipulated amount.',
+)
+
+
+def run(context):
+    alerts = staking(context.rets)
+    return make_findings(alerts, context.normalized_model, **_META)
