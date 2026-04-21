@@ -1,0 +1,61 @@
+"""Integration test: run the full adapter -> engine pipeline on SimpleAuction.sol.
+
+Asserts stable properties of the finding set (rule_id membership, non-empty
+metadata, absence of exact duplicates within each rule) instead of locking to
+full message strings.
+"""
+import os
+import unittest
+from collections import Counter
+
+from smartgraphical.services.analysis_service import AnalysisService
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
+
+EXPECTED_RULE_IDS = {
+    "contract_version", "unallowed_manipulation", "staking",
+    "pool_interactions", "local_points", "exceptions",
+    "complicated_calculations", "check_order", "withdraw_check",
+    "similar_names", "outer_calls",
+}
+
+
+class FullPipelineTests(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        service = AnalysisService()
+        cls.context = service.analyze(SIMPLE_AUCTION_PATH)
+        cls.findings = service.run_all(cls.context)
+
+    def test_pipeline_returns_a_list(self):
+        self.assertIsInstance(self.findings, list)
+
+    def test_all_finding_rule_ids_are_known(self):
+        seen_rule_ids = {f.rule_id for f in self.findings}
+        self.assertTrue(seen_rule_ids.issubset(EXPECTED_RULE_IDS))
+
+    def test_findings_have_mandatory_metadata(self):
+        for finding in self.findings:
+            self.assertTrue(finding.rule_id)
+            self.assertTrue(finding.title)
+            self.assertTrue(finding.task_id)
+            self.assertTrue(finding.message)
+
+    def test_no_exact_duplicate_messages_within_the_same_rule(self):
+        grouped = Counter((f.rule_id, f.message) for f in self.findings)
+        duplicated = [key for key, count in grouped.items() if count > 1]
+        self.assertEqual(duplicated, [], msg=f"Duplicate findings inside same rule: {duplicated}")
+
+    def test_every_finding_carries_at_least_one_evidence(self):
+        for finding in self.findings:
+            self.assertTrue(
+                finding.evidences,
+                msg=f"Finding {finding.rule_id} has no evidence",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

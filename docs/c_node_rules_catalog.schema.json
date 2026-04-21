@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartgraphical.dev/schemas/rules-catalog.schema.json",
+  "title": "Rules Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["controlled_vocab", "rules"],
+  "properties": {
+    "controlled_vocab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "severity", "confidence"],
+      "properties": {
+        "scope": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["portable", "portable_with_adapter", "c_specific", "node_specific"]
+          }
+        },
+        "severity": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          }
+        },
+        "confidence": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "snakeCaseId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "externalSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "file", "version"],
+      "properties": {
+        "project":  { "$ref": "#/$defs/snakeCaseId" },
+        "file":     { "$ref": "#/$defs/nonEmptyString" },
+        "version":  { "$ref": "#/$defs/nonEmptyString" },
+        "notes":    { "type": "string" }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id", "title", "scope", "risk_category", "rationale",
+        "normalized_facts_required", "evidence_anchors", "preconditions",
+        "detection_logic", "false_positive_patterns", "severity",
+        "confidence", "autofixable", "priority_score",
+        "remediation_hint", "minimal_example_bad", "minimal_example_good"
+      ],
+      "properties": {
+        "rule_id":                    { "$ref": "#/$defs/snakeCaseId" },
+        "title":                      { "$ref": "#/$defs/nonEmptyString" },
+        "scope": {
+          "type": "string",
+          "enum": ["portable", "portable_with_adapter", "c_specific", "node_specific"]
+        },
+        "risk_category":              { "$ref": "#/$defs/snakeCaseId" },
+        "rationale":                  { "$ref": "#/$defs/nonEmptyString" },
+        "normalized_facts_required":  { "$ref": "#/$defs/stringArray" },
+        "evidence_anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/snakeCaseId" }
+        },
+        "preconditions":              { "$ref": "#/$defs/stringArray" },
+        "detection_logic":            { "$ref": "#/$defs/nonEmptyString" },
+        "false_positive_patterns":    { "$ref": "#/$defs/stringArray" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "autofixable":    { "type": "boolean" },
+        "priority_score": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "remediation_hint":      { "$ref": "#/$defs/nonEmptyString" },
+        "minimal_example_bad":   { "$ref": "#/$defs/nonEmptyString" },
+        "minimal_example_good":  { "$ref": "#/$defs/nonEmptyString" },
+        "external_source_ref":   { "$ref": "#/$defs/externalSourceRef" },
+        "requires_dataflow": {
+          "type": "boolean",
+          "description": "True when reliable detection requires interprocedural or dataflow analysis beyond single-function pattern matching. Rules with this flag set should not be expected to produce low false-positive results at PoC regex level."
+        }
+      }
+    }
+  }
+}
