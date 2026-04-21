@@ -1,0 +1,554 @@
+{
+  "controlled_vocab": {
+    "scope": [
+      "portable",
+      "portable_with_adapter",
+      "c_specific",
+      "node_specific"
+    ],
+    "severity": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ],
+    "confidence": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "unchecked_return_sensitive",
+      "title": "Unchecked Return Value in Security Critical Calls",
+      "scope": "portable_with_adapter",
+      "risk_category": "improper_error_handling",
+      "rationale": "Prevents silent failures in cryptographic or memory management routines that could lead to inconsistent state or memory corruption.",
+      "normalized_facts_required": [
+        "function_call",
+        "return_value_unused_in_branch",
+        "security_critical_api_tag"
+      ],
+      "evidence_anchors": [
+        "call_expression"
+      ],
+      "preconditions": [
+        "Function signature is mapped in the domain-specific security-critical API dictionary.",
+        "Current target includes APIs such as fd_sha256, fd_workspace_alloc, fd_quic."
+      ],
+      "detection_logic": "Match calls to ballet, verify, fd_workspace, or fd_quic APIs where the return value is not used in a subsequent comparison, conditional branch, or assertion.",
+      "false_positive_patterns": [
+        "Return values from functions that are void or guaranteed to succeed in current configuration.",
+        "Functions called within assertions disabled in production builds."
+      ],
+      "severity": "high",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 24,
+      "remediation_hint": "Always check return codes and use macros such as FD_TEST or propagate error codes to the caller.",
+      "minimal_example_bad": "fd_sha256_hash( data, sz, hash );",
+      "minimal_example_good": "if( FD_UNLIKELY( !fd_sha256_hash( data, sz, hash ) ) ) return ERR_CRYPTO;"
+    },
+    {
+      "rule_id": "shared_mem_uaf_pool",
+      "title": "Use-After-Free in Shared Memory Pools",
+      "scope": "c_specific",
+      "risk_category": "memory_safety",
+      "rationale": "Prevents memory corruption in tile-based architecture where pool elements are released back to shared workspaces and then accessed.",
+      "normalized_facts_required": [
+        "shared_mem_release_call",
+        "pointer_dereference",
+        "post_release_data_flow"
+      ],
+      "evidence_anchors": [
+        "release_call_site",
+        "pointer_deref_site"
+      ],
+      "preconditions": [
+        "Code path includes fd_executor pool elements or Tango mcache, dcache shared regions.",
+        "Release semantics for tracked API indicate object is no longer valid for dereference."
+      ],
+      "detection_logic": "Track object lifecycle in shared workspaces and flag pointer access after release calls such as fd_executor_release.",
+      "false_positive_patterns": [
+        "Pointer is reassigned before dereference.",
+        "Release call decrements refcount only and object remains valid."
+      ],
+      "severity": "critical",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 27,
+      "remediation_hint": "Nullify pointers after release and ensure refcounting and ownership transfer are explicit and atomic where required.",
+      "minimal_example_bad": "fd_executor_release( element ); return element->status;",
+      "minimal_example_good": "fd_executor_release( element ); element = NULL;"
+    },
+    {
+      "rule_id": "unsafe_shift_external_exponent",
+      "title": "Undefined Behavior in Shift Operations from External Input",
+      "scope": "c_specific",
+      "risk_category": "denial_of_service",
+      "rationale": "Prevents remote connection hangs or RTT estimation corruption in QUIC and networking stack due to exponents greater than or equal to word size.",
+      "normalized_facts_required": [
+        "bitwise_shift",
+        "external_input_source",
+        "integer_comparison_missing"
+      ],
+      "evidence_anchors": [
+        "shift_expression"
+      ],
+      "preconditions": [
+        "Shift exponent originates from network ingress code paths.",
+        "No sanitizer pass guarantees bounded exponent before this point."
+      ],
+      "detection_logic": "Identify shift operations where exponent dataflow reaches expression from fd_quic or fd_net ingress without explicit bound check such as exponent < 64.",
+      "false_positive_patterns": [
+        "Hardcoded exponent literals.",
+        "Exponent value is masked, for example with 0x3f, before shift."
+      ],
+      "severity": "medium",
+      "confidence": "high",
+      "autofixable": true,
+      "priority_score": 18,
+      "remediation_hint": "Validate shift exponent is strictly less than word size before the shift.",
+      "minimal_example_bad": "rtt = base << pkt->peer_ack_delay_exponent;",
+      "minimal_example_good": "if( pkt->peer_ack_delay_exponent < 64 ) { rtt = base << pkt->peer_ack_delay_exponent; }"
+    },
+    {
+      "rule_id": "non_saturating_float_cast",
+      "title": "Rust-Incompatible Floating Point Cast",
+      "scope": "c_specific",
+      "risk_category": "consensus_failure",
+      "rationale": "Prevents consensus splits between Agave and Firedancer caused by different handling of negative infinity to unsigned integer conversion.",
+      "normalized_facts_required": [
+        "float_to_uint_cast",
+        "consensus_critical_path_tag"
+      ],
+      "evidence_anchors": [
+        "cast_expression"
+      ],
+      "preconditions": [
+        "Code is in consensus-critical paths such as runtime, rent, stake, rewards, or bank-hash related logic.",
+        "Target cast is direct C cast to unsigned integer type."
+      ],
+      "detection_logic": "Find direct casts from float or double to unsigned integer types without fd_rust_cast wrappers or equivalent saturating conversion.",
+      "false_positive_patterns": [
+        "Value is proven in-range and non-negative by prior checks.",
+        "Floating-point value is telemetry-only and not consensus-relevant."
+      ],
+      "severity": "critical",
+      "confidence": "high",
+      "autofixable": true,
+      "priority_score": 36,
+      "remediation_hint": "Use fd_rust_cast_double_to_ulong or equivalent saturating helper aligned with Rust behavior.",
+      "minimal_example_bad": "ulong lamports = (ulong)calculated_double;",
+      "minimal_example_good": "ulong lamports = fd_rust_cast_double_to_ulong( calculated_double );"
+    },
+    {
+      "rule_id": "incomplete_reserved_account_list",
+      "title": "Missing Reserved Account in Unwritable List",
+      "scope": "node_specific",
+      "risk_category": "consensus_failure",
+      "rationale": "Prevents leaders from allowing writes to reserved accounts and producing block hash mismatches with Agave.",
+      "normalized_facts_required": [
+        "reserved_account_key_definition",
+        "unwritable_registry_array",
+        "agave_sdk_sync_missing"
+      ],
+      "evidence_anchors": [
+        "unwritable_account_array_initializer"
+      ],
+      "preconditions": [
+        "Rule runs on fd_pack or accounts database unwritable registry implementation.",
+        "Reference list from Agave is available for the same target network and feature-gate set."
+      ],
+      "external_source_ref": {
+        "project": "agave",
+        "file": "sdk/reserved-account-keys/src/lib.rs",
+        "version": "pin_exact_commit_or_release_tag",
+        "notes": "Use exact commit hash or release tag for reproducible comparison."
+      },
+      "detection_logic": "Cross-reference local reserved account keys against the pinned Agave reserved account key registry and flag missing entries.",
+      "false_positive_patterns": [
+        "Account is reserved upstream but feature gate is not active for current cluster profile."
+      ],
+      "severity": "critical",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 32,
+      "remediation_hint": "Synchronize local unwritable account list with pinned Agave reserved account registry and revalidate feature-gate conditions.",
+      "minimal_example_bad": "// Missing Sysvar1111111111111111111111111111111111111",
+      "minimal_example_good": "FD_PACK_UNWRITABLE_ADD( \"Sysvar1111111111111111111111111111111111111\" );"
+    },
+    {
+      "rule_id": "sysvar_decode_callback_type_mismatch",
+      "title": "Function Type Mismatch in Sysvar Decode Callbacks",
+      "scope": "node_specific",
+      "risk_category": "control_flow_integrity",
+      "rationale": "Prevents undefined behavior that could lead to crashes or sandbox boundary violations when decoding sysvars through function pointers.",
+      "normalized_facts_required": [
+        "function_pointer_assignment",
+        "type_signature_mismatch"
+      ],
+      "evidence_anchors": [
+        "function_pointer_assignment_site"
+      ],
+      "preconditions": [
+        "Assignment targets fd_sysvar_pos_t decode callback in runtime sysvar code.",
+        "Expected typedef signature is available from fd_sysvar_cache headers."
+      ],
+      "detection_logic": "Perform static type signature check for function pointer assignments to sysvar decode callbacks and flag return or parameter mismatches.",
+      "false_positive_patterns": [
+        "Generic context pointer patterns where concrete callback signature still matches typedef."
+      ],
+      "severity": "high",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 21,
+      "remediation_hint": "Ensure callback signature exactly matches typedef in fd_sysvar_cache headers.",
+      "minimal_example_bad": "sysvar->decode = (void *)my_decode_func;",
+      "minimal_example_good": "void my_decode_func( ... ) { ... } sysvar->decode = my_decode_func;"
+    },
+    {
+      "rule_id": "bitwise_flag_normalization_mismatch",
+      "title": "Bitwise AND for Flag Normalization in Consensus Hashes",
+      "scope": "portable_with_adapter",
+      "risk_category": "consensus_failure",
+      "rationale": "Using bitwise AND instead of boolean double-negation on flag fields causes Firedancer to produce different bank hash values from Agave when the flag byte is non-zero but not equal to 1.",
+      "normalized_facts_required": [
+        "bitwise_and_on_struct_field",
+        "account_state_flag_tag",
+        "consensus_critical_hash_logic"
+      ],
+      "evidence_anchors": [
+        "bitwise_operator_expression"
+      ],
+      "preconditions": [
+        "Variable is a known boolean-semantic flag field (executable, writable, is_native, is_signer, is_invoked).",
+        "Statement is part of account state hashing or serialization logic."
+      ],
+      "detection_logic": "Match usage of bitwise AND with 1 or 0x1 on known boolean flag field names where the Agave reference uses boolean normalization via double negation.",
+      "false_positive_patterns": [
+        "Flags intended for raw bitmask storage where bitwise precision is required.",
+        "Non-consensus telemetry or logging logic."
+      ],
+      "severity": "critical",
+      "confidence": "high",
+      "autofixable": true,
+      "priority_score": 36,
+      "remediation_hint": "Replace field & 1 with !!field or explicit (bool) cast to guarantee standard boolean normalization matching Agave behavior.",
+      "minimal_example_bad": "hash_val |= (account->executable & 1);",
+      "minimal_example_good": "hash_val |= (!!account->executable);"
+    },
+    {
+      "rule_id": "quic_invisible_frame_limit",
+      "title": "Missing Limit on Invisible QUIC Protocol Frames",
+      "scope": "node_specific",
+      "risk_category": "denial_of_service",
+      "rationale": "Failure to limit frames that are invisible to the application layer allows attackers to exhaust CPU resources without sending useful data.",
+      "normalized_facts_required": [
+        "quic_frame_parser_loop",
+        "counter_for_protocol_frames_missing",
+        "packet_ingress_path"
+      ],
+      "evidence_anchors": [
+        "quic_frame_parser_loop"
+      ],
+      "preconditions": [
+        "Logic handles raw QUIC frames in the frame parser loop.",
+        "Code path is in the QUIC packet ingress path."
+      ],
+      "detection_logic": "Identify frame processing calls inside loops that lack a per-packet or per-connection frame count cap in the surrounding statement window.",
+      "false_positive_patterns": [
+        "High-level application frames already credit-gated by SWQoS.",
+        "Loops with documented frame budget already enforced at a higher level."
+      ],
+      "severity": "high",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 40,
+      "remediation_hint": "Implement a counter to limit the number of protocol frames consumed per single UDP packet.",
+      "minimal_example_bad": "while( frames_left ) { parse_and_handle( frame ); }",
+      "minimal_example_good": "while( frames_left && frame_count++ < MAX_FRAMES ) { parse_and_handle( frame ); }"
+    },
+    {
+      "rule_id": "missing_snapshot_hash_verification",
+      "title": "Unverified Hash Label in Snapshot Loader",
+      "scope": "node_specific",
+      "risk_category": "data_integrity",
+      "rationale": "Ignoring discrepancies between archive hash labels and loaded bank hashes allows the ingestion of corrupted or malicious state snapshots.",
+      "normalized_facts_required": [
+        "snapshot_archive_access",
+        "loaded_bank_state",
+        "hash_verification_missing"
+      ],
+      "evidence_anchors": [
+        "archive_hash_loading_site"
+      ],
+      "preconditions": [
+        "Execution occurs within the snapshot loader component.",
+        "Snapshot archive access and bank hash are both present in scope."
+      ],
+      "detection_logic": "Flag paths where snapshot metadata labels are read but not compared against the computed hash of the loaded bank before completing boot.",
+      "false_positive_patterns": [
+        "Development or test builds where hash verification is explicitly bypassed via compile flags."
+      ],
+      "severity": "high",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 33,
+      "requires_dataflow": true,
+      "remediation_hint": "Mandate a comparison between the hash label in the archive and the bank loaded snapshot hash before finishing boot.",
+      "minimal_example_bad": "load_bank_data( archive );",
+      "minimal_example_good": "if( bank->hash != archive->hash_label ) { fd_halt( \"hash mismatch\" ); }"
+    },
+    {
+      "rule_id": "cross_tile_fseq_write",
+      "title": "Cross-Tile Flow Control Logic Corruption",
+      "scope": "node_specific",
+      "risk_category": "fault_isolation_violation",
+      "rationale": "Writing to sequence numbers of links not owned by the current tile breaks the sandboxing model and allows side-channel denial of service.",
+      "normalized_facts_required": [
+        "metric_workspace_write",
+        "fseq_object_reference",
+        "tile_link_mapping"
+      ],
+      "evidence_anchors": [
+        "fseq_write_site"
+      ],
+      "preconditions": [
+        "Tile maps the metric_in workspace as read-write.",
+        "Current tile is not a management tile (metric, diag)."
+      ],
+      "detection_logic": "Track fseq pointer writes and flag cases where the fseq object corresponds to a tile link the current tile is not a consumer of.",
+      "false_positive_patterns": [
+        "Management tiles such as metric or diag that are intended to monitor or reset global state."
+      ],
+      "severity": "medium",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 21,
+      "requires_dataflow": true,
+      "remediation_hint": "Isolate return-path sequence numbers into tile-specific workspaces rather than a shared global metrics workspace.",
+      "minimal_example_bad": "fd_fseq_update( other_tile_link_fseq, val );",
+      "minimal_example_good": "fd_fseq_update( my_ingress_link_fseq, val );"
+    },
+    {
+      "rule_id": "quic_handshake_eviction_missing",
+      "title": "Missing Handshake Eviction Strategy",
+      "scope": "node_specific",
+      "risk_category": "denial_of_service",
+      "rationale": "Malicious clients can occupy all handshake slots by sending PINGs, blocking new legitimate connections.",
+      "normalized_facts_required": [
+        "handshake_pool_allocation",
+        "eviction_policy_missing",
+        "tls_handshake_context"
+      ],
+      "evidence_anchors": [
+        "hs_pool_allocation"
+      ],
+      "preconditions": [
+        "QUIC server code manages hs_pool.",
+        "Code path handles new connection establishment."
+      ],
+      "detection_logic": "Flag QUIC connection initiation code that rejects new handshakes when the pool is full without first attempting eviction of stale or incomplete sessions.",
+      "false_positive_patterns": [
+        "Environments where max_handshakes is configured high enough to exceed NIC capacity.",
+        "Pools that implement eviction at a higher abstraction layer."
+      ],
+      "severity": "medium",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 28,
+      "remediation_hint": "Implement a LIFO or oldest-incomplete eviction policy for the handshake pool when all slots are occupied.",
+      "minimal_example_bad": "if( pool_full ) return ERR_BUSY;",
+      "minimal_example_good": "if( pool_full ) { evict_oldest_handshake(); hs = pool_alloc(); }"
+    },
+    {
+      "rule_id": "bank_lifecycle_refcount_concurrency",
+      "title": "Unsafe Bank Reference Counting in Shared Memory",
+      "scope": "c_specific",
+      "risk_category": "memory_safety",
+      "rationale": "Bank structures are accessed concurrently across tiles in the replay/banks component. Non-atomic refcount operations cause data races leading to use-after-free or double-free on bank state.",
+      "normalized_facts_required": [
+        "bank_refcount_update",
+        "shared_mem_access",
+        "concurrent_tile_execution"
+      ],
+      "evidence_anchors": [
+        "bank_refcount_update_site"
+      ],
+      "preconditions": [
+        "Code executes within the replay or banks subsystem.",
+        "Statement manipulates a field named ref_cnt, ref_count, or bank_ref on a shared bank structure."
+      ],
+      "detection_logic": "Identify non-atomic increments or decrements of bank reference counter fields (ref_cnt, ref_count, bank_ref) that are not wrapped in an atomic primitive or an fd_bank_ref helper.",
+      "false_positive_patterns": [
+        "Refcount updates protected by a global workspace lock.",
+        "Read-only access to bank metadata where lifetime is guaranteed by a parent tile."
+      ],
+      "severity": "critical",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 35,
+      "remediation_hint": "Use __atomic_fetch_add or fd_bank_ref_inc for all refcount operations in shared workspaces.",
+      "minimal_example_bad": "bank->ref_cnt++;",
+      "minimal_example_good": "fd_bank_ref_inc( bank );"
+    },
+    {
+      "rule_id": "io_uring_submission_race_funk",
+      "title": "Race Condition in Funk Database io_uring Submissions",
+      "scope": "c_specific",
+      "risk_category": "data_integrity",
+      "rationale": "Funk uses io_uring for high-performance I/O. Multiple tiles submitting to the same ring without per-tile instances or explicit synchronization causes account state corruption.",
+      "normalized_facts_required": [
+        "io_uring_submit_call",
+        "funk_write_primitive",
+        "tile_isolation_boundary"
+      ],
+      "evidence_anchors": [
+        "io_uring_submit_call_site"
+      ],
+      "preconditions": [
+        "Interaction with the Funk or Vinyl database via asynchronous I/O.",
+        "Multiple execution tiles share access to io_uring state."
+      ],
+      "detection_logic": "Flag calls to io_uring_submit on a ring that is not clearly tile-private (not referenced through a tile-local struct or per-tile index).",
+      "false_positive_patterns": [
+        "Single-threaded management tiles (e.g., store tile) that own the ring exclusively."
+      ],
+      "severity": "high",
+      "confidence": "low",
+      "autofixable": false,
+      "priority_score": 28,
+      "requires_dataflow": true,
+      "remediation_hint": "Ensure each execution tile uses a private io_uring instance or strictly partitioned SQE ranges.",
+      "minimal_example_bad": "io_uring_submit( shared_ring );",
+      "minimal_example_good": "io_uring_submit( tile->private_ring );"
+    },
+    {
+      "rule_id": "alt_resolution_window_mismatch",
+      "title": "Incorrect ALT Resolution Slot Window",
+      "scope": "node_specific",
+      "risk_category": "correctness",
+      "rationale": "Firedancer uses a 512-slot window for ALT deactivation. Using a different constant causes transaction rejection discrepancies with Agave.",
+      "normalized_facts_required": [
+        "alt_resolution_logic",
+        "slot_window_constant",
+        "replay_protection_check"
+      ],
+      "evidence_anchors": [
+        "slot_window_constant_check"
+      ],
+      "preconditions": [
+        "Logic is in the resolve tile that filters transactions based on ALT availability.",
+        "A numeric slot-distance constant is compared against the deactivation slot."
+      ],
+      "detection_logic": "Match slot-distance comparisons in ALT resolution context that use a numeric literal other than 512.",
+      "false_positive_patterns": [
+        "Test mocks using smaller windows for speed.",
+        "Internal metrics tracking that do not affect transaction dropping."
+      ],
+      "severity": "medium",
+      "confidence": "high",
+      "autofixable": true,
+      "priority_score": 15,
+      "remediation_hint": "Use exactly the 512 recent slot hashes window to match Agave ALT inclusion semantics.",
+      "minimal_example_bad": "if( current_slot - alt->deactivation_slot > 128 ) drop_tx();",
+      "minimal_example_good": "if( current_slot - alt->deactivation_slot > 512 ) drop_tx();"
+    },
+    {
+      "rule_id": "keyswitch_atomicity_violation",
+      "title": "Non-Atomic Identity Switch Coordination",
+      "scope": "node_specific",
+      "risk_category": "liveness",
+      "rationale": "Live identity switching (keyswitch) requires: pause PoH, flush shreds, update signers, resume PoH. Violating this order causes a leader to produce blocks with inconsistent identities.",
+      "normalized_facts_required": [
+        "keyswitch_state_monitor",
+        "poh_tile_halt_call",
+        "shred_flush_signal"
+      ],
+      "evidence_anchors": [
+        "keyswitch_sequence_call_site"
+      ],
+      "preconditions": [
+        "Execution path covers the set_identity command or keyswitch housekeeping.",
+        "Both poh halt and sign tile update calls are present in the function."
+      ],
+      "detection_logic": "Flag functions where the sign tile key update call appears before a confirmed poh halt call, indicating the forbidden SIGN_UPDATE -> POH_HALT ordering.",
+      "false_positive_patterns": [
+        "Initial boot sequence where no blocks are yet in-flight."
+      ],
+      "severity": "high",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 24,
+      "requires_dataflow": true,
+      "remediation_hint": "Enforce the state machine: HALT -> FLUSH -> UPDATE -> RESUME.",
+      "minimal_example_bad": "update_sign_tile( new_key ); poh_halt();",
+      "minimal_example_good": "poh_halt(); shred_flush(); update_sign_tile( new_key ); poh_resume();"
+    },
+    {
+      "rule_id": "bls_aggregate_rogue_key_check",
+      "title": "Missing Rogue Key Protection in Alpenglow Aggregation",
+      "scope": "node_specific",
+      "risk_category": "cryptographic_safety",
+      "rationale": "Alpenglow uses BLS12-381 for signature aggregation. Summing public keys without proofs-of-possession allows rogue key subtraction attacks that compromise consensus.",
+      "normalized_facts_required": [
+        "bls_signature_verify",
+        "aggregate_public_key_calculation",
+        "votor_protocol_step"
+      ],
+      "evidence_anchors": [
+        "bls_aggregate_call_site"
+      ],
+      "preconditions": [
+        "Consensus voting path uses the Votor component of Alpenglow.",
+        "BLS12-381 aggregate public key is computed from a list of validator keys."
+      ],
+      "detection_logic": "Flag BLS key aggregation calls where no verify_pop or proof-of-possession check appears in the surrounding statement window.",
+      "false_positive_patterns": [
+        "Aggregations where public keys are pre-vetted during validator admission (VAT).",
+        "Inner aggregation utilities called only from a wrapper that already validates proofs."
+      ],
+      "severity": "critical",
+      "confidence": "low",
+      "autofixable": false,
+      "priority_score": 40,
+      "remediation_hint": "Implement proof-of-possession checks for all validator public keys before admitting them to the Alpenglow voting set.",
+      "minimal_example_bad": "aggregate_pk = bls_sum( validator_pks );",
+      "minimal_example_good": "if( !bls_verify_pop( pk ) ) reject_validator( pk ); aggregate_pk = bls_sum( validator_pks );"
+    },
+    {
+      "rule_id": "unsupported_program_id_divergence",
+      "title": "Semantic Mismatch on UnsupportedProgramId Error",
+      "scope": "portable_with_adapter",
+      "risk_category": "consensus_failure",
+      "rationale": "Firedancer and Agave must return identical error codes for unknown programs. A mismatch in UnsupportedProgramId error priority produces different bank hashes.",
+      "normalized_facts_required": [
+        "runtime_instruction_handler",
+        "error_return_code",
+        "consensus_critical_path_tag"
+      ],
+      "evidence_anchors": [
+        "error_return_branch"
+      ],
+      "preconditions": [
+        "Instruction execution logic is in the Flamenco VM or runtime dispatcher.",
+        "An error code is returned for an unrecognized or unavailable program ID."
+      ],
+      "detection_logic": "Flag error return statements in program dispatch logic that use a generic code such as ERR_NOT_FOUND, ERR_INVALID, or ERR_UNKNOWN when the Agave-compatible code should be ERR_UNSUPPORTED_PROGRAM_ID.",
+      "false_positive_patterns": [
+        "Programs that are gated and not yet active on the target cluster.",
+        "Test harnesses that canonicalize error codes before comparison."
+      ],
+      "severity": "critical",
+      "confidence": "high",
+      "autofixable": true,
+      "priority_score": 45,
+      "requires_dataflow": true,
+      "remediation_hint": "Use differential testing (solfuzz-agave) to validate error code priority matches Agave exactly for all invalid program ID paths.",
+      "minimal_example_bad": "if( !program_exists ) return ERR_NOT_FOUND;",
+      "minimal_example_good": "if( !program_exists ) return ERR_UNSUPPORTED_PROGRAM_ID;"
+    }
+  ]
+}
