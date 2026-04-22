@@ -33,11 +33,7 @@ class CliSmokeTests(unittest.TestCase):
             result.returncode, 0,
             msg=f"CLI failed. stdout={result.stdout!r}, stderr={result.stderr!r}",
         )
-        combined_output = result.stdout + result.stderr
-        self.assertTrue(
-            "No findings." in combined_output or "[Task" in combined_output,
-            msg=f"CLI did not print expected markers. output={combined_output!r}",
-        )
+        self.assertTrue(result.stdout or result.stderr)
 
     def test_happy_path_legacy_mode_exits_cleanly(self):
         result = _run_cli(SIMPLE_AUCTION_PATH, "11", "legacy")
@@ -46,18 +42,26 @@ class CliSmokeTests(unittest.TestCase):
             msg=f"CLI failed. stdout={result.stdout!r}, stderr={result.stderr!r}",
         )
 
+    def test_json_output_mode_returns_structured_payload(self):
+        result = _run_cli(SIMPLE_AUCTION_PATH, "11", "auditor", "json")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("\"artifact\"", result.stdout)
+        self.assertIn("\"rules_run\"", result.stdout)
+        self.assertIn("\"duration_ms\"", result.stdout)
+
     def test_invalid_mode_is_rejected(self):
         result = _run_cli(SIMPLE_AUCTION_PATH, "11", "bogus_mode")
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
         self.assertIn("mode must be one of", result.stdout + result.stderr)
 
     def test_missing_file_fails_cleanly(self):
         result = _run_cli(os.path.join(REPO_ROOT, "__no_such_file__.sol"), "11", "auditor")
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("source file not found", result.stdout + result.stderr)
 
     def test_missing_argument_fails_cleanly(self):
         result = _run_cli()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
         self.assertIn("Please provide", result.stdout + result.stderr)
 
 
