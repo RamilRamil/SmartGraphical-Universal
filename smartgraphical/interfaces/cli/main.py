@@ -1,6 +1,11 @@
+import json
+import os
 import sys
+import time
 
-from smartgraphical.core.engine import demonstrate_findings, summarize_model
+from smartgraphical.adapters.c_base.adapter import CBaseAdapterV0, build_c_rule_registry
+from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0, build_rule_registry
+from smartgraphical.core.engine import RuleEngine, demonstrate_findings, summarize_model
 from smartgraphical.services.analysis_service import AnalysisService
 
 
@@ -46,25 +51,83 @@ TASK_PROMPT = "\n 1: Old version\n \
 13: Run all tasks\n \
 Enter task number:  "
 
+EXIT_OK = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
+ALLOWED_MODES = ("legacy", "auditor", "explore")
+ALLOWED_OUTPUT_FORMATS = ("text", "json")
+LANG_FROM_EXTENSION = {
+    ".sol": "solidity",
+    ".c": "c",
+    ".h": "c",
+}
+
+
+class CliUserError(ValueError):
+    """Raised for invalid CLI input provided by the user."""
+
+
+def _build_service(language):
+    if language == "solidity":
+        return AnalysisService(
+            adapter=SolidityAdapterV0(),
+            rule_engine=RuleEngine(build_rule_registry()),
+        )
+    if language == "c":
+        return AnalysisService(
+            adapter=CBaseAdapterV0(),
+            rule_engine=RuleEngine(build_c_rule_registry()),
+        )
+    raise CliUserError("Error: lang must be one of solidity or c.")
+
+
+def _resolve_language(source_path, explicit_language):
+    if explicit_language:
+        language = explicit_language.lower()
+        if language not in ("solidity", "c"):
+            raise CliUserError("Error: lang must be one of solidity or c.")
+        return language
+    _, extension = os.path.splitext(source_path)
+    language = LANG_FROM_EXTENSION.get(extension.lower())
+    if language:
+        return language
+    raise CliUserError(
+        "Error: cannot infer lang from extension; pass lang explicitly (solidity or c)."
+    )
+
 
 def parse_cli_args(argv):
     if len(argv) < 2:
-        print("Error: Please provide a Solidity filename as an argument (ex: python SmartGraphical.py contract1.sol)")
-        sys.exit(1)
+        raise CliUserError(
+            "Error: Please provide a source filename (ex: python sg_cli.py contract.sol)."
+        )
     if not argv[1]:
-        print("Error: Filename cannot be empty or None.")
-        sys.exit(1)
+        raise CliUserError("Error: Filename cannot be empty or None.")
+    source_path = argv[1]
+    if not os.path.isfile(source_path):
+        raise CliUserError(f"Error: source file not found: {source_path}")
 
     selected_task = None
     output_mode = "legacy"
+    output_format = "text"
+    explicit_language = None
     if len(argv) >= 3:
         selected_task = argv[2]
     if len(argv) >= 4:
         output_mode = argv[3].lower()
-    if output_mode not in ["legacy", "auditor", "explore"]:
-        print("Error: mode must be one of legacy, auditor, or explore.")
-        sys.exit(1)
-    return argv[1], selected_task, output_mode
+    if len(argv) >= 5:
+        output_format = argv[4].lower()
+    if len(argv) >= 6:
+        explicit_language = argv[5]
+    if output_mode not in ALLOWED_MODES:
+        raise CliUserError("Error: mode must be one of legacy, auditor, or explore.")
+    if output_format not in ALLOWED_OUTPUT_FORMATS:
+        raise CliUserError("Error: output format must be one of text or json.")
+    if selected_task is not None and not str(selected_task).strip():
+        raise CliUserError("Error: task cannot be empty.")
+    language = _resolve_language(source_path, explicit_language)
+    return source_path, selected_task, output_mode, output_format, language
 
 
 def select_task_interactively():
@@ -74,40 +137,78 @@ def select_task_interactively():
     return selected_task
 
 
-def run_cli(source_path, selected_task=None, output_mode="legacy"):
-    service = AnalysisService()
+def run_cli(source_path, selected_task=None, output_mode="legacy", output_format="text", language=None):
+    started_at = time.perf_counter()
+    language = language or _resolve_language(source_path, None)
+    service = _build_service(language)
     context = service.analyze(source_path)
+    model = getattr(context, "normalized_model", None)
+    if model is None:
+        raise RuntimeError("normalized model is missing from analysis context")
     if selected_task is None:
         selected_task = select_task_interactively()
+
+    selected_task = str(selected_task).strip()
+    findings = []
+    rules_run = []
+    rendered_graph = False
 
     if output_mode == "explore":
         summarize_model(context)
 
     if selected_task in service.rule_engine.rule_registry:
         findings = service.run_task(context, selected_task)
-        demonstrate_findings(findings, output_mode)
-        return
-
-    if selected_task == "12":
+        rules_run = [selected_task]
+    elif selected_task == "12":
         service.render_graph(context)
-        return
-
-    if selected_task == "13":
+        rendered_graph = True
+    elif selected_task == "13":
         findings = service.run_all(context)
-        demonstrate_findings(findings, output_mode)
+        rules_run = sorted(service.rule_engine.rule_registry.keys(), key=int)
         service.render_graph(context)
-        return
+        rendered_graph = True
+    else:
+        allowed_tasks = sorted(service.rule_engine.rule_registry.keys(), key=int)
+        raise CliUserError(
+            f"Error: task must be one of [{', '.join(allowed_tasks)}], 12, or 13."
+        )
 
-    print("Error: task must be a value from 1 to 13.")
-    sys.exit(1)
+    if findings and output_format == "text":
+        demonstrate_findings(findings, output_mode)
+    elif not findings and selected_task != "12" and output_format == "text":
+        print("No findings.")
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    report = {
+        "artifact": model.artifact.path,
+        "language": language,
+        "mode": output_mode,
+        "task": selected_task,
+        "rules_run": rules_run,
+        "findings_count": len(findings),
+        "graph_rendered": rendered_graph,
+        "duration_ms": duration_ms,
+    }
+    if output_format == "json":
+        print(json.dumps(report, sort_keys=False))
+    return report
 
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv
-    source_path, selected_task, output_mode = parse_cli_args(argv)
-    run_cli(source_path, selected_task, output_mode)
+    try:
+        source_path, selected_task, output_mode, output_format, language = parse_cli_args(argv)
+        run_cli(source_path, selected_task, output_mode, output_format, language)
+        return EXIT_OK
+    except CliUserError as exc:
+        print(str(exc))
+        return EXIT_USAGE_ERROR
+    except Exception as exc:
+        print("Error: internal failure during analysis.")
+        print(f"Reason: {exc}")
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
