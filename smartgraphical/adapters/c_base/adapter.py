@@ -61,6 +61,30 @@ from smartgraphical.core.rules.c_node.alt_resolution_window_mismatch import (
 from smartgraphical.core.rules.c_node.bls_aggregate_rogue_key_check import (
     run as run_bls_rogue,
 )
+from smartgraphical.core.rules.c_node.io_uring_submission_race_funk import (
+    run as run_io_uring_race,
+)
+from smartgraphical.core.rules.c_node.keyswitch_atomicity_violation import (
+    run as run_keyswitch_atomicity,
+)
+from smartgraphical.core.rules.c_node.unsupported_program_id_divergence import (
+    run as run_unsupported_program_id,
+)
+from smartgraphical.core.rules.c_node.signed_integer_overflow_consensus import (
+    run as run_signed_overflow_consensus,
+)
+from smartgraphical.core.rules.c_node.unspecified_evaluation_order_side_effects import (
+    run as run_unspecified_eval_order,
+)
+from smartgraphical.core.rules.c_node.protocol_struct_padding_mismatch import (
+    run as run_protocol_struct_padding,
+)
+from smartgraphical.core.rules.c_node.division_rounding_divergence import (
+    run as run_division_rounding_divergence,
+)
+from smartgraphical.core.rules.c_node.unaligned_memory_access_ebpf import (
+    run as run_unaligned_mem_access,
+)
 
 # ---------------------------------------------------------------------------
 # Source cleaning
@@ -132,6 +156,90 @@ def _parse_inputs(params_str):
         if parts:
             inputs.append(parts)
     return inputs
+
+
+def _extract_call_name(stmt):
+    """Return the first function-like call token from a statement."""
+    match = re.search(r'\b([A-Za-z_]\w*)\s*\(', stmt)
+    if not match:
+        return ''
+    return match.group(1)
+
+
+def _extract_return_error(stmt):
+    """Return symbolic error token from `return ERR_*` or empty string."""
+    match = re.search(r'\breturn\s+([A-Z_][A-Z0-9_]*)\b', stmt)
+    if not match:
+        return ''
+    return match.group(1)
+
+
+def _extract_io_uring_submit_site(stmt, idx, all_stmts):
+    """Extract io_uring submit call fact from a statement if present."""
+    match = re.search(r'\bio_uring_submit\s*\(([^)]*)\)', stmt)
+    if not match:
+        return None
+    call_args = [part.strip() for part in match.group(1).split(',') if part.strip()]
+    ring_expr = call_args[0] if call_args else ''
+    ring_lower = ring_expr.lower()
+    lookback = all_stmts[max(0, idx - 2): idx + 1]
+    lock_tokens = ('lock', 'mutex', 'spin', 'guard', 'sync')
+    guarded = any(any(token in s.lower() for token in lock_tokens) for s in lookback)
+    private_markers = ('private', 'local', 'tile->', 'per_tile')
+    shared_markers = ('shared', 'global', 'common')
+    return {
+        'statement_index': idx,
+        'statement': stmt,
+        'ring_expr': ring_expr,
+        'is_private': any(marker in ring_lower for marker in private_markers),
+        'is_shared': any(marker in ring_lower for marker in shared_markers),
+        'is_guarded': guarded,
+    }
+
+
+def _extract_dataflow_facts(stmts):
+    """Build minimal dataflow facts for C/node rules."""
+    facts = {
+        'ordered_calls': [],
+        'io_uring_submit_sites': [],
+        'return_error_codes': [],
+        'program_guard_sites': [],
+        'tile_markers': [],
+    }
+    tile_tokens = ('tile', 'exec', 'replay', 'store')
+    for idx, stmt in enumerate(stmts):
+        stmt_lower = stmt.lower()
+        call_name = _extract_call_name(stmt)
+        if call_name:
+            facts['ordered_calls'].append({
+                'statement_index': idx,
+                'call': call_name,
+            })
+        io_submit = _extract_io_uring_submit_site(stmt, idx, stmts)
+        if io_submit:
+            facts['io_uring_submit_sites'].append(io_submit)
+        ret_code = _extract_return_error(stmt)
+        if ret_code:
+            facts['return_error_codes'].append({
+                'statement_index': idx,
+                'code': ret_code,
+                'statement': stmt,
+            })
+        if (
+            'program' in stmt_lower
+            and ('id' in stmt_lower or 'exists' in stmt_lower)
+            and ('if' in stmt_lower or 'switch' in stmt_lower)
+        ):
+            facts['program_guard_sites'].append({
+                'statement_index': idx,
+                'statement': stmt,
+            })
+        if any(token in stmt_lower for token in tile_tokens):
+            facts['tile_markers'].append({
+                'statement_index': idx,
+                'statement': stmt,
+            })
+    return facts
 
 
 def extract_c_functions(source_text):
@@ -215,6 +323,7 @@ def build_normalized_model(source_path, source_text):
             'visibility': visibility,
             'entrypoint': visibility == 'external',
             'statement_count': len(stmts),
+            'dataflow': _extract_dataflow_facts(stmts),
         }
 
     model.types.append(type_entry)
@@ -298,6 +407,13 @@ def build_c_rule_registry():
             'Use __atomic_fetch_add or fd_bank_ref_inc for refcount operations in shared workspaces.',
             run_bank_refcount,
         ),
+        '111': RuleSpec(
+            '111', 111, 'io_uring_submission_race_funk',
+            'Race Condition in Funk Database io_uring Submissions',
+            'data_integrity', 'c_specific', 'low',
+            'Use per-tile io_uring instances or explicit synchronization around shared ring submission.',
+            run_io_uring_race,
+        ),
         '112': RuleSpec(
             '112', 112, 'alt_resolution_window_mismatch',
             'Incorrect ALT Resolution Slot Window',
@@ -305,12 +421,61 @@ def build_c_rule_registry():
             'Use exactly 512 as the slot lookback window in ALT resolution to match Agave semantics.',
             run_alt_window,
         ),
+        '113': RuleSpec(
+            '113', 113, 'keyswitch_atomicity_violation',
+            'Non-Atomic Identity Switch Coordination',
+            'liveness', 'node_specific', 'medium',
+            'Enforce HALT -> FLUSH -> UPDATE -> RESUME ordering in keyswitch path.',
+            run_keyswitch_atomicity,
+        ),
         '114': RuleSpec(
             '114', 114, 'bls_aggregate_rogue_key_check',
             'Missing Rogue Key Protection in Alpenglow Aggregation',
             'cryptographic_safety', 'node_specific', 'low',
             'Implement proof-of-possession checks for all validator public keys before aggregation.',
             run_bls_rogue,
+        ),
+        '115': RuleSpec(
+            '115', 115, 'unsupported_program_id_divergence',
+            'Semantic Mismatch on UnsupportedProgramId Error',
+            'consensus_failure', 'portable_with_adapter', 'high',
+            'Return ERR_UNSUPPORTED_PROGRAM_ID on unknown program paths to match Agave error priority.',
+            run_unsupported_program_id,
+        ),
+        '116': RuleSpec(
+            '116', 116, 'signed_integer_overflow_consensus',
+            'Unchecked Signed Integer Overflow in Consensus Logic',
+            'consensus_failure', 'c_specific', 'high',
+            'Use overflow-safe helpers or built-ins and enforce protocol-aligned overflow handling.',
+            run_signed_overflow_consensus,
+        ),
+        '117': RuleSpec(
+            '117', 117, 'unspecified_evaluation_order_side_effects',
+            'Unspecified Order of Evaluation with Side Effects',
+            'correctness', 'c_specific', 'medium',
+            'Materialize side-effect calls into locals to enforce deterministic ordering.',
+            run_unspecified_eval_order,
+        ),
+        '118': RuleSpec(
+            '118', 118, 'protocol_struct_padding_mismatch',
+            'Implicit Padding in Protocol-Mapped Structures',
+            'data_integrity', 'node_specific', 'high',
+            'Use explicit packed/aligned/static_assert layout guards for protocol structs.',
+            run_protocol_struct_padding,
+        ),
+        '119': RuleSpec(
+            '119', 119, 'division_rounding_divergence',
+            'Signed Division/Modulo Rounding Mismatch',
+            'consensus_failure', 'portable_with_adapter', 'medium',
+            'Use explicit division helpers encoding protocol rounding semantics.',
+            run_division_rounding_divergence,
+        ),
+        '120': RuleSpec(
+            '120', 120, 'unaligned_memory_access_ebpf',
+            'Unaligned Memory Access in Flamenco VM',
+            'control_flow_integrity', 'node_specific', 'high',
+            'Add explicit alignment checks before VM pointer-cast memory access.',
+            run_unaligned_mem_access,
         ),
     }
 
