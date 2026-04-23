@@ -549,6 +549,156 @@
       "remediation_hint": "Use differential testing (solfuzz-agave) to validate error code priority matches Agave exactly for all invalid program ID paths.",
       "minimal_example_bad": "if( !program_exists ) return ERR_NOT_FOUND;",
       "minimal_example_good": "if( !program_exists ) return ERR_UNSUPPORTED_PROGRAM_ID;"
+    },
+    {
+      "rule_id": "signed_integer_overflow_consensus",
+      "title": "Unchecked Signed Integer Overflow in Consensus Logic",
+      "scope": "c_specific",
+      "risk_category": "consensus_failure",
+      "rationale": "In C, signed integer overflow is undefined behavior. If Firedancer overflow paths differ from Agave behavior, bank hash divergence can occur in reward or rent calculations.",
+      "normalized_facts_required": [
+        "arithmetic_operation",
+        "signed_integer_type",
+        "consensus_critical_path_tag"
+      ],
+      "evidence_anchors": [
+        "signed_arithmetic_expression"
+      ],
+      "preconditions": [
+        "Statement performs arithmetic on signed integer types (int, long, ssize_t).",
+        "Code path is in runtime or consensus-sensitive math flow."
+      ],
+      "detection_logic": "Flag signed arithmetic expressions that use +, -, or * without overflow-safe helpers or explicit overflow checks.",
+      "false_positive_patterns": [
+        "Operand bounds are provably constrained before arithmetic by strict range checks."
+      ],
+      "severity": "critical",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 45,
+      "remediation_hint": "Use __builtin_add_overflow or project wrappers to enforce explicit overflow handling aligned with Agave behavior.",
+      "minimal_example_bad": "long new_balance = old_balance + reward;",
+      "minimal_example_good": "if( __builtin_add_overflow( old_balance, reward, &new_balance ) ) return ERR_OVERFLOW;"
+    },
+    {
+      "rule_id": "unspecified_evaluation_order_side_effects",
+      "title": "Unspecified Order of Evaluation with Side Effects",
+      "scope": "c_specific",
+      "risk_category": "correctness",
+      "rationale": "C argument evaluation order is unspecified, while Rust uses stable left-to-right evaluation. Multiple side-effect calls in one argument list can produce state divergence.",
+      "normalized_facts_required": [
+        "function_call",
+        "multiple_arguments_with_side_effects",
+        "state_modification_tag"
+      ],
+      "evidence_anchors": [
+        "call_expression_with_nested_side_effects"
+      ],
+      "preconditions": [
+        "Function call contains two or more nested function-call arguments.",
+        "Nested arguments update hash/state/shared data."
+      ],
+      "detection_logic": "Identify function calls where multiple argument expressions are side-effecting calls and are evaluated in a single call expression.",
+      "false_positive_patterns": [
+        "Nested argument calls are pure and do not mutate state."
+      ],
+      "severity": "high",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 32,
+      "remediation_hint": "Materialize side-effect call results into locals in explicit order before invoking the parent call.",
+      "minimal_example_bad": "process_tx( update_hash(a), update_hash(b) );",
+      "minimal_example_good": "uint h1 = update_hash(a); uint h2 = update_hash(b); process_tx( h1, h2 );"
+    },
+    {
+      "rule_id": "protocol_struct_padding_mismatch",
+      "title": "Implicit Padding in Protocol-Mapped Structures",
+      "scope": "node_specific",
+      "risk_category": "data_integrity",
+      "rationale": "Implicit compiler padding in protocol-mapped C structs can diverge from expected Rust layout and corrupt shred/account decoding.",
+      "normalized_facts_required": [
+        "struct_definition",
+        "memory_mapped_to_protocol",
+        "implicit_padding_detected"
+      ],
+      "evidence_anchors": [
+        "struct_declaration_without_packed"
+      ],
+      "preconditions": [
+        "Struct is cast from network or storage buffer.",
+        "Struct has no explicit packed/alignment control and no size assertion nearby."
+      ],
+      "detection_logic": "Flag protocol-oriented struct declarations that are used in raw buffer casts without packed/alignment annotation or equivalent size guard.",
+      "false_positive_patterns": [
+        "Internal structs not used for wire or disk binary mapping."
+      ],
+      "severity": "high",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 36,
+      "remediation_hint": "Use explicit layout control (__attribute__((packed)) or static_assert layout checks) and align with Agave type sizes.",
+      "minimal_example_bad": "struct shred { uchar type; ulong slot; };",
+      "minimal_example_good": "struct __attribute__((packed)) shred { uchar type; ulong slot; };"
+    },
+    {
+      "rule_id": "division_rounding_divergence",
+      "title": "Signed Division/Modulo Rounding Mismatch",
+      "scope": "portable_with_adapter",
+      "risk_category": "consensus_failure",
+      "rationale": "Signed division and modulo semantics can diverge from protocol-intended Euclidean math. Using raw operators in consensus math may change distribution outputs.",
+      "normalized_facts_required": [
+        "division_operation",
+        "signed_operand",
+        "consensus_critical_path_tag"
+      ],
+      "evidence_anchors": [
+        "signed_division_or_modulo_expression"
+      ],
+      "preconditions": [
+        "Expression uses / or % on signed values.",
+        "Code path is reward/rent or other protocol-sensitive math."
+      ],
+      "detection_logic": "Flag signed / or % operations that do not use explicit Euclidean/floor helper semantics.",
+      "false_positive_patterns": [
+        "Operands are guaranteed non-negative and protocol rounding mode is irrelevant."
+      ],
+      "severity": "medium",
+      "confidence": "medium",
+      "autofixable": true,
+      "priority_score": 20,
+      "remediation_hint": "Use explicit division helpers that encode the protocol rounding mode.",
+      "minimal_example_bad": "long daily_rate = total_debt / days_remaining;",
+      "minimal_example_good": "long daily_rate = fd_long_div_euclidean( total_debt, days_remaining );"
+    },
+    {
+      "rule_id": "unaligned_memory_access_ebpf",
+      "title": "Unaligned Memory Access in Flamenco VM",
+      "scope": "node_specific",
+      "risk_category": "control_flow_integrity",
+      "rationale": "VM load/store without strict alignment checks can diverge from expected eBPF behavior and introduce safety or consensus risk.",
+      "normalized_facts_required": [
+        "ebpf_instruction_pointer",
+        "memory_load_store",
+        "alignment_check_missing"
+      ],
+      "evidence_anchors": [
+        "vm_memory_access_without_alignment_guard"
+      ],
+      "preconditions": [
+        "Statement performs pointer-cast memory load/store from vm memory region.",
+        "No nearby explicit alignment guard is present."
+      ],
+      "detection_logic": "Match vm memory pointer-cast loads/stores that rely on computed address without explicit alignment check in surrounding statements.",
+      "false_positive_patterns": [
+        "Feature-gated paths where unaligned access is explicitly allowed and validated."
+      ],
+      "severity": "critical",
+      "confidence": "high",
+      "autofixable": false,
+      "priority_score": 48,
+      "remediation_hint": "Enforce alignment checks on LD/ST accesses in VM execution paths before dereferencing cast pointers.",
+      "minimal_example_bad": "*(ulong *)(vm->mem + addr) = val;",
+      "minimal_example_good": "if( FD_UNLIKELY( addr & 0x7 ) ) return FD_VM_ERR_UNALIGNED; *(ulong *)(vm->mem + addr) = val;"
     }
   ]
 }
