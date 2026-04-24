@@ -6,6 +6,15 @@ __pycache__/
 *.gv
 *.gv.*
 
+workspace/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.venv/
+venv/
+
 NEXT_STEPS_PLAN.md
 PROJECT_VISION.md
 KNOWN_QUIRKS.md

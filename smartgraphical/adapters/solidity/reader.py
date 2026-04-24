@@ -482,12 +482,16 @@ class ContractReader:
             structs = self.extract_structs(cont_code)
             func_inds = [m.start() for m in re.finditer('function ', cont_code)]
             modif_inds = [m.start() for m in re.finditer('modifier ', cont_code)]
+            modifier_ind_set = set(modif_inds)
             func_inds.extend(modif_inds)
             res_code = deepcopy(cont_code)
             for i in range(len(func_inds)):
                 f = self.extract_func(cont_code[func_inds[i]:])
                 res_code = res_code.replace(f, ' ')
                 name, input_details, ext_params = self.extract_fparams(f)
+                if func_inds[i] in modifier_ind_set:
+                    ext_params = list(ext_params)
+                    ext_params.append('__declared_modifier__')
                 body, ret_str = self.extract_body(f)
                 funcs.append([name, input_details, ext_params, body])
             contract_name, parents = self.extract_contract_name(cont_code)
