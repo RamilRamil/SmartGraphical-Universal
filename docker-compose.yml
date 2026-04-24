@@ -1,0 +1,19 @@
+services:
+  smartgraphical:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SG_TOOL_VERSION: docker-local
+    image: smartgraphical:local
+    container_name: smartgraphical
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./workspace:/app/workspace
+    environment:
+      SG_HTTP_HOST: 0.0.0.0
+      SG_HTTP_PORT: "8765"
+      SG_WORKSPACE: /app/workspace
+      SG_DATABASE: /app/workspace/history.db
+    restart: unless-stopped

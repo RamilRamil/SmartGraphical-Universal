@@ -1,0 +1,36 @@
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+
+.venv
+venv
+__pycache__
+**/__pycache__
+**/*.py[cod]
+
+# Frontend artifacts we build inside the image
+frontend/node_modules
+frontend/dist
+
+# Local runtime state must not leak into the image
+workspace
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Tests and dev-only docs
+tests
+*.log
+2603.08580v2.pdf
+NEXT_STEPS_PLAN.md
+PROJECT_VISION.md
+KNOWN_QUIRKS.md
+README.md
+
+# Rendered graphs
+*.gv
+*.gv.*
+*.png

@@ -1,4 +1,5 @@
 """Solidity adapter: parses .sol files and builds the registry of rule runners."""
+import re
 from copy import deepcopy
 
 from smartgraphical.core.engine import RuleSpec
@@ -213,6 +214,27 @@ def _extract_permissions(ext_params):
     return permissions
 
 
+def _emit_event_edges(contract_name, funcs, event_names):
+    """Wire bidirectional emit(...) in function bodies to declared events.
+
+    Event names are appended to func_names in ContractReader only so that
+    variable-to-function reachability can see events; they must not produce
+    bogus function_to_function rows (event as caller). Those are skipped when
+    building call_edges; this helper adds the correct function_to_event edges.
+    """
+    edges = []
+    if not event_names:
+        return edges
+    for func in funcs:
+        func_name, _inputs, _ext, body = func
+        for ev in event_names:
+            if re.search(r'\bemit\s+%s\s*\(' % re.escape(ev), body):
+                edges.append(NormalizedCallEdge(
+                    contract_name, func_name, contract_name, ev, 'function_to_event',
+                ))
+    return edges
+
+
 def build_normalized_model(context):
     artifact = NormalizedArtifact(context.path, context.language, 'SolidityAdapterV0')
     model = NormalizedAuditModel(
@@ -305,12 +327,17 @@ def build_normalized_model(context):
             type_entry.events.append(NormalizedEvent(event[0], contract_name, event[1]))
         model.types.append(type_entry)
 
+        event_name_set = {ev[0] for ev in events}
         for var_name, used_by in var_func_mapping.items():
             for fn in used_by:
                 model.call_edges.append(NormalizedCallEdge(contract_name, var_name, contract_name, fn, 'state_to_function'))
         for src, targets in func_func_mapping.items():
+            if src in event_name_set:
+                continue
             for tgt in targets:
                 model.call_edges.append(NormalizedCallEdge(contract_name, src, contract_name, tgt.replace('super.', ''), 'function_to_function'))
+        for edge in _emit_event_edges(contract_name, funcs, list(event_name_set)):
+            model.call_edges.append(edge)
         for sys_name, users in sysfunc_func_mapping.items():
             for fn in users:
                 model.call_edges.append(NormalizedCallEdge(contract_name, fn, contract_name, sys_name, 'function_to_system'))
