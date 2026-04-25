@@ -10,6 +10,8 @@ class FindingEvidence:
     statement: str = ""
     source_statement: str = ""
     confidence_reason: str = ""
+    line_number: int = 0
+    line_numbers: list = field(default_factory=list)
 
 
 @dataclass

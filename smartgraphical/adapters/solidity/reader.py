@@ -125,10 +125,11 @@ class ContractReader:
         return inp, ret_str
 
     def extract_contract(self, inp):
-        var_inds = [m.start() for m in re.finditer(self.line_sep + 'contract ', inp)]
+        pattern = re.escape(self.line_sep) + r'(?:contract|library)\s+'
+        var_inds = [m.start() for m in re.finditer(pattern, inp)]
         contracts = []
         for j in range(len(var_inds)):
-            if inp[var_inds[j]:var_inds[j] + 9] == 'contracts':
+            if inp[var_inds[j]:var_inds[j] + 10] == 'contracts ':
                 continue
             brack_iter = 0
             start_flag = 0
@@ -150,10 +151,14 @@ class ContractReader:
         return contracts
 
     def extract_contract_name(self, inp):
-        ind = inp.index('contract ')
+        match = re.search(r'\b(contract|library)\s+', inp)
+        if not match:
+            return '', []
+        ind = match.start()
+        kind = match.group(1)
         brack_ind = inp.index('{')
         cont_inp = inp[ind:brack_ind]
-        cont_inp = cont_inp.replace('contract', '').strip()
+        cont_inp = cont_inp.replace(kind, '').strip()
         props = []
         if ' is' in cont_inp:
             temp = cont_inp.split(' is')
@@ -171,8 +176,8 @@ class ContractReader:
         d_inp = deepcopy(inp)
         prev_vars = []
         for k in range(len(gvars)):
-            t = self.line_sep + ' ' + gvars[k]
-            var_inds = [m.start() for m in re.finditer(t, d_inp)]
+            pattern = re.escape(self.line_sep) + r'\s+' + re.escape(gvars[k]) + r'\b'
+            var_inds = [m.start() for m in re.finditer(pattern, d_inp)]
             for i in range(len(var_inds)):
                 eol = None
                 for j in range(var_inds[i], len(d_inp)):
@@ -198,8 +203,8 @@ class ContractReader:
                 ret.append(temp2)
         objs = []
         for k in range(len(obj_vars)):
-            t = self.line_sep + ' ' + obj_vars[k]
-            var_inds = [m.start() for m in re.finditer(t, inp)]
+            pattern = re.escape(self.line_sep) + r'\s+' + re.escape(obj_vars[k]) + r'\b'
+            var_inds = [m.start() for m in re.finditer(pattern, inp)]
             for i in range(len(var_inds)):
                 eol = None
                 for j in range(var_inds[i], len(inp)):
