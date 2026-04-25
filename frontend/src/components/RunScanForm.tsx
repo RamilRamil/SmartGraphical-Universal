@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { SgApiError } from "../api/client";
@@ -40,6 +40,16 @@ export function RunScanForm({
   const runError = createScanMutation.error
     ? formatApiError(createScanMutation.error)
     : null;
+
+  useEffect(() => {
+    if (task || tasks.length === 0) return;
+    const allTask = tasks.find((descriptor) => descriptor.id === "all");
+    if (allTask) {
+      setTask("all");
+      return;
+    }
+    setTask(tasks[0]?.id ?? "");
+  }, [task, tasks]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

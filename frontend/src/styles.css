@@ -760,10 +760,49 @@ body {
 
 .sg-graph__canvas {
   width: 100%;
-  height: 560px;
+  aspect-ratio: 1 / 1;
+  min-height: 420px;
+  max-height: 78vh;
   background: #0e1116;
   border: 1px solid #21262d;
   border-radius: 6px;
+}
+
+.sg-graph__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8px minmax(280px, var(--sg-side-width, 380px));
+  gap: 12px;
+  align-items: start;
+}
+
+.sg-graph__splitter {
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  border-radius: 6px;
+  position: relative;
+}
+
+.sg-graph__splitter::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 100%;
+  background: #30363d;
+}
+
+.sg-graph__splitter:hover::before,
+.sg-graph__splitter--active::before {
+  background: #58a6ff;
+}
+
+.sg-graph__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .sg-graph__details {
@@ -835,4 +874,18 @@ body {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+@media (max-width: 1200px) {
+  .sg-graph__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .sg-graph__splitter {
+    display: none;
+  }
+
+  .sg-graph__canvas {
+    max-height: none;
+  }
 }

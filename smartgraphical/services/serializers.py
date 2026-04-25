@@ -10,6 +10,37 @@ import hashlib
 
 _VIS_ONLY = frozenset({"public", "external", "internal", "private"})
 _DECLARED_MODIFIER_MARKER = "__declared_modifier__"
+_GRAPH_SCHEMA_VERSION = "1.0"
+
+_C_NODE_ALLOWED_NODE_GROUPS = frozenset({
+    "tile",
+    "function",
+    "workspace",
+    "global_state",
+    "syscall",
+    "external",
+})
+
+_C_NODE_ALLOWED_EDGE_KINDS = frozenset({
+    "function_to_function",
+    "function_to_workspace",
+    "tile_to_tile",
+    "function_to_syscall",
+    "pointer_flow",
+})
+
+_C_NODE_NODE_GROUP_ALIASES = {
+    "type": "tile",
+    "state": "workspace",
+}
+
+_C_NODE_EDGE_KIND_ALIASES = {
+    "function_to_system": "function_to_syscall",
+}
+
+_C_NODE_HEURISTIC_EDGE_KINDS = frozenset({
+    "pointer_flow",
+})
 
 _MODIFIER_COLOR = {
     "payable": "#22c55e",
@@ -51,6 +82,8 @@ def evidence_to_dict(evidence):
         "statement": getattr(evidence, "statement", ""),
         "source_statement": getattr(evidence, "source_statement", ""),
         "confidence_reason": getattr(evidence, "confidence_reason", ""),
+        "line_number": getattr(evidence, "line_number", 0),
+        "line_numbers": getattr(evidence, "line_numbers", []) or [],
     }
 
 
@@ -102,6 +135,258 @@ def _modifier_id(type_name, modifier_name):
     return f"modifier:{type_name or '_'}.{modifier_name}"
 
 
+def _is_c_profile_graph(model):
+    artifact = getattr(model, "artifact", None)
+    if artifact is None:
+        return False
+    language = (getattr(artifact, "language", "") or "").lower()
+    return language == "c"
+
+
+def _canonicalize_node_group(group, is_c_profile):
+    if not is_c_profile:
+        return group
+    canonical = _C_NODE_NODE_GROUP_ALIASES.get(group, group)
+    if canonical in _C_NODE_ALLOWED_NODE_GROUPS:
+        return canonical
+    return group
+
+
+def _canonicalize_edge_kind(kind, is_c_profile):
+    if not is_c_profile:
+        return kind
+    canonical = _C_NODE_EDGE_KIND_ALIASES.get(kind, kind)
+    if canonical in _C_NODE_ALLOWED_EDGE_KINDS:
+        return canonical
+    return kind
+
+
+def _normalized_artifact_path(model):
+    artifact = getattr(model, "artifact", None)
+    if artifact is None:
+        return "_"
+    raw_path = getattr(artifact, "path", "") or ""
+    path = raw_path.replace("\\", "/").strip()
+    if not path:
+        return "_"
+    while path.startswith("./"):
+        path = path[2:]
+    return path or "_"
+
+
+def _stable_c_node_ids(nodes, edges, model):
+    path_part = _normalized_artifact_path(model)
+    id_map = {}
+    used_ids = set()
+    suffix_source = {}
+
+    def reserve(node, base_id):
+        candidate = base_id
+        if candidate not in used_ids:
+            used_ids.add(candidate)
+            return candidate
+        old_id = str(node.get("id", ""))
+        digest = hashlib.sha256(old_id.encode()).hexdigest()[:8]
+        candidate = f"{base_id}.{digest}"
+        if candidate not in used_ids:
+            used_ids.add(candidate)
+            return candidate
+        index = suffix_source.get(base_id, 2)
+        while f"{base_id}.{index}" in used_ids:
+            index += 1
+        suffix_source[base_id] = index + 1
+        candidate = f"{base_id}.{index}"
+        used_ids.add(candidate)
+        return candidate
+
+    for node in nodes:
+        old_id = str(node.get("id", ""))
+        group = _canonicalize_node_group(node.get("group", ""), True)
+        label = str(node.get("label", ""))
+        if group == "tile":
+            base_id = f"tile:{label}"
+        elif group == "function":
+            base_id = f"function:{path_part}.{label}"
+        elif group == "workspace":
+            base_id = f"workspace:{label}"
+        elif group == "syscall":
+            base_id = f"syscall:{label}"
+        elif group == "external":
+            if old_id.startswith("external:") and old_id.count(":") >= 2:
+                base_id = old_id
+            else:
+                base_id = f"external:unresolved_symbol:{label}"
+        elif group == "global_state":
+            base_id = f"global_state:{label}"
+        else:
+            base_id = old_id
+        id_map[old_id] = reserve(node, base_id)
+
+    for node in nodes:
+        old_id = str(node.get("id", ""))
+        node["id"] = id_map.get(old_id, old_id)
+        parent_id = node.get("parent", "")
+        if parent_id:
+            node["parent"] = id_map.get(str(parent_id), str(parent_id))
+
+    for edge in edges:
+        source_id = str(edge.get("source", ""))
+        target_id = str(edge.get("target", ""))
+        edge["source"] = id_map.get(source_id, source_id)
+        edge["target"] = id_map.get(target_id, target_id)
+
+
+def _external_class_for_unresolved(edge_kind, symbol):
+    kind = (edge_kind or "").strip()
+    name = (symbol or "").strip().lower()
+    if kind in {"function_to_syscall", "function_to_system"}:
+        return "unresolved_syscall"
+    if "syscall" in name:
+        return "unresolved_syscall"
+    if any(marker in name for marker in ("->", "(*", "fnptr", "callback")):
+        return "unresolved_fnptr"
+    if "::" in name or "." in name:
+        return "unresolved_lib"
+    return "unresolved_symbol"
+
+
+def _external_id_with_class(symbol, edge_kind=""):
+    resolved_symbol = (symbol or "").strip() or "_"
+    external_class = _external_class_for_unresolved(edge_kind, resolved_symbol)
+    return f"external:{external_class}:{resolved_symbol}"
+
+
+def _c_node_edge_fact_fields(kind):
+    normalized_kind = (kind or "").strip()
+    is_heuristic = normalized_kind in _C_NODE_HEURISTIC_EDGE_KINDS
+    confidence = "heuristic" if is_heuristic else "high"
+    return {
+        "is_heuristic": is_heuristic,
+        "confidence": confidence,
+    }
+
+
+def _drop_parent_cycles(nodes):
+    by_id = {str(node.get("id", "")): node for node in nodes}
+    for node in nodes:
+        start_id = str(node.get("id", ""))
+        parent_id = str(node.get("parent", "") or "")
+        if not parent_id:
+            continue
+        seen = {start_id}
+        cursor = parent_id
+        has_cycle = False
+        while cursor:
+            if cursor in seen:
+                has_cycle = True
+                break
+            seen.add(cursor)
+            parent_node = by_id.get(cursor)
+            if parent_node is None:
+                cursor = ""
+                continue
+            cursor = str(parent_node.get("parent", "") or "")
+        if has_cycle:
+            node.pop("parent", None)
+
+
+def _validate_and_normalize_payload(nodes, edges, is_c_profile):
+    unique_nodes = []
+    node_ids = set()
+    for node in nodes:
+        node_id = str(node.get("id", ""))
+        if not node_id or node_id in node_ids:
+            continue
+        node_ids.add(node_id)
+        unique_nodes.append(node)
+    _drop_parent_cycles(unique_nodes)
+
+    valid_edges = []
+    edge_ids = set()
+    for edge in edges:
+        edge_id = str(edge.get("id", ""))
+        source = str(edge.get("source", ""))
+        target = str(edge.get("target", ""))
+        if not edge_id or edge_id in edge_ids:
+            continue
+        if source not in node_ids or target not in node_ids:
+            continue
+        edge_ids.add(edge_id)
+        valid_edges.append(edge)
+
+    if is_c_profile:
+        for node in unique_nodes:
+            group = str(node.get("group", ""))
+            if group not in _C_NODE_ALLOWED_NODE_GROUPS:
+                node["experimental_group"] = group
+                node["group"] = "external"
+        for edge in valid_edges:
+            kind = str(edge.get("kind", ""))
+            if kind not in _C_NODE_ALLOWED_EDGE_KINDS:
+                edge["experimental_kind"] = kind
+                edge["kind"] = "pointer_flow"
+
+    return unique_nodes, valid_edges
+
+
+def _derive_write_paths(nodes, edges):
+    function_nodes = {
+        str(node.get("id", "")): node
+        for node in nodes
+        if node.get("group") == "function"
+    }
+    internal_by_source = {}
+    for edge in edges:
+        if edge.get("kind") != "function_to_function":
+            continue
+        source_id = str(edge.get("source", ""))
+        internal_by_source.setdefault(source_id, []).append(edge)
+
+    for node_id, node in function_nodes.items():
+        paths = []
+        seen_paths = set()
+        own_writes = node.get("state_writes", []) or []
+        for statement in own_writes[:3]:
+            text = f"self -> {statement}"
+            if text in seen_paths:
+                continue
+            seen_paths.add(text)
+            paths.append({"path": text, "confidence": "high"})
+
+        for edge in internal_by_source.get(node_id, []):
+            target_id = str(edge.get("target", ""))
+            callee = function_nodes.get(target_id)
+            if not callee:
+                continue
+            callee_writes = callee.get("state_writes", []) or []
+            if not callee_writes:
+                continue
+            first_write = str(callee_writes[0]).strip()
+            if not first_write:
+                continue
+            args_map = edge.get("args_map", []) or []
+            if args_map:
+                for arg in args_map[:3]:
+                    param = str(arg.get("param", "arg")).strip() or "arg"
+                    value = str(arg.get("value", "")).strip() or "?"
+                    source_kind = str(arg.get("source_kind", "unknown")).strip() or "unknown"
+                    text = (
+                        f"{param} <- {value} ({source_kind}) -> "
+                        f"{callee.get('label', target_id)} -> {first_write}"
+                    )
+                    if text in seen_paths:
+                        continue
+                    seen_paths.add(text)
+                    paths.append({"path": text, "confidence": "heuristic"})
+            else:
+                text = f"internal call -> {callee.get('label', target_id)} -> {first_write}"
+                if text in seen_paths:
+                    continue
+                seen_paths.add(text)
+                paths.append({"path": text, "confidence": "heuristic"})
+        node["write_paths"] = paths
+
+
 def model_graph_to_dict(model):
     """Return a Cytoscape-friendly {nodes, edges} view of the model.
 
@@ -121,7 +406,12 @@ def model_graph_to_dict(model):
     existing node ids.
     """
     if model is None:
-        return {"nodes": [], "edges": []}
+        return {
+            "graph_schema_version": _GRAPH_SCHEMA_VERSION,
+            "nodes": [],
+            "edges": [],
+        }
+    is_c_profile = _is_c_profile_graph(model)
     types = getattr(model, "types", []) or []
     call_edges = getattr(model, "call_edges", []) or []
 
@@ -148,6 +438,7 @@ def model_graph_to_dict(model):
             "kind": getattr(type_entry, "kind", "") or "",
         })
         declared_modifier_names = set()
+        used_modifier_names = set()
         type_functions = getattr(type_entry, "functions", []) or []
         for fn in type_functions:
             fn_modifiers = getattr(fn, "modifiers", []) or []
@@ -155,7 +446,13 @@ def model_graph_to_dict(model):
                 fn_name = getattr(fn, "name", "") or ""
                 if fn_name:
                     declared_modifier_names.add(fn_name)
-        for modifier_name in sorted(declared_modifier_names):
+                continue
+            for mod_name in fn_modifiers:
+                if mod_name and mod_name != _DECLARED_MODIFIER_MARKER:
+                    used_modifier_names.add(mod_name)
+        all_visible_modifier_names = sorted(declared_modifier_names | used_modifier_names)
+        for modifier_name in all_visible_modifier_names:
+            is_declared_modifier = modifier_name in declared_modifier_names
             add_node({
                 "id": _modifier_id(type_name, modifier_name),
                 "label": modifier_name,
@@ -163,6 +460,7 @@ def model_graph_to_dict(model):
                 "parent": _type_id(type_name),
                 "type_name": type_name,
                 "modifier_color": _modifier_hex(modifier_name),
+                "modifier_origin": "declared" if is_declared_modifier else "inherited_or_external",
             })
             modifier_short_to_ids.setdefault(modifier_name, []).append(
                 _modifier_id(type_name, modifier_name),
@@ -182,7 +480,7 @@ def model_graph_to_dict(model):
             if mod_details:
                 ring_details = [
                     m for m in mod_details
-                    if m["name"] in declared_modifier_names
+                    if m["name"] in all_visible_modifier_names
                 ]
             fn_node = {
                 "id": node_id,
@@ -193,7 +491,28 @@ def model_graph_to_dict(model):
                 "visibility": getattr(function, "visibility", "") or "",
                 "is_entrypoint": bool(getattr(function, "is_entrypoint", False)),
                 "source_body": getattr(function, "body", "") or "",
+                "full_source": getattr(function, "full_source", "") or "",
+                "state_reads": [],
+                "state_writes": [],
+                "guards": [
+                    str(guard).strip()
+                    for guard in (getattr(function, "guards", []) or [])
+                    if str(guard).strip()
+                ],
+                "write_paths": [],
             }
+            read_entities = []
+            for access in (getattr(function, "read_accesses", []) or []):
+                entity_name = (getattr(access, "entity_name", "") or "").strip()
+                if entity_name:
+                    read_entities.append(entity_name)
+            fn_node["state_reads"] = sorted(set(read_entities))
+            write_entities = []
+            for access in (getattr(function, "mutations", []) or []):
+                statement = str(access).strip()
+                if statement:
+                    write_entities.append(statement)
+            fn_node["state_writes"] = list(dict.fromkeys(write_entities))
             if mod_details:
                 fn_node["modifier_details"] = mod_details
             if ring_details:
@@ -212,6 +531,7 @@ def model_graph_to_dict(model):
                 "parent": _type_id(type_name),
                 "type_name": type_name,
                 "kind": getattr(entity, "kind", "") or "",
+                "source_body": getattr(entity, "raw_signature", "") or "",
             })
             state_lookup.setdefault(entity_name, node_id)
         for ev in getattr(type_entry, "events", []) or []:
@@ -228,7 +548,7 @@ def model_graph_to_dict(model):
             })
             event_short_to_ids.setdefault(event_name, []).append(eid)
 
-    def resolve_endpoint(type_name, target_name):
+    def resolve_endpoint(type_name, target_name, edge_kind=""):
         if type_name:
             candidate = _function_id(type_name, target_name)
             if candidate in node_ids:
@@ -267,6 +587,8 @@ def model_graph_to_dict(model):
         if mod_ids:
             return mod_ids[0]
         external_id = _external_id(target_name)
+        if is_c_profile:
+            external_id = _external_id_with_class(target_name, edge_kind=edge_kind)
         add_node({
             "id": external_id,
             "label": target_name,
@@ -282,15 +604,24 @@ def model_graph_to_dict(model):
         target_name = getattr(edge, "target_name", "") or ""
         if not source_name or not target_name:
             continue
-        source_id = resolve_endpoint(source_type, source_name)
-        target_id = resolve_endpoint(target_type, target_name)
+        edge_kind = getattr(edge, "edge_kind", "") or ""
+        source_id = resolve_endpoint(source_type, source_name, edge_kind=edge_kind)
+        target_id = resolve_endpoint(target_type, target_name, edge_kind=edge_kind)
         edges.append({
             "id": f"edge:{index}",
             "source": source_id,
             "target": target_id,
-            "kind": getattr(edge, "edge_kind", "") or "",
+            "kind": edge_kind,
             "label": getattr(edge, "label", "") or "",
+            "callsite": getattr(edge, "callsite", "") or "",
+            "args_map": getattr(edge, "args_map", []) or [],
+            "line_numbers": getattr(edge, "line_numbers", []) or [],
         })
+
+    if is_c_profile:
+        _stable_c_node_ids(nodes, edges, model)
+
+    _derive_write_paths(nodes, edges)
 
     outgoing_kinds = {}
     for edge in edges:
@@ -305,7 +636,50 @@ def model_graph_to_dict(model):
         node["calls_system"] = "function_to_system" in kinds
         node["calls_event"] = "function_to_event" in kinds
 
-    return {"nodes": nodes, "edges": edges}
+    normalized_nodes = []
+    for node in nodes:
+        canonical_group = _canonicalize_node_group(node.get("group", ""), is_c_profile)
+        normalized_node = {
+            "id": str(node.get("id", "")),
+            "group": str(canonical_group),
+            "label": str(node.get("label", "")),
+        }
+        for key, value in node.items():
+            if key in normalized_node:
+                continue
+            normalized_node[key] = value
+        normalized_nodes.append(normalized_node)
+
+    normalized_edges = []
+    for edge in edges:
+        canonical_kind = _canonicalize_edge_kind(edge.get("kind", ""), is_c_profile)
+        normalized_edge = {
+            "id": str(edge.get("id", "")),
+            "source": str(edge.get("source", "")),
+            "target": str(edge.get("target", "")),
+            "kind": str(canonical_kind),
+        }
+        for key, value in edge.items():
+            if key in normalized_edge:
+                continue
+            normalized_edge[key] = value
+        if is_c_profile:
+            fact_fields = _c_node_edge_fact_fields(canonical_kind)
+            normalized_edge["is_heuristic"] = fact_fields["is_heuristic"]
+            normalized_edge["confidence"] = fact_fields["confidence"]
+        normalized_edges.append(normalized_edge)
+
+    normalized_nodes, normalized_edges = _validate_and_normalize_payload(
+        normalized_nodes,
+        normalized_edges,
+        is_c_profile,
+    )
+
+    return {
+        "graph_schema_version": _GRAPH_SCHEMA_VERSION,
+        "nodes": normalized_nodes,
+        "edges": normalized_edges,
+    }
 
 
 def model_summary_to_dict(model):

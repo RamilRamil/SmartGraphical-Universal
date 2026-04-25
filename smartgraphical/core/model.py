@@ -60,6 +60,7 @@ class NormalizedFunction:
     inputs: list = field(default_factory=list)
     modifiers: list = field(default_factory=list)
     body: str = ""
+    full_source: str = ""
     conditionals: list = field(default_factory=list)
     guards: list = field(default_factory=list)
     guard_facts: list = field(default_factory=list)
@@ -97,6 +98,9 @@ class NormalizedCallEdge:
     target_name: str
     edge_kind: str
     label: str = ""
+    callsite: str = ""
+    args_map: list = field(default_factory=list)
+    line_numbers: list = field(default_factory=list)
 
 
 @dataclass
