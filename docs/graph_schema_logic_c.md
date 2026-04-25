@@ -21,7 +21,40 @@
 - **План для C/Node:** tile/workspace/syscall-специфичные группы и richer metadata
   из этого документа.
 
-Примечание: в текущей кодовой базе рабочий C-адаптер — `c_base`. Термин `c_solana_node` здесь используется как целевое доменное направление.
+- **Реализовано в текущем инкременте (C payload через serializer):**
+  - `graph_schema_version: "1.0"` на верхнем уровне graph payload,
+  - контракт обязательных полей нормализуется на выдаче:
+    - node: `id`, `group`, `label`,
+    - edge: `id`, `source`, `target`, `kind`,
+  - C-profile канонизация групп/типов с alias-совместимостью:
+    - `type -> tile`,
+    - `state -> workspace`,
+    - `function_to_system -> function_to_syscall`,
+  - stable IDs для C-profile на выдаче:
+    - `tile:<tile_name>`,
+    - `function:<normalized_path>.<function_name>[.<collision_suffix>]`,
+    - `workspace:<workspace_name>`,
+    - `syscall:<syscall_name>`,
+    - `external:<class>:<symbol>`,
+  - unresolved fallback классифицируется в `external`:
+    - `unresolved_fnptr`,
+    - `unresolved_syscall`,
+    - `unresolved_lib`,
+    - `unresolved_symbol`,
+  - разделение fact/heuristic на уровне edge payload:
+    - `pointer_flow` помечается как `is_heuristic: true`, `confidence: "heuristic"`,
+    - прочие текущие C-edge kinds получают `is_heuristic: false`, `confidence: "high"`,
+  - pre-emit validation в serializer:
+    - фильтрация пустых/дублирующихся `node.id` и `edge.id`,
+    - удаление ребер с несуществующими endpoint,
+    - разрыв циклов в `parent`-цепочке,
+    - для неизвестных C `group/kind` добавляются
+      `experimental_group`/`experimental_kind`.
+
+Примечание: в текущей кодовой базе рабочий C-адаптер — `c_base`. Термин
+`c_solana_node` здесь используется как целевое доменное направление.
+Часть C/Node контракта в этом инкременте реализована на уровне сериализации
+payload (без расширения dataclass-модели `NormalizedCallEdge` новыми полями).
 
 ## 1. Сквозной поток данных (End-to-end flow)
 

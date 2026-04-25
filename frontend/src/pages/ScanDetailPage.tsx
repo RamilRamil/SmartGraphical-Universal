@@ -16,6 +16,39 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function normalizeContractName(filename: string | undefined, scanId: number): string {
+  if (!filename) return `scan-${scanId}`;
+  const noExtension = filename.replace(/\.[^.]+$/, "");
+  const normalized = noExtension
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || `scan-${scanId}`;
+}
+
+function buildLocation(finding: {
+  evidences?: Array<{
+    type_name?: string;
+    function_name?: string;
+    line_numbers?: number[];
+    line_number?: number;
+  }>;
+}): string {
+  const evidence = finding.evidences?.[0];
+  if (!evidence) return "unknown";
+  const scope = [evidence.type_name, evidence.function_name].filter(Boolean).join(".");
+  const lines =
+    Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0
+      ? evidence.line_numbers.join(", ")
+      : typeof evidence.line_number === "number"
+        ? `${evidence.line_number}`
+        : "";
+  if (scope && lines) return `${scope} (lines: ${lines})`;
+  if (scope) return scope;
+  if (lines) return `lines: ${lines}`;
+  return "unknown";
+}
+
 export function ScanDetailPage() {
   const { scanId } = useParams<{ scanId: string }>();
   const parsedScanId = scanId ? Number.parseInt(scanId, 10) : undefined;
@@ -86,6 +119,42 @@ export function ScanDetailPage() {
     graphAvailable && graphQuery.data && graphQuery.data.available
       ? graphQuery.data.graph.model_summary.graph
       : undefined;
+  const hasFindings = findings.length > 0;
+
+  const handleDownloadFindingsMd = () => {
+    if (!hasFindings) return;
+    const contractName = normalizeContractName(artifact?.filename, scan.id);
+    const reportLines: string[] = [
+      `# Findings Report: ${contractName}`,
+      "",
+      `- scan_id: ${scan.id}`,
+      `- artifact: ${artifact?.filename || "unknown"}`,
+      `- findings_count: ${findings.length}`,
+      "",
+      "## Findings",
+      "",
+    ];
+
+    findings.forEach((finding, index) => {
+      const location = buildLocation(finding);
+      reportLines.push(`### ${index + 1}. ${finding.title || finding.rule_id}`);
+      reportLines.push("");
+      reportLines.push(`- severity: ${finding.confidence || "unknown"}`);
+      reportLines.push(`- location: ${location}`);
+      reportLines.push(`- description: ${finding.message || "n/a"}`);
+      reportLines.push(`- recommendation: ${finding.remediation_hint || "n/a"}`);
+      reportLines.push("");
+    });
+
+    const markdown = reportLines.join("\n");
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `findings-${contractName}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <section className="sg-page">
@@ -204,6 +273,14 @@ export function ScanDetailPage() {
                 <span className="sg-filter__count">
                   {filtered.length} / {findings.length} findings
                 </span>
+                <button
+                  type="button"
+                  className="sg-button sg-button--ghost"
+                  onClick={handleDownloadFindingsMd}
+                  disabled={!hasFindings}
+                >
+                  Export MD
+                </button>
               </div>
 
               {filtered.length === 0 ? (

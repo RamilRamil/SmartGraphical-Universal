@@ -42,6 +42,8 @@ export type Evidence = {
   statement: string;
   source_statement: string;
   confidence_reason: string;
+  line_number?: number;
+  line_numbers?: number[];
 };
 
 export type Finding = {
@@ -79,12 +81,17 @@ export type GraphNode = {
   visibility?: string;
   is_entrypoint?: boolean;
   source_body?: string;
+  full_source?: string;
   modifier_details?: ModifierSwatch[];
   modifier_ring_details?: ModifierSwatch[];
   calls_internal?: boolean;
   calls_contract?: boolean;
   calls_system?: boolean;
   calls_event?: boolean;
+  state_reads?: string[];
+  state_writes?: string[];
+  guards?: string[];
+  write_paths?: Array<{ path: string; confidence: string }>;
 };
 
 export type GraphEdge = {
@@ -93,6 +100,9 @@ export type GraphEdge = {
   target: string;
   kind: string;
   label: string;
+  callsite?: string;
+  args_map?: Array<{ param: string; value: string; source_kind?: string }>;
+  line_numbers?: number[];
 };
 
 export type GraphData = {

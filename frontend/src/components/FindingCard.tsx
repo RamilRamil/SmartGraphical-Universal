@@ -59,6 +59,11 @@ export function FindingCard({ finding, defaultOpen = false }: FindingCardProps) 
                       {evidence.function_name ? `.${evidence.function_name}` : ""}
                     </div>
                   )}
+                  {Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0 && (
+                    <div className="sg-evidence__reason">
+                      lines: {evidence.line_numbers.join(", ")}
+                    </div>
+                  )}
                   {evidence.statement && (
                     <pre className="sg-evidence__statement">{evidence.statement}</pre>
                   )}

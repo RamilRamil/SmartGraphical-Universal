@@ -1,8 +1,43 @@
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable, List
 
 from smartgraphical.core.findings import Finding, FindingEvidence
+
+_SOURCE_LINES_CACHE = {}
+
+
+def _source_lines_for_model(model):
+    artifact = getattr(model, "artifact", None)
+    if artifact is None:
+        return []
+    source_path = getattr(artifact, "path", "") or ""
+    if not source_path:
+        return []
+    if source_path in _SOURCE_LINES_CACHE:
+        return _SOURCE_LINES_CACHE[source_path]
+    path_obj = Path(source_path)
+    if not path_obj.exists():
+        _SOURCE_LINES_CACHE[source_path] = []
+        return []
+    try:
+        lines = path_obj.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        lines = []
+    _SOURCE_LINES_CACHE[source_path] = lines
+    return lines
+
+
+def _infer_line_numbers(model, statement):
+    text = (statement or "").strip()
+    if not text:
+        return []
+    matches = []
+    for index, line in enumerate(_source_lines_for_model(model), start=1):
+        if text in line:
+            matches.append(index)
+    return matches
 
 
 @dataclass
@@ -30,6 +65,8 @@ def _infer_evidence(message, model):
     elif quoted_parts:
         evidence.statement = quoted_parts[-1]
     evidence.source_statement = evidence.statement
+    evidence.line_numbers = _infer_line_numbers(model, evidence.source_statement)
+    evidence.line_number = evidence.line_numbers[0] if evidence.line_numbers else 0
     findings_data = getattr(model, 'findings_data', None)
     if findings_data:
         for function_key, evidences in findings_data.evidence_index.items():
@@ -40,6 +77,8 @@ def _infer_evidence(message, model):
                     evidence.function_name = mapped_evidence.get('function_name', '')
                     evidence.source_statement = mapped_statement
                     evidence.statement = mapped_statement
+                    evidence.line_numbers = _infer_line_numbers(model, mapped_statement)
+                    evidence.line_number = evidence.line_numbers[0] if evidence.line_numbers else 0
                     evidence.confidence_reason = mapped_evidence.get(
                         'confidence_reason',
                         'matched_statement_from_normalized_model',

@@ -214,6 +214,202 @@ def _extract_permissions(ext_params):
     return permissions
 
 
+def _extract_param_names(input_details):
+    names = []
+    for index, item in enumerate(input_details):
+        if not item:
+            names.append(f"arg{index}")
+            continue
+        candidate = str(item[-1]).strip()
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", candidate):
+            names.append(candidate)
+        else:
+            names.append(f"arg{index}")
+    return names
+
+
+def _split_arguments(raw_args):
+    parts = []
+    current = []
+    paren_depth = 0
+    square_depth = 0
+    curly_depth = 0
+    for ch in raw_args:
+        if ch == "," and paren_depth == 0 and square_depth == 0 and curly_depth == 0:
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+        current.append(ch)
+        if ch == "(":
+            paren_depth += 1
+        elif ch == ")" and paren_depth > 0:
+            paren_depth -= 1
+        elif ch == "[":
+            square_depth += 1
+        elif ch == "]" and square_depth > 0:
+            square_depth -= 1
+        elif ch == "{":
+            curly_depth += 1
+        elif ch == "}" and curly_depth > 0:
+            curly_depth -= 1
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _extract_callsites(body, callee_name):
+    sites = []
+    pattern = re.compile(rf"\b(?:super\.)?{re.escape(callee_name)}\s*\(")
+    for match in pattern.finditer(body):
+        start = match.start()
+        open_idx = body.find("(", match.end() - 1)
+        if open_idx < 0:
+            continue
+        depth = 0
+        close_idx = -1
+        for idx in range(open_idx, len(body)):
+            ch = body[idx]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close_idx = idx
+                    break
+        if close_idx < 0:
+            continue
+        sites.append(body[start:close_idx + 1].strip())
+    return sites
+
+
+def _line_numbers_for_callsites(lines, callsites):
+    if not lines or not callsites:
+        return []
+    matched = set()
+    for number, line in enumerate(lines, start=1):
+        source_line = line.strip()
+        if not source_line:
+            continue
+        for callsite in callsites:
+            if callsite and callsite in source_line:
+                matched.add(number)
+                break
+    return sorted(matched)
+
+
+def _is_literal_value(value):
+    token = (value or "").strip()
+    if not token:
+        return False
+    if token in {"true", "false"}:
+        return True
+    if token.startswith(("'", '"')):
+        return True
+    if re.fullmatch(r"\d+", token):
+        return True
+    if re.fullmatch(r"0x[0-9a-fA-F]+", token):
+        return True
+    if token.startswith(("address(", "uint", "int", "bytes", "string(")):
+        return True
+    return False
+
+
+def _contains_identifier(value, identifier):
+    if not value or not identifier:
+        return False
+    pattern = rf"\b{re.escape(identifier)}\b"
+    return re.search(pattern, value) is not None
+
+
+def _arg_source_kind(arg_value, caller_params, state_names):
+    value = (arg_value or "").strip()
+    if not value:
+        return "unknown"
+    if _is_literal_value(value):
+        return "literal"
+    for param in caller_params:
+        if _contains_identifier(value, param):
+            return "input"
+    for state_name in state_names:
+        if _contains_identifier(value, state_name):
+            return "state"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\[[^\]]+\])?", value):
+        return "local"
+    return "unknown"
+
+
+def _call_metadata_for_target(
+    body,
+    callee_name,
+    callee_params,
+    source_lines,
+    caller_params=None,
+    state_names=None,
+):
+    caller_params = caller_params or []
+    state_names = state_names or []
+    callsites = _extract_callsites(body, callee_name)
+    if not callsites:
+        return {"callsite": "", "args_map": [], "line_numbers": []}
+    callsite = callsites[0]
+    open_idx = callsite.find("(")
+    close_idx = callsite.rfind(")")
+    args_raw = callsite[open_idx + 1:close_idx] if open_idx >= 0 and close_idx > open_idx else ""
+    args = _split_arguments(args_raw)
+    args_map = []
+    for index, value in enumerate(args):
+        param_name = callee_params[index] if index < len(callee_params) else f"arg{index}"
+        args_map.append({
+            "param": param_name,
+            "value": value,
+            "source_kind": _arg_source_kind(value, caller_params, state_names),
+        })
+    return {
+        "callsite": callsite,
+        "args_map": args_map,
+        "line_numbers": _line_numbers_for_callsites(source_lines, callsites),
+    }
+
+
+def _render_full_function_source(func_name, input_details, ext_params, body):
+    params = ", ".join(" ".join(p).strip() for p in (input_details or []) if p)
+    normalized_ext = [p for p in (ext_params or []) if p and p != "__declared_modifier__"]
+    visibility_tokens = []
+    returns_tokens = []
+    other_tokens = []
+    for token in normalized_ext:
+        lowered = token.lower()
+        if lowered in {"public", "external", "internal", "private", "view", "pure", "payable", "virtual", "override"}:
+            visibility_tokens.append(token)
+        elif lowered.startswith("returns"):
+            returns_tokens.append(token)
+        else:
+            other_tokens.append(token)
+
+    header = f"function {func_name}({params})"
+    if visibility_tokens:
+        header = f"{header}\n    {' '.join(visibility_tokens)}"
+    if other_tokens:
+        header = f"{header}\n    {' '.join(other_tokens)}"
+    if returns_tokens:
+        header = f"{header}\n    {' '.join(returns_tokens)}"
+
+    normalized_body = (body or "").strip()
+    if not normalized_body:
+        return f"{header};"
+    if normalized_body.startswith("{") and normalized_body.endswith("}"):
+        inner = normalized_body[1:-1].strip()
+        if inner:
+            statement_lines = [s.strip() for s in inner.split(";") if s.strip()]
+            pretty_inner = "\n".join(f"    {line};" for line in statement_lines)
+            return f"{header} {{\n{pretty_inner}\n}}"
+        return f"{header} {{\n}}"
+    return f"{header}\n{normalized_body}"
+
+
 def _emit_event_edges(contract_name, funcs, event_names):
     """Wire bidirectional emit(...) in function bodies to declared events.
 
@@ -258,8 +454,12 @@ def build_normalized_model(context):
             type_entry.state_entities.append(NormalizedStateEntity(obj[-1], contract_name, 'object_instance', ' '.join(obj)))
 
         state_names = [e.name for e in type_entry.state_entities]
+        function_bodies = {}
+        function_param_names = {}
         for idx, func in enumerate(funcs):
             func_name, input_details, ext_params, body = func
+            function_bodies[func_name] = body
+            function_param_names[func_name] = _extract_param_names(input_details)
             conditionals = func_conditionals[idx] if idx < len(func_conditionals) else []
             system_calls = [s for s, users in sysfunc_func_mapping.items() if func_name in users]
             object_calls = [
@@ -293,6 +493,7 @@ def build_normalized_model(context):
             type_entry.functions.append(NormalizedFunction(
                 name=func_name, owner=contract_name, inputs=input_details,
                 modifiers=ext_params, body=body, conditionals=conditionals,
+                full_source=_render_full_function_source(func_name, input_details, ext_params, body),
                 guards=guards,
                 guard_facts=guard_facts,
                 internal_calls=deepcopy(func_func_mapping.get(func_name, [])),
@@ -335,7 +536,25 @@ def build_normalized_model(context):
             if src in event_name_set:
                 continue
             for tgt in targets:
-                model.call_edges.append(NormalizedCallEdge(contract_name, src, contract_name, tgt.replace('super.', ''), 'function_to_function'))
+                resolved_tgt = tgt.replace('super.', '')
+                metadata = _call_metadata_for_target(
+                    function_bodies.get(src, ""),
+                    resolved_tgt,
+                    function_param_names.get(resolved_tgt, []),
+                    context.lines,
+                    caller_params=function_param_names.get(src, []),
+                    state_names=state_names,
+                )
+                model.call_edges.append(NormalizedCallEdge(
+                    contract_name,
+                    src,
+                    contract_name,
+                    resolved_tgt,
+                    'function_to_function',
+                    callsite=metadata["callsite"],
+                    args_map=metadata["args_map"],
+                    line_numbers=metadata["line_numbers"],
+                ))
         for edge in _emit_event_edges(contract_name, funcs, list(event_name_set)):
             model.call_edges.append(edge)
         for sys_name, users in sysfunc_func_mapping.items():

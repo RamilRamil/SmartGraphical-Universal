@@ -8,9 +8,32 @@ import os
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .errors import register_error_handlers
 from .routes import build_router
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            response = None
+        if response is not None and response.status_code != 404:
+            return response
+        normalized = (path or "").lstrip("/")
+        if normalized.startswith("api/") or normalized == "api":
+            if response is not None:
+                return response
+            raise StarletteHTTPException(status_code=404)
+        if "." in os.path.basename(normalized):
+            if response is not None:
+                return response
+            raise StarletteHTTPException(status_code=404)
+        return await super().get_response("index.html", scope)
 
 
 def create_app(history_service, static_dir: str | None = None) -> FastAPI:
@@ -36,6 +59,6 @@ def _mount_static(app: FastAPI, static_dir: str | None) -> None:
         return
     app.mount(
         "/",
-        StaticFiles(directory=absolute, html=True, check_dir=False),
+        SPAStaticFiles(directory=absolute, html=True, check_dir=False),
         name="frontend",
     )
