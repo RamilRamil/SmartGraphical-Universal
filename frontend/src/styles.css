@@ -112,6 +112,12 @@ body {
   margin-bottom: 8px;
 }
 
+.sg-history__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .sg-link {
   color: #58a6ff;
   text-decoration: none;
@@ -506,6 +512,24 @@ body {
   letter-spacing: 0.04em;
 }
 
+.sg-table__sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.sg-table__sort-indicator {
+  font-size: 11px;
+}
+
 .sg-table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -517,6 +541,11 @@ body {
 .sg-table__num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.sg-table__select {
+  width: 1%;
+  text-align: center;
 }
 
 .sg-modal-backdrop {
