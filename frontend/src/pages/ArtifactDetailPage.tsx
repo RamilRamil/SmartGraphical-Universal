@@ -6,12 +6,20 @@ import { SgApiError } from "../api/client";
 import {
   useArtifact,
   useDeleteScan,
+  useGraph,
+  useScan,
   useScans,
 } from "../api/hooks";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { FindingCard } from "../components/FindingCard";
+import { GraphView } from "../components/GraphView";
 import { RunScanForm } from "../components/RunScanForm";
 import { ScansTable } from "../components/ScansTable";
 import type { Scan } from "../api/types";
+
+const CONFIDENCE_FILTERS = ["any", "high", "medium", "low"] as const;
+type ConfidenceFilter = (typeof CONFIDENCE_FILTERS)[number];
+type ResultsTab = "findings" | "graph";
 
 function formatApiError(err: unknown): string {
   if (err instanceof SgApiError) return `${err.code}: ${err.message}`;
@@ -23,6 +31,11 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
 }
 
 export function ArtifactDetailPage() {
@@ -40,11 +53,23 @@ export function ArtifactDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<Scan | null>(null);
   const [scanAId, setScanAId] = useState<string>("");
   const [scanBId, setScanBId] = useState<string>("");
+  const [selectedScanId, setSelectedScanId] = useState<string>("");
+  const [filter, setFilter] = useState<ConfidenceFilter>("any");
+  const [tab, setTab] = useState<ResultsTab>("findings");
 
   const scans = useMemo(
     () =>
       (scansQuery.data?.items ?? []).filter((scan) => !scan.deleted_at),
     [scansQuery.data],
+  );
+  const selectedScanIdNumber =
+    selectedScanId !== "" ? Number.parseInt(selectedScanId, 10) : undefined;
+  const selectedScanIsValid = Number.isFinite(selectedScanIdNumber);
+  const selectedScanQuery = useScan(
+    selectedScanIsValid ? (selectedScanIdNumber as number) : undefined,
+  );
+  const selectedGraphQuery = useGraph(
+    selectedScanIsValid ? (selectedScanIdNumber as number) : undefined,
   );
 
   if (!parsed || Number.isNaN(parsed)) {
@@ -88,6 +113,25 @@ export function ArtifactDetailPage() {
 
   const canCompare =
     scanAId !== "" && scanBId !== "" && scanAId !== scanBId;
+  const selectedDetail = selectedScanQuery.data;
+  const selectedScan = selectedDetail?.scan;
+  const selectedFindings = selectedDetail?.findings ?? [];
+  const selectedScanError = selectedScan?.status === "error";
+  const selectedGraphAvailable =
+    !selectedScanError &&
+    selectedScan?.task === "all" &&
+    selectedGraphQuery.data !== undefined &&
+    selectedGraphQuery.data.available === true;
+  const selectedGraphData =
+    selectedGraphAvailable &&
+    selectedGraphQuery.data &&
+    selectedGraphQuery.data.available
+      ? selectedGraphQuery.data.graph.model_summary.graph
+      : undefined;
+  const filteredSelectedFindings = useMemo(() => {
+    if (filter === "any") return selectedFindings;
+    return selectedFindings.filter((finding) => finding.confidence === filter);
+  }, [filter, selectedFindings]);
 
   function handleCompare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,6 +206,192 @@ export function ArtifactDetailPage() {
           setPendingDelete(scan);
         }}
       />
+
+      <h2 className="sg-section__title">Report and graph by scan</h2>
+      {scans.length === 0 ? (
+        <p className="sg-page__hint">No scans available for report view yet.</p>
+      ) : (
+        <>
+          <form className="sg-form sg-form--row" onSubmit={(event) => event.preventDefault()}>
+            <label className="sg-field">
+              <span className="sg-field__label">Select scan</span>
+              <select
+                className="sg-field__control"
+                value={selectedScanId}
+                onChange={(event) => {
+                  setSelectedScanId(event.target.value);
+                  setFilter("any");
+                  setTab("findings");
+                }}
+              >
+                <option value="" disabled>
+                  Select scan
+                </option>
+                {scans.map((scan) => (
+                  <option key={scan.id} value={String(scan.id)}>
+                    #{scan.id} - {scan.task} ({scan.findings_count} findings)
+                  </option>
+                ))}
+              </select>
+            </label>
+          </form>
+
+          {selectedScanId === "" && (
+            <p className="sg-page__hint">
+              Select a scan to open its report and graph without re-running analysis.
+            </p>
+          )}
+
+          {selectedScanId !== "" && selectedScanQuery.isPending && (
+            <p className="sg-page__hint">Loading selected scan report...</p>
+          )}
+
+          {selectedScanId !== "" && selectedScanQuery.error && (
+            <p className="sg-banner sg-banner--error">
+              Failed to load selected scan: {formatApiError(selectedScanQuery.error)}
+            </p>
+          )}
+
+          {selectedScanId !== "" && selectedDetail && selectedScan && (
+            <>
+              <div className="sg-meta">
+                <div>
+                  <span className="sg-meta__label">Selected scan</span>
+                  <Link to={`/scans/${selectedScan.id}`} className="sg-meta__value sg-link">
+                    #{selectedScan.id}
+                  </Link>
+                </div>
+                <div>
+                  <span className="sg-meta__label">Task</span>
+                  <span className="sg-meta__value">{selectedScan.task}</span>
+                </div>
+                <div>
+                  <span className="sg-meta__label">Mode</span>
+                  <span className="sg-meta__value">{selectedScan.mode}</span>
+                </div>
+                <div>
+                  <span className="sg-meta__label">Status</span>
+                  <span className={`sg-meta__value sg-status sg-status--${selectedScan.status}`}>
+                    {selectedScan.status}
+                  </span>
+                </div>
+                <div>
+                  <span className="sg-meta__label">Duration</span>
+                  <span className="sg-meta__value">{formatDuration(selectedScan.duration_ms)}</span>
+                </div>
+                <div>
+                  <span className="sg-meta__label">Findings</span>
+                  <span className="sg-meta__value">{selectedFindings.length}</span>
+                </div>
+              </div>
+
+              {selectedScanError && (
+                <p className="sg-banner sg-banner--error">
+                  Analysis failed ({selectedScan.error_code || "unknown"}):{" "}
+                  {selectedScan.error_message || "no details provided"}
+                </p>
+              )}
+
+              {!selectedScanError && (
+                <>
+                  <div className="sg-tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === "findings"}
+                      className={`sg-tabs__tab${tab === "findings" ? " sg-tabs__tab--active" : ""}`}
+                      onClick={() => setTab("findings")}
+                    >
+                      Findings ({selectedFindings.length})
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === "graph"}
+                      className={`sg-tabs__tab${tab === "graph" ? " sg-tabs__tab--active" : ""}`}
+                      onClick={() => setTab("graph")}
+                      disabled={!selectedGraphAvailable}
+                      title={
+                        selectedGraphAvailable
+                          ? "Open graph view"
+                          : selectedScan.task === "all"
+                            ? "Graph is being loaded or unavailable"
+                            : "Graph is only available for scans run with task 'all'"
+                      }
+                    >
+                      Graph
+                    </button>
+                  </div>
+
+                  {tab === "findings" && (
+                    <>
+                      <div className="sg-filter">
+                        <label className="sg-field">
+                          <span className="sg-field__label">Confidence</span>
+                          <select
+                            className="sg-field__control"
+                            value={filter}
+                            onChange={(event) =>
+                              setFilter(event.target.value as ConfidenceFilter)
+                            }
+                          >
+                            {CONFIDENCE_FILTERS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <span className="sg-filter__count">
+                          {filteredSelectedFindings.length} / {selectedFindings.length} findings
+                        </span>
+                      </div>
+
+                      {filteredSelectedFindings.length === 0 ? (
+                        <p className="sg-page__hint">
+                          No findings match the current filter.
+                        </p>
+                      ) : (
+                        <div className="sg-findings">
+                          {filteredSelectedFindings.map((finding, index) => (
+                            <FindingCard
+                              key={`${finding.task_id}-${finding.rule_id}-${index}`}
+                              finding={finding}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {tab === "graph" && (
+                    <>
+                      {selectedGraphQuery.isPending && (
+                        <p className="sg-page__hint">Loading graph...</p>
+                      )}
+                      {selectedGraphQuery.error && (
+                        <p className="sg-banner sg-banner--error">
+                          Failed to load graph: {formatApiError(selectedGraphQuery.error)}
+                        </p>
+                      )}
+                      {selectedGraphData ? (
+                        <GraphView graph={selectedGraphData} />
+                      ) : (
+                        !selectedGraphQuery.isPending && (
+                          <p className="sg-page__hint">
+                            Graph payload is not available for this scan. Run task
+                            &quot;all&quot; to make graph available.
+                          </p>
+                        )
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </>
+      )}
 
       {scans.length >= 2 && (
         <>

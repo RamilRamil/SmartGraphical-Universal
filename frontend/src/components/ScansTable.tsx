@@ -14,6 +14,11 @@ type ScansTableProps = {
   showArtifactColumn?: boolean;
   artifactLookup?: ArtifactLookup;
   onDelete?: (scan: Scan) => void;
+  selectedScanIds?: readonly number[];
+  onToggleSelect?: (scanId: number, selected: boolean) => void;
+  onToggleSelectAll?: (selected: boolean) => void;
+  artifactSortDirection?: "none" | "asc" | "desc";
+  onArtifactSortToggle?: () => void;
 };
 
 function formatDuration(ms: number): string {
@@ -35,7 +40,16 @@ export function ScansTable({
   showArtifactColumn = false,
   artifactLookup,
   onDelete,
+  selectedScanIds = [],
+  onToggleSelect,
+  onToggleSelectAll,
+  artifactSortDirection = "none",
+  onArtifactSortToggle,
 }: ScansTableProps) {
+  const selectedSet = new Set(selectedScanIds);
+  const hasSelection = Boolean(onToggleSelect);
+  const allSelected = scans.length > 0 && scans.every((scan) => selectedSet.has(scan.id));
+
   if (isPending) {
     return <p className="sg-page__hint">Loading scans...</p>;
   }
@@ -50,8 +64,41 @@ export function ScansTable({
       <table className="sg-table">
         <thead>
           <tr>
+            {hasSelection && (
+              <th className="sg-table__select">
+                <input
+                  type="checkbox"
+                  aria-label="Select all scans"
+                  checked={allSelected}
+                  onChange={(event) => {
+                    onToggleSelectAll?.(event.target.checked);
+                  }}
+                />
+              </th>
+            )}
             <th>Scan</th>
-            {showArtifactColumn && <th>Artifact</th>}
+            {showArtifactColumn && (
+              <th>
+                {onArtifactSortToggle ? (
+                  <button
+                    type="button"
+                    className="sg-table__sort-button"
+                    onClick={onArtifactSortToggle}
+                  >
+                    Artifact
+                    <span className="sg-table__sort-indicator">
+                      {artifactSortDirection === "asc"
+                        ? "ASC"
+                        : artifactSortDirection === "desc"
+                          ? "DESC"
+                          : "-"}
+                    </span>
+                  </button>
+                ) : (
+                  "Artifact"
+                )}
+              </th>
+            )}
             <th>Task</th>
             <th>Mode</th>
             <th>Status</th>
@@ -66,6 +113,18 @@ export function ScansTable({
             const artifact = artifactLookup?.(scan.artifact_id);
             return (
               <tr key={scan.id}>
+                {hasSelection && (
+                  <td className="sg-table__select">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select scan #${scan.id}`}
+                      checked={selectedSet.has(scan.id)}
+                      onChange={(event) => {
+                        onToggleSelect?.(scan.id, event.target.checked);
+                      }}
+                    />
+                  </td>
+                )}
                 <td>
                   <Link className="sg-link" to={`/scans/${scan.id}`}>
                     #{scan.id}
