@@ -68,6 +68,8 @@
 
 **Сделано для Solidity:** `tests/fixtures/solidity_task_coverage.json` и `tests/unit/test_solidity_task_coverage_declared.py` сверяют JSON с `build_rule_registry()`, слагами правил и `web_api.list_tasks("solidity")`.
 
+**Сделано для C:** `tests/fixtures/c_task_coverage.json` и `tests/unit/test_c_task_coverage_declared.py` — то же для `build_c_rule_registry()` и `web_api.list_tasks("c")` (матрица: `docs/testing_c_rule_coverage_matrix.md`).
+
 ## Фаза 5: снимки и производительность (опционально)
 
 **Задача:** точечно повысить уверенность без шума в diff.

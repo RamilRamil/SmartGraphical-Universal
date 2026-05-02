@@ -1,5 +1,7 @@
 # Solidity rule coverage matrix (model-level)
 
+C counterpart (tasks `101`..`120`): `docs/testing_c_rule_coverage_matrix.md`.
+
 Registry: `smartgraphical/adapters/solidity/adapter.py` (`build_rule_registry`).
 
 | task_id | rule_id | Unit test module (synthetic model / legacy `rets`) |
