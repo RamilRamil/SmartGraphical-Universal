@@ -66,6 +66,8 @@
 
 **Критерий готовности:** один источник истины (таблица в docs или YAML), проверка в чеклисте PR для новых правил.
 
+**Сделано для Solidity:** `tests/fixtures/solidity_task_coverage.json` и `tests/unit/test_solidity_task_coverage_declared.py` сверяют JSON с `build_rule_registry()`, слагами правил и `web_api.list_tasks("solidity")`.
+
 ## Фаза 5: снимки и производительность (опционально)
 
 **Задача:** точечно повысить уверенность без шума в diff.

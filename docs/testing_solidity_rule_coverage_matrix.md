@@ -31,3 +31,11 @@ End-to-end pipeline invariants (`tests/integration/test_full_pipeline.py`):
 - Always-on: `WithdrawNoGuard.sol`, `ExternalMint.sol` under `tests/fixtures/solidity/`.
 
 HTTP JSON shape (`task: all`): `tests/integration/test_http_fixture_contract.py` uses `MinimalGuard.sol`; skipped if FastAPI is not installed.
+
+## Phase 4: declarative task manifest ( Solidity )
+
+Machine-readable checklist: `tests/fixtures/solidity_task_coverage.json` (must stay in sync with `build_rule_registry()`).
+
+Gate test: `tests/unit/test_solidity_task_coverage_declared.py`.
+
+The HTTP catalog from `web_api.list_tasks("solidity")` is asserted to expose the same numeric task ids as the registry plus a trailing meta task id `all`.
