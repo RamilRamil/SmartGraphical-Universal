@@ -1,0 +1,116 @@
+{
+  "language": "c",
+  "meta_tasks": {
+    "all": {
+      "kind": "meta",
+      "note": "Matches web_api.list_tasks(\"c\") trailing synthetic task; not in build_c_rule_registry()."
+    }
+  },
+  "registry_tasks": {
+    "101": {
+      "slug": "non_saturating_float_cast",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "102": {
+      "slug": "unsafe_shift_external_exponent",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "103": {
+      "slug": "unchecked_return_sensitive",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "104": {
+      "slug": "shared_mem_uaf_pool",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "105": {
+      "slug": "incomplete_reserved_account_list",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "106": {
+      "slug": "sysvar_decode_callback_type_mismatch",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules.py"
+    },
+    "107": {
+      "slug": "bitwise_flag_normalization_mismatch",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch2.py"
+    },
+    "108": {
+      "slug": "quic_invisible_frame_limit",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch2.py"
+    },
+    "109": {
+      "slug": "quic_handshake_eviction_missing",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch2.py"
+    },
+    "110": {
+      "slug": "bank_lifecycle_refcount_concurrency",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch3.py"
+    },
+    "111": {
+      "slug": "io_uring_submission_race_funk",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch4.py"
+    },
+    "112": {
+      "slug": "alt_resolution_window_mismatch",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch3.py"
+    },
+    "113": {
+      "slug": "keyswitch_atomicity_violation",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch4.py"
+    },
+    "114": {
+      "slug": "bls_aggregate_rogue_key_check",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch3.py"
+    },
+    "115": {
+      "slug": "unsupported_program_id_divergence",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch4.py"
+    },
+    "116": {
+      "slug": "signed_integer_overflow_consensus",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch5.py"
+    },
+    "117": {
+      "slug": "unspecified_evaluation_order_side_effects",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch5.py"
+    },
+    "118": {
+      "slug": "protocol_struct_padding_mismatch",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch5.py"
+    },
+    "119": {
+      "slug": "division_rounding_divergence",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch5.py"
+    },
+    "120": {
+      "slug": "unaligned_memory_access_ebpf",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_c_rules_batch5.py"
+    }
+  },
+  "primary_coverage_values_documented": [
+    "model_unit",
+    "e2e_only",
+    "exempt"
+  ]
+}
