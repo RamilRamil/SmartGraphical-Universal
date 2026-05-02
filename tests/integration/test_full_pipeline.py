@@ -1,8 +1,12 @@
-"""Integration test: run the full adapter -> engine pipeline on SimpleAuction.sol.
+"""Integration tests: full adapter -> AnalysisService pipeline invariants.
 
-Asserts stable properties of the finding set (rule_id membership, non-empty
-metadata, absence of exact duplicates within each rule) instead of locking to
-full message strings.
+Primary reference is SimpleAuction.sol at repo root when present. Checked-in
+fixtures under tests/fixtures/solidity/ always run so CI does not depend on
+that optional file.
+
+Assertions mirror phase 3 of docs/testing_practices_implementation_plan.md:
+known rule_id subset, mandatory finding metadata, no duplicate messages per rule,
+every finding carries evidence.
 """
 import os
 import unittest
@@ -11,8 +15,10 @@ from collections import Counter
 from smartgraphical.services.analysis_service import AnalysisService
 
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(TESTS_DIR)
 SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
+FIXTURE_SOL_DIR = os.path.join(TESTS_DIR, "fixtures", "solidity")
 
 EXPECTED_RULE_IDS = {
     "contract_version", "unallowed_manipulation", "staking",
@@ -22,20 +28,27 @@ EXPECTED_RULE_IDS = {
 }
 
 
-class FullPipelineTests(unittest.TestCase):
+def _fixture_path(name):
+    path = os.path.join(FIXTURE_SOL_DIR, name)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(path)
+    return path
 
-    @classmethod
-    def setUpClass(cls):
-        service = AnalysisService()
-        cls.context = service.analyze(SIMPLE_AUCTION_PATH)
-        cls.findings = service.run_all(cls.context)
+
+class FullPipelineMixin:
+    findings = []
+    """Subclasses must set `findings` in setUpClass."""
 
     def test_pipeline_returns_a_list(self):
         self.assertIsInstance(self.findings, list)
 
     def test_all_finding_rule_ids_are_known(self):
         seen_rule_ids = {f.rule_id for f in self.findings}
-        self.assertTrue(seen_rule_ids.issubset(EXPECTED_RULE_IDS))
+        unknown = seen_rule_ids - EXPECTED_RULE_IDS
+        self.assertFalse(
+            unknown,
+            msg=f"Unexpected rule_id values (update EXPECTED_RULE_IDS if intentional): {unknown}",
+        )
 
     def test_findings_have_mandatory_metadata(self):
         for finding in self.findings:
@@ -55,6 +68,46 @@ class FullPipelineTests(unittest.TestCase):
                 finding.evidences,
                 msg=f"Finding {finding.rule_id} has no evidence",
             )
+
+
+@unittest.skipUnless(
+    os.path.isfile(SIMPLE_AUCTION_PATH),
+    "SimpleAuction.sol not present at repo root (optional golden contract)",
+)
+class FullPipelineSimpleAuctionTests(FullPipelineMixin, unittest.TestCase):
+    findings = []
+
+    @classmethod
+    def setUpClass(cls):
+        service = AnalysisService()
+        context = service.analyze(SIMPLE_AUCTION_PATH)
+        cls.findings = service.run_all(context)
+
+
+class FullPipelineWithdrawFixtureTests(FullPipelineMixin, unittest.TestCase):
+    """Withdraw + transfer path; fixture is always in the tree."""
+
+    findings = []
+
+    @classmethod
+    def setUpClass(cls):
+        service = AnalysisService()
+        path = _fixture_path("WithdrawNoGuard.sol")
+        context = service.analyze(path)
+        cls.findings = service.run_all(context)
+
+
+class FullPipelineMintFixtureTests(FullPipelineMixin, unittest.TestCase):
+    """External mint path; complements withdraw fixture."""
+
+    findings = []
+
+    @classmethod
+    def setUpClass(cls):
+        service = AnalysisService()
+        path = _fixture_path("ExternalMint.sol")
+        context = service.analyze(path)
+        cls.findings = service.run_all(context)
 
 
 if __name__ == "__main__":
