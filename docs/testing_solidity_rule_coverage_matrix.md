@@ -25,4 +25,9 @@ Adapter fixtures (small `.sol` under `tests/fixtures/solidity/`):
 | `WithdrawNoGuard.sol` | same |
 | `MixedMath.sol` | same |
 
-End-to-end invariant on one reference contract: `tests/integration/test_full_pipeline.py` (expects repo-root `SimpleAuction.sol`).
+End-to-end pipeline invariants (`tests/integration/test_full_pipeline.py`):
+
+- Repo-root `SimpleAuction.sol`: optional golden file; suite is skipped if missing.
+- Always-on: `WithdrawNoGuard.sol`, `ExternalMint.sol` under `tests/fixtures/solidity/`.
+
+HTTP JSON shape (`task: all`): `tests/integration/test_http_fixture_contract.py` uses `MinimalGuard.sol`; skipped if FastAPI is not installed.
