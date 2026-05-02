@@ -1,0 +1,71 @@
+{
+  "language": "solidity",
+  "meta_tasks": {
+    "all": {
+      "kind": "meta",
+      "note": "run_all shortcut in API/CLI; not a RuleSpec in build_rule_registry()."
+    }
+  },
+  "registry_tasks": {
+    "1": {
+      "slug": "contract_version",
+      "primary_coverage": "model_unit",
+      "notes": "ContractVersionRuleTests plus optional golden SimpleAuction.sol pipeline."
+    },
+    "2": {
+      "slug": "unallowed_manipulation",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_state_mutation.py"
+    },
+    "3": {
+      "slug": "staking",
+      "primary_coverage": "model_unit",
+      "notes": "StakingRuleTests in test_rules_solidity_normalized_coverage.py"
+    },
+    "4": {
+      "slug": "pool_interactions",
+      "primary_coverage": "model_unit",
+      "notes": "PoolInteractionsRuleTests plus ExternalMint.sol adapter + pipeline invariant."
+    },
+    "5": {
+      "slug": "local_points",
+      "primary_coverage": "model_unit",
+      "notes": "LocalPointsRuleTests in test_rules_solidity_normalized_coverage.py"
+    },
+    "6": {
+      "slug": "exceptions",
+      "primary_coverage": "model_unit",
+      "notes": "ExceptionsRuleTests in test_rules_solidity_normalized_coverage.py"
+    },
+    "7": {
+      "slug": "complicated_calculations",
+      "primary_coverage": "model_unit",
+      "notes": "ComputationRuleTests plus MixedMath.sol adapter fixture."
+    },
+    "8": {
+      "slug": "check_order",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_ordering.py"
+    },
+    "9": {
+      "slug": "withdraw_check",
+      "primary_coverage": "model_unit",
+      "notes": "WithdrawRuleTests plus WithdrawNoGuard.sol adapter + pipeline invariant."
+    },
+    "10": {
+      "slug": "similar_names",
+      "primary_coverage": "model_unit",
+      "notes": "SimilarNamesRuleTests (legacy rets fixture)."
+    },
+    "11": {
+      "slug": "outer_calls",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_outer_calls.py"
+    }
+  },
+  "primary_coverage_values_documented": [
+    "model_unit",
+    "e2e_only",
+    "exempt"
+  ]
+}
