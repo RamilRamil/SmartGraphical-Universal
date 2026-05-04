@@ -1,0 +1,297 @@
+{
+  "catalog_id": "soroban_rules_catalog",
+  "description": "Target rule definitions for Soroban (Rust/Stellar) contract analysis aligned with docs/graph_schema_logic_rust.md. Not wired to adapters until rust_soroban profile ships.",
+  "controlled_vocab": {
+    "scope": [
+      "rust_stellar"
+    ],
+    "severity": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ],
+    "confidence": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "catalog_block": [
+      "top_priority",
+      "long_tail_systemic"
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "missing_auth_check",
+      "title": "Missing Authorization on Public Entry That Mutates State",
+      "scope": "rust_stellar",
+      "catalog_block": "top_priority",
+      "risk_category": "authorization",
+      "rationale": "Soroban relies on explicit auth. Public impl methods that write ledger-backed storage without Address::require_auth or require_auth_for_args allow any caller to change privileged parameters or steal funds.",
+      "normalized_facts_required": [
+        "contract_impl_public_fn",
+        "storage_mutation_via_env",
+        "auth_call_absent_on_path"
+      ],
+      "evidence_anchors": [
+        "function_item",
+        "env_storage_call",
+        "contractimpl_attr"
+      ],
+      "preconditions": [
+        "Callable is reachable as an external/public contract interface under #[contractimpl].",
+        "At least one path performs env.storage persistent/instance bump-set style mutation (adapter-defined exact API surface)."
+      ],
+      "detection_logic": "Flag pub fn under #[contractimpl] that mutate via env.storage() instance or persistent accessors without Address::require_auth(), require_auth(), or require_auth_for_args(...) on control paths reaching those mutations.",
+      "false_positive_patterns": [
+        "Intentionally permissionless endpoints (simple swap helpers, onboarding flows).",
+        "Initialize paths guarded by uninitialized flag or immutable admin constraint.",
+        "Read-only wrappers that load storage without writes."
+      ],
+      "severity": "critical",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 29,
+      "protocol_limits_note": "Verify auth surface against current Soroban SDK semantics.",
+      "remediation_hint": "Require authorization on every externally reachable path that modifies critical storage; split read-only helpers from mutating endpoints.",
+      "graph_hint": "function node lacks incoming auth_check edge or lacks authorization-related metadata paired with outbound storage-write edges.",
+      "minimal_example_bad": "pub fn set_admin(env: Env, a: Address) { env.storage().instance().set(&KEY, &a); }",
+      "minimal_example_good": "pub fn set_admin(env: Env, admin: Address) { admin.require_auth(); env.storage().instance().set(&KEY, &admin); }"
+    },
+    {
+      "rule_id": "unbounded_instance_storage_growth",
+      "title": "Potentially Unbounded Structures in Instance Storage",
+      "scope": "rust_stellar",
+      "catalog_block": "top_priority",
+      "risk_category": "economic_dos",
+      "rationale": "Instance entries are loaded eagerly for interactions. Uncontrolled growth balloons gas for all callers and risks hitting ledger entry caps (past guidance near 64KiB depending on protocol version).",
+      "normalized_facts_required": [
+        "env_storage_instance_call",
+        "write_argument_type",
+        "collection_shape_dynamic"
+      ],
+      "evidence_anchors": [
+        "storage_set_call",
+        "type_use_vec_map_bytes"
+      ],
+      "preconditions": [
+        "Write targets env.storage().instance().",
+        "Value type carries variable-sized container such as Vec, Map, Bytes, String, or nested collections."
+      ],
+      "detection_logic": "Match env.storage().instance().set (or bump equivalent) whose payload type resolves to dynamically sized Soroban collection without explicit entry-size bound or chunked strategy.",
+      "false_positive_patterns": [
+        "Fixed-capacity structs or capped tiny Vec constants.",
+        "Migration paths that truncate or migrate data into bounded records."
+      ],
+      "severity": "high",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 26,
+      "protocol_limits_note": "Concrete byte and instruction ceilings depend on deployed network/protocol; treat limits as externally configured facts when scanning.",
+      "remediation_hint": "Persist large aggregates in Persistent storage with chunked keys or stream processing; enforce max length on instance payloads.",
+      "graph_hint": "function_to_storage edge to instance-backed state typed as compound collection without bound metadata.",
+      "minimal_example_bad": "env.storage().instance().set(&KEY, big_map);",
+      "minimal_example_good": "// Store bounded counters in instance and shard map keys under persistent()"
+    },
+    {
+      "rule_id": "unhandled_cross_contract_failure",
+      "title": "Fallible External Call Without Controlled Error Boundary",
+      "scope": "rust_stellar",
+      "catalog_block": "long_tail_systemic",
+      "risk_category": "cross_contract",
+      "rationale": "Non-try invokes trap the whole transaction-style failure modes in host; callers cannot branch to partial unwind or compensated refund logic often needed in DeFi composing.",
+      "normalized_facts_required": [
+        "env_invoke_contract",
+        "error_branch_missing"
+      ],
+      "evidence_anchors": [
+        "invoke_contract_call_expr"
+      ],
+      "preconditions": [
+        "Contract invokes another via env.invoke_contract or equivalent infallible host API used by toolchain."
+      ],
+      "detection_logic": "Presence of env.invoke_contract without paired try_invoke style API or downstream Result handling modeled by analyzer when available.",
+      "false_positive_patterns": [
+        "Design where any external revert must revert entire ledger change set.",
+        "Wrapper already lowering to Result in macro-generated shim (verify SDK version)."
+      ],
+      "severity": "medium",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 18,
+      "remediation_hint": "Prefer try_invoke_contract and propagate errors; reserve trapping invoke only when unconditional abort semantics are deliberate.",
+      "graph_hint": "cross-contract invoke edge with no succeeding error-handling branch modeled in CFG.",
+      "minimal_example_bad": "env.invoke_contract(&c, &s, inputs); /* no Result */",
+      "minimal_example_good": "let (_ok, rval) = env.try_invoke_contract(&c, &s, inputs)?;"
+    },
+    {
+      "rule_id": "dangerous_raw_val_conversion",
+      "title": "Complex Collection Inputs Without Validation",
+      "scope": "rust_stellar",
+      "catalog_block": "top_priority",
+      "risk_category": "input_validation",
+      "rationale": "Deep or malformed guest-provided composites can abort conversion paths, burning fees and weakening availability; low-level Val ingestion without disciplined typing is brittle.",
+      "normalized_facts_required": [
+        "public_fn_arguments",
+        "collection_param_type",
+        "contract_validation_call_absent"
+      ],
+      "evidence_anchors": [
+        "fn_parameters",
+        "type_path"
+      ],
+      "preconditions": [
+        "pub callable accepts Vec-like or Map-like parameters not obviously wrapped by #[contracttype]-generated safe conversions.",
+        "No explicit bounded checks on length/shape preceding use."
+      ],
+      "detection_logic": "Flag pub exported methods taking Vec<Map<...>>, nested collections, or raw Val-ish parameters without precondition checks or limited custom type aliases.",
+      "false_positive_patterns": [
+        "Arguments are #[contracttype] generated types enforcing host-side conversion helpers.",
+        "Immediate guard via len() <= const or iterators over bounded enums."
+      ],
+      "severity": "high",
+      "confidence": "low",
+      "autofixable": false,
+      "priority_score": 24,
+      "remediation_hint": "Model inputs as contract types, validate lengths/nesting, or split batched payloads with explicit caps.",
+      "graph_hint": "function node binds collection parameters lacking checks edge to validating helper.",
+      "minimal_example_bad": "pub fn batch(env: Env, items: Vec<Item>) { for i in items { ... } }",
+      "minimal_example_good": "Require items.len() <= MAX && items_are_well_formed();"
+    },
+    {
+      "rule_id": "missing_ttl_extension",
+      "title": "Persistent or Instance Writes Without Nearby TTL Strategy",
+      "scope": "rust_stellar",
+      "catalog_block": "long_tail_systemic",
+      "risk_category": "storage_ttl",
+      "rationale": "Archival TTL policies can relocate cold state; forgetting renewals freezes user-visible balances until off-chain/SDK restoration.",
+      "normalized_facts_required": [
+        "persistent_or_instance_write_call",
+        "ttl_extension_fact_absent"
+      ],
+      "evidence_anchors": [
+        "storage_set_persistent",
+        "extend_ttl_call"
+      ],
+      "preconditions": [
+        "Stateful write uses env.storage persistent or instance APIs subject to TTL/archival semantics for target ledger."
+      ],
+      "detection_logic": "Heuristic when storage sets occur without reachable extend_ttl across intra-procedural CFG or flagged cross-function TTL renewer (confidence medium/low).",
+      "false_positive_patterns": [
+        "Temporary-only storage deletes instead of archiving.",
+        "Dedicated keeper/cron documented out-of-band renewing TTL safely."
+      ],
+      "severity": "medium",
+      "confidence": "low",
+      "autofixable": false,
+      "priority_score": 17,
+      "remediation_hint": "Pair writes with deterministic renew helpers or periodic extension flows; document off-chain TTL keepers explicitly.",
+      "graph_hint": "Persistent/Instance state nodes without modeled extend_ttl linkage in same compilation unit heuristic.",
+      "minimal_example_bad": "env.storage().persistent().set(&k, &v); // no TTL extension modeled",
+      "minimal_example_good": "env.storage().persistent().extend_ttl(&k, min, max);"
+    },
+    {
+      "rule_id": "improper_error_signaling",
+      "title": "Bare panic! Instead of Structured Contract Errors",
+      "scope": "rust_stellar",
+      "catalog_block": "long_tail_systemic",
+      "risk_category": "fuzzing_quality",
+      "rationale": "panic_with_error! surfaces typed contract errors aiding fuzzers (for example tooling like OrCa) to separate expected logic aborts from unexpected faults; naked panic!/assert hides that signal.",
+      "normalized_facts_required": [
+        "macro_invocation_kind",
+        "test_only_cfg_absent"
+      ],
+      "evidence_anchors": [
+        "macro_call_site"
+      ],
+      "preconditions": [
+        "Macro appears in shipped contract crate (exclude #[cfg(test)] trees)."
+      ],
+      "detection_logic": "Match panic!, assert!, debug_assert! in contract logic excluding test-only gated modules.",
+      "false_positive_patterns": [
+        "Code under #[cfg(test)] or fuzz-only harness crates.",
+        "Unreachable internal invariants guarded by exhaustive matches when provably unreachable."
+      ],
+      "severity": "low",
+      "confidence": "high",
+      "autofixable": false,
+      "audit_weight_note": "Informational/low for release safety; elevate for fuzzing pipelines.",
+      "priority_score": 10,
+      "remediation_hint": "Replace with panic_with_error! and canonical ContractError enums where applicable.",
+      "graph_hint": "function node flagged has_panic without structured panic_with_error!",
+      "minimal_example_bad": "panic!(\"invalid\");",
+      "minimal_example_good": "panic_with_error!(&env, ContractError::InvalidArg);"
+    },
+    {
+      "rule_id": "resource_limit_exhaustion_loop",
+      "title": "Loop Performing Repeated Ledger Reads",
+      "scope": "rust_stellar",
+      "catalog_block": "long_tail_systemic",
+      "risk_category": "economic_dos",
+      "rationale": "Storage reads dominate resource accounting; iterating keys or querying inside tight loops burns IO budget and risks instruction overflows for realistic ledger caps.",
+      "normalized_facts_required": [
+        "loop_construct",
+        "storage_read_inside_body",
+        "iteration_bound_unknown"
+      ],
+      "evidence_anchors": [
+        "for_while_stmt",
+        "env_storage_read"
+      ],
+      "preconditions": [
+        "Loop executes env.storage getter or enumerator each iteration.",
+        "Iteration upper bound depends on ledger-sized collections without static small constant proof."
+      ],
+      "detection_logic": "CFG contains back-edge guarded loop body that always performs storage reads without constant max iterations proven by analyzer.",
+      "false_positive_patterns": [
+        "Compiler-time constant loops with tiny fixed bounds.",
+        "Preloaded snapshot fetched once outside loop reused inside."
+      ],
+      "severity": "medium",
+      "confidence": "medium",
+      "autofixable": false,
+      "priority_score": 16,
+      "protocol_limits_note": "Historical protocol guidance cited 100 ledger reads per tx and tight IO budgets; confirm current limits for deployments.",
+      "remediation_hint": "Batch-fetch or paginate; store indices off-chain or cap fan-out with explicit deterministic limits.",
+      "graph_hint": "function_to_storage read edge occurring inside cyclic control-flow region.",
+      "minimal_example_bad": "while i < n { env.storage().persistent().get(&Key(i)); i += 1 }",
+      "minimal_example_good": "Load bounded page once; iterate in-memory slice with MAX_PAGE."
+    },
+    {
+      "rule_id": "constructor_reinitialization_risk",
+      "title": "Constructor-Like Entry Missing Reinit Guards",
+      "scope": "rust_stellar",
+      "catalog_block": "long_tail_systemic",
+      "risk_category": "upgrade_migration",
+      "rationale": "Mis-modeled initializer around deploy and wasm upgrade migrations can reopen admin takeover if admin slot can be rewritten without precondition checks.",
+      "normalized_facts_required": [
+        "constructor_like_symbol",
+        "storage_write_admin_like_key",
+        "single_init_guard_absent"
+      ],
+      "evidence_anchors": [
+        "function_named_constructor",
+        "storage_writes"
+      ],
+      "preconditions": [
+        "Symbol matches __constructor or project-specific initializer flagged by conventions.",
+        "Function writes privileged role key without asserting prior unset state."
+      ],
+      "detection_logic": "Flag initializer-shaped entry writing admin-critical storage without assert-not-initialized predicate or keyed migration token.",
+      "false_positive_patterns": [
+        "Stateless libraries without privileged keys.",
+        "Upgrade-only migration guarded by multisig-managed flag stored immutably after first deploy."
+      ],
+      "severity": "high",
+      "confidence": "low",
+      "autofixable": false,
+      "priority_score": 23,
+      "protocol_limits_note": "Exact constructor/migration semantics depend on Soroban SDK/version; reconcile rule with release notes before enforcement.",
+      "remediation_hint": "Enforce exactly-once init and separate migration entrypoints with audited auth and versioned state transitions.",
+      "graph_hint": "function resembling __constructor writing admin state lacks already_initialized check edge.",
+      "minimal_example_bad": "pub fn __constructor(env: Env, admin: Address) { env.storage().instance().set(&ADMIN, &admin); }",
+      "minimal_example_good": "Ensure admin slot empty or guarded by migrate-only privilege before write."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "language": "rust",
+  "description": "Drift gate: registry vs tests for combined Rust analyzer (tasks 201-223).",
+  "registry_source": "smartgraphical.adapters.rust_stellar.adapter.build_rust_rule_registry",
+  "tasks": [
+    {"id": "201", "slug": "missing_auth_check"},
+    {"id": "202", "slug": "unbounded_instance_storage_growth"},
+    {"id": "203", "slug": "unhandled_cross_contract_failure"},
+    {"id": "204", "slug": "dangerous_raw_val_conversion"},
+    {"id": "205", "slug": "missing_ttl_extension"},
+    {"id": "206", "slug": "improper_error_signaling"},
+    {"id": "207", "slug": "resource_limit_exhaustion_loop"},
+    {"id": "208", "slug": "constructor_reinitialization_risk"},
+    {"id": "209", "slug": "undocumented_unsafe_block"},
+    {"id": "210", "slug": "static_mut_ref_access"},
+    {"id": "211", "slug": "interior_mutability_sync_violation"},
+    {"id": "212", "slug": "unprotected_panic_in_public_api"},
+    {"id": "213", "slug": "redundant_arc_clone_in_loop"},
+    {"id": "214", "slug": "missing_async_fn_trait_bound"},
+    {"id": "215", "slug": "temporary_lifetime_extension_confusion"},
+    {"id": "216", "slug": "forbidden_std_usage"},
+    {"id": "217", "slug": "non_deterministic_state_root"},
+    {"id": "218", "slug": "async_boundary_panic_leak"},
+    {"id": "219", "slug": "serde_binary_codec_mismatch"},
+    {"id": "220", "slug": "divergent_fork_choice_assumptions"},
+    {"id": "221", "slug": "gas_limit_cl_el_mismatch"},
+    {"id": "222", "slug": "unbounded_proposal_range"},
+    {"id": "223", "slug": "tee_side_channel_via_panic"}
+  ]
+}

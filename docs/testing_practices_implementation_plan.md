@@ -81,6 +81,12 @@
 
 **Критерий готовности:** обычный CI остаётся быстрым; тяжёлое — по маркеру или расписанию.
 
+**Сделано (минимально):**
+
+- Общая функция `narrow_normalized_model_shape_json` в `tests/integration/pipeline_invariant_helpers.py`.
+- Узкий снимок имени языка/basename типа/spисков функций и `state_entities` для `MinimalGuard.sol` и `WithdrawNoGuard.sol`: `tests/integration/test_solidity_adapter_fixtures.py` (`*_phase5_shape_snapshot`). Аналогично для C: `MinimalTu.c`, `FloatToUintCast.c` в `tests/integration/test_c_adapter_fixtures.py`. Формат: `json.dumps(..., sort_keys=True, separators=(",", ":"))` без пробелов.
+- Прогон **integration_large**: класс `IntegrationLargePipelineBudgetTests` в `tests/integration/test_full_pipeline.py`. По умолчанию **пропуск** (`skip`). Включение: переменная окружения **`SMARTGRAPHICAL_RUN_INTEGRATION_LARGE=1`**; лимит секунд — **`SMARTGRAPHICAL_PIPELINE_BATCH_BUDGET_SEC`** (по умолчанию `60`) на партию из четырёх Solidity-фикстур подряд (`analyze` + `run_all` на каждой).
+
 ## Порядок внедрения
 
 1. Фаза 1 — максимальный эффект при текущей архитектуре.
@@ -111,9 +117,9 @@
 
 Фазы **1–4** для **Solidity** и **C** закрыты в виде кода и манифестов; дальше по приоритету:
 
-1. **Фаза 5 (по необходимости):** узкие снимки структур, отдельный медленный прогон / лимит времени на большой фикстуре — не включать в быстрый CI по умолчанию.
+1. **Фаза 5:** базовые узкие снимки и opt-in **`SMARTGRAPHICAL_RUN_INTEGRATION_LARGE`** уже в коде; при необходимости расширить снимки на другие фикстуры или поднять бюджет/large-сценарий (например `SimpleAuction.sol` в корне) — без включения тяжёлого в дефолтный CI.
 2. **Стабильность существующего набора:** привести к зелёному состоянию тесты, которые падают из‑за окружения (пути, отсутствие `SimpleAuction.sol`, опциональный FastAPI), если они входят в обязательный CI.
-3. **Интеграция адаптера C (по аналогии с Solidity):** небольшие `.c` фикстуры под `tests/fixtures/c/` + тесты «контракт нормализации», если нужен такой же слой уверенности, что у `.sol`.
+3. **Интеграция адаптера C:** сделано — `tests/fixtures/c/` (`MinimalTu.c`, `FloatToUintCast.c`), `test_c_adapter_fixtures.py`, `test_full_pipeline_c_fixtures.py`, `test_http_c_fixture_contract.py` (HTTP при наличии FastAPI).
 4. **Связка с продуктом:** при **многофайловом анализе** (`docs/multi_file_analysis_plan.md`) — расширить E2E и HTTP-контракт под bundle, не ломая сценарий «один файл».
 
 Новое **правило** в реестре: обновить JSON манифест (`solidity_task_coverage.json` / `c_task_coverage.json`) в том же PR, иначе сработает гейт-тест.

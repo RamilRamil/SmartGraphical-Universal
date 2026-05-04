@@ -19,6 +19,7 @@ from .schemas import RunScanRequest
 
 
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+MAX_BATCH_ARTIFACT_FILES = 32
 
 
 def get_history_service(request: Request) -> HistoryService:
@@ -53,6 +54,81 @@ def build_router() -> APIRouter:
                 f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
             )
         return service.ingest_upload(data, file.filename or "source")
+
+    @router.post("/artifacts/batch", status_code=200)
+    async def upload_artifacts_batch(
+        files: list[UploadFile] = File(...),
+        service: HistoryService = Depends(get_history_service),
+    ):
+        """Ingest multiple files as separate artifacts (mode 1: independent uploads).
+
+        Each file is validated like POST /artifacts. Per-file failures appear in
+        ``items`` with ``ok: false``; the response is still 200 if the request
+        shape is valid. Empty batch or too many files -> 400.
+        """
+        if not files:
+            raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in batch")
+        if len(files) > MAX_BATCH_ARTIFACT_FILES:
+            raise HistoryError(
+                ERROR_INVALID_PAYLOAD,
+                f"batch exceeds {MAX_BATCH_ARTIFACT_FILES} files",
+            )
+        items = []
+        ok_count = 0
+        for upload in files:
+            name = upload.filename or "source"
+            try:
+                data = await upload.read()
+                if len(data) == 0:
+                    raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
+                if len(data) > MAX_UPLOAD_BYTES:
+                    raise HistoryError(
+                        ERROR_UNSUPPORTED_FILE,
+                        f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                    )
+                artifact = service.ingest_upload(data, name)
+                items.append({"ok": True, "artifact": artifact})
+                ok_count += 1
+            except HistoryError as exc:
+                items.append({
+                    "ok": False,
+                    "filename": name,
+                    "code": exc.code,
+                    "message": exc.message,
+                })
+        return {
+            "items": items,
+            "summary": {
+                "ok": ok_count,
+                "error": len(items) - ok_count,
+            },
+        }
+
+    @router.post("/artifacts/bundle", status_code=201)
+    async def upload_artifact_bundle(
+        files: list[UploadFile] = File(...),
+        service: HistoryService = Depends(get_history_service),
+    ):
+        """Ingest multiple files as one artifact (mode 2: combined graph)."""
+        if not files:
+            raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
+        if len(files) > MAX_BATCH_ARTIFACT_FILES:
+            raise HistoryError(
+                ERROR_INVALID_PAYLOAD,
+                f"batch exceeds {MAX_BATCH_ARTIFACT_FILES} files",
+            )
+        parts = []
+        for upload in files:
+            data = await upload.read()
+            if len(data) == 0:
+                raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HistoryError(
+                    ERROR_UNSUPPORTED_FILE,
+                    f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                )
+            parts.append((data, upload.filename or "source"))
+        return service.ingest_bundle_upload(parts)
 
     @router.get("/artifacts")
     def list_artifacts(

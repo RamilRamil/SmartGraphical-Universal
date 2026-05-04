@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { RunScanForm } from "../components/RunScanForm";
 import { SgApiError } from "../api/client";
-import { useUploadArtifact } from "../api/hooks";
-import type { Artifact } from "../api/types";
+import { useUploadArtifactBundle, useUploadArtifactsBatch } from "../api/hooks";
+import type { Artifact, BatchUploadResponse } from "../api/types";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = [".sol", ".c", ".h"];
+const MAX_BATCH_FILES = 32;
+const ALLOWED_EXTENSIONS = [".sol", ".c", ".h", ".rs"];
 
 function detectLanguage(fileName: string): string | null {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".sol")) return "solidity";
+  if (lower.endsWith(".rs")) return "rust";
   if (lower.endsWith(".c") || lower.endsWith(".h")) return "c";
   return null;
 }
@@ -29,60 +31,114 @@ function formatApiError(err: unknown): string {
   return "Unknown error";
 }
 
+function validateFilesArray(
+  files: File[],
+  layout: "separate" | "combined",
+): { ok: true; files: File[] } | { ok: false; error: string } {
+  if (files.length === 0) {
+    return { ok: false, error: "No files selected." };
+  }
+  if (files.length > MAX_BATCH_FILES) {
+    return { ok: false, error: `At most ${MAX_BATCH_FILES} files per batch.` };
+  }
+  for (const f of files) {
+    if (f.size === 0) {
+      return { ok: false, error: `${f.name} is empty.` };
+    }
+    if (f.size > MAX_UPLOAD_BYTES) {
+      return { ok: false, error: `${f.name} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
+    }
+    const allowed = ALLOWED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
+    if (!allowed) {
+      return {
+        ok: false,
+        error: `${f.name}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
+      };
+    }
+  }
+  if (layout === "combined") {
+    const langs = new Set<string>();
+    for (const f of files) {
+      const d = detectLanguage(f.name);
+      if (d) langs.add(d);
+    }
+    if (langs.size > 1) {
+      return {
+        ok: false,
+        error: "Combined upload requires files in a single language.",
+      };
+    }
+  }
+  return { ok: true, files };
+}
+
+function validateFileList(
+  list: FileList | null,
+  layout: "separate" | "combined",
+): { ok: true; files: File[] } | { ok: false; error: string } {
+  if (!list || list.length === 0) {
+    return { ok: false, error: "No files selected." };
+  }
+  return validateFilesArray(Array.from(list), layout);
+}
+
 export function UploadPage() {
   const navigate = useNavigate();
-  const [file, setFile] = useState<File | null>(null);
+  const [uploadLayout, setUploadLayout] = useState<"separate" | "combined">("separate");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
-  const [uploaded, setUploaded] = useState<Artifact | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchUploadResponse | null>(null);
+  const [bundleArtifact, setBundleArtifact] = useState<Artifact | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const uploadMutation = useUploadArtifact();
+  const batchMutation = useUploadArtifactsBatch();
+  const bundleMutation = useUploadArtifactBundle();
 
-  const detectedLanguage = useMemo(
-    () => (file ? detectLanguage(file.name) : null),
-    [file],
-  );
+  const previewLanguages = useMemo(() => {
+    const langs = new Set<string>();
+    for (const f of pendingFiles) {
+      const d = detectLanguage(f.name);
+      if (d) langs.add(d);
+    }
+    return Array.from(langs).sort().join(", ") || "unknown";
+  }, [pendingFiles]);
 
-  function validateAndSetFile(next: File | null) {
+  function applyFileList(list: FileList | null) {
     setClientError(null);
-    setUploaded(null);
-    if (!next) {
-      setFile(null);
+    setBatchResult(null);
+    setBundleArtifact(null);
+    const result = validateFileList(list, uploadLayout);
+    if (!result.ok) {
+      setClientError(result.error);
+      setPendingFiles([]);
       return;
     }
-    if (next.size === 0) {
-      setClientError("File is empty.");
-      setFile(null);
-      return;
+    setPendingFiles(result.files);
+  }
+
+  function handleLayoutChange(next: "separate" | "combined") {
+    setUploadLayout(next);
+    setClientError(null);
+    setBatchResult(null);
+    setBundleArtifact(null);
+    batchMutation.reset();
+    bundleMutation.reset();
+    if (pendingFiles.length === 0) return;
+    const v = validateFilesArray(pendingFiles, next);
+    if (!v.ok) {
+      setClientError(v.error);
+      setPendingFiles([]);
     }
-    if (next.size > MAX_UPLOAD_BYTES) {
-      setClientError(`File exceeds ${MAX_UPLOAD_BYTES} bytes.`);
-      setFile(null);
-      return;
-    }
-    const hasAllowedExt = ALLOWED_EXTENSIONS.some((ext) =>
-      next.name.toLowerCase().endsWith(ext),
-    );
-    if (!hasAllowedExt) {
-      setClientError(
-        `Unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
-      );
-      setFile(null);
-      return;
-    }
-    setFile(next);
   }
 
   function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.files && event.target.files[0];
-    validateAndSetFile(next ?? null);
+    applyFileList(event.target.files);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragOver(false);
-    const next = event.dataTransfer.files && event.dataTransfer.files[0];
-    validateAndSetFile(next ?? null);
+    applyFileList(event.dataTransfer.files);
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -97,25 +153,89 @@ export function UploadPage() {
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file) return;
+    if (pendingFiles.length === 0) return;
     try {
-      const artifact = await uploadMutation.mutateAsync(file);
-      setUploaded(artifact);
+      if (uploadLayout === "combined") {
+        const art = await bundleMutation.mutateAsync(pendingFiles);
+        setBundleArtifact(art);
+      } else {
+        const data = await batchMutation.mutateAsync(pendingFiles);
+        setBatchResult(data);
+      }
     } catch {
-      // surfaced via uploadMutation.error
+      // surfaced via mutation.error
     }
   }
 
-  const uploadError = uploadMutation.error
-    ? formatApiError(uploadMutation.error)
-    : null;
+  const uploadError =
+    batchMutation.error || bundleMutation.error ? formatApiError(batchMutation.error || bundleMutation.error) : null;
+
+  const singleSuccessArtifact: Artifact | null = useMemo(() => {
+    if (!batchResult) return null;
+    if (batchResult.summary.ok !== 1 || batchResult.summary.error !== 0) return null;
+    const okRows = batchResult.items.filter((x): x is { ok: true; artifact: Artifact } => x.ok);
+    if (okRows.length !== 1) return null;
+    const only = okRows[0];
+    return only ? only.artifact : null;
+  }, [batchResult]);
+
+  const resultSuccesses = useMemo(() => {
+    if (!batchResult) return [];
+    return batchResult.items.filter((x) => x.ok) as Array<{ ok: true; artifact: Artifact }>;
+  }, [batchResult]);
+
+  const resultFailures = useMemo(() => {
+    if (!batchResult) return [];
+    return batchResult.items.filter((x) => !x.ok) as Array<{
+      ok: false;
+      filename: string;
+      code: string;
+      message: string;
+    }>;
+  }, [batchResult]);
+
+  function resetFlow() {
+    setBatchResult(null);
+    setBundleArtifact(null);
+    setPendingFiles([]);
+    setClientError(null);
+    batchMutation.reset();
+    bundleMutation.reset();
+  }
+
+  const showForm = !batchResult && !bundleArtifact;
+  const uploadPending = batchMutation.isPending || bundleMutation.isPending;
 
   return (
     <section className="sg-page">
-      <h1 className="sg-page__title">Upload artifact</h1>
+      <h1 className="sg-page__title">Upload artifacts</h1>
 
-      {!uploaded && (
+      {showForm && (
         <form className="sg-form" onSubmit={handleUpload}>
+          <fieldset className="sg-form__fieldset" style={{ border: "none", padding: 0, margin: "0 0 1rem" }}>
+            <legend className="sg-form__hint" style={{ marginBottom: "0.5rem" }}>
+              Upload mode
+            </legend>
+            <label style={{ marginRight: "1.25rem" }}>
+              <input
+                type="radio"
+                name="uploadLayout"
+                checked={uploadLayout === "separate"}
+                onChange={() => handleLayoutChange("separate")}
+              />{" "}
+              Separate artifacts (one scan target per file)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="uploadLayout"
+                checked={uploadLayout === "combined"}
+                onChange={() => handleLayoutChange("combined")}
+              />{" "}
+              Combined graph (one artifact; graph merges all files in one language)
+            </label>
+          </fieldset>
+
           <div
             className={`sg-dropzone${isDragOver ? " sg-dropzone--active" : ""}`}
             onDrop={handleDrop}
@@ -123,94 +243,138 @@ export function UploadPage() {
             onDragLeave={handleDragLeave}
           >
             <p className="sg-dropzone__label">
-              Drag and drop a source file here, or select it manually.
+              {uploadLayout === "combined"
+                ? "Drop or select multiple files for one bundle. C: .c/.h includes; Solidity: import of other .sol in the bundle; Rust: mod / use crate:: / use super:: to other .rs. Union graph plus these links."
+                : "Drag and drop source files here, or select them (multiple allowed). Each file becomes a separate artifact."}
             </p>
             <input
               type="file"
-              accept=".sol,.c,.h"
+              accept=".sol,.c,.h,.rs"
+              multiple
               onChange={handleFileInput}
-              aria-label="Source file"
+              aria-label="Source files"
             />
             <p className="sg-form__hint">
-              Limit {formatSize(MAX_UPLOAD_BYTES)}. Allowed:{" "}
-              {ALLOWED_EXTENSIONS.join(", ")}.
+              Max {MAX_BATCH_FILES} files; {formatSize(MAX_UPLOAD_BYTES)} per file.
+              Allowed: {ALLOWED_EXTENSIONS.join(", ")}.
             </p>
           </div>
 
           {clientError && <p className="sg-banner sg-banner--error">{clientError}</p>}
 
-          {file && (
+          {pendingFiles.length > 0 && (
             <div className="sg-preview">
               <div>
-                <span className="sg-preview__label">File</span>
-                <span className="sg-preview__value">{file.name}</span>
+                <span className="sg-preview__label">Files</span>
+                <span className="sg-preview__value">{pendingFiles.length} selected</span>
               </div>
+              <ul className="sg-form__hint" style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem" }}>
+                {pendingFiles.map((f) => (
+                  <li key={`${f.name}-${f.size}-${f.lastModified}`}>
+                    {f.name} ({formatSize(f.size)})
+                  </li>
+                ))}
+              </ul>
               <div>
-                <span className="sg-preview__label">Size</span>
-                <span className="sg-preview__value">{formatSize(file.size)}</span>
-              </div>
-              <div>
-                <span className="sg-preview__label">Detected language</span>
-                <span className="sg-preview__value">
-                  {detectedLanguage ?? "unknown"}
-                </span>
+                <span className="sg-preview__label">Languages (detected)</span>
+                <span className="sg-preview__value">{previewLanguages}</span>
               </div>
             </div>
           )}
 
-          {uploadError && (
-            <p className="sg-banner sg-banner--error">Upload failed: {uploadError}</p>
-          )}
+          {uploadError && <p className="sg-banner sg-banner--error">Upload failed: {uploadError}</p>}
 
           <button
             type="submit"
             className="sg-button sg-button--primary"
-            disabled={!file || uploadMutation.isPending}
+            disabled={pendingFiles.length === 0 || uploadPending}
           >
-            {uploadMutation.isPending ? "Uploading..." : "Upload"}
+            {uploadPending
+              ? "Uploading..."
+              : pendingFiles.length <= 1
+                ? "Upload"
+                : `Upload ${pendingFiles.length} files`}
           </button>
         </form>
       )}
 
-      {uploaded && (
+      {bundleArtifact && (
         <div className="sg-form">
-          <div className="sg-preview">
-            <div>
-              <span className="sg-preview__label">Artifact</span>
-              <span className="sg-preview__value">
-                #{uploaded.id} {uploaded.filename}
-              </span>
-            </div>
-            <div>
-              <span className="sg-preview__label">Language</span>
-              <span className="sg-preview__value">{uploaded.language}</span>
-            </div>
-            <div>
-              <span className="sg-preview__label">SHA256</span>
-              <span className="sg-preview__value sg-preview__value--mono">
-                {uploaded.sha256.slice(0, 16)}...
-              </span>
-            </div>
-          </div>
-
+          <p className="sg-form__hint">
+            Combined artifact created. Findings are merged; the graph unions per-file models and adds explicit links for C includes, Solidity imports, and Rust module references when they point at other files in the bundle.
+          </p>
+          <p>
+            <Link className="sg-link" to={`/artifacts/${bundleArtifact.id}`}>
+              #{bundleArtifact.id} {bundleArtifact.filename}
+            </Link>{" "}
+            ({bundleArtifact.language})
+          </p>
           <RunScanForm
-            artifactId={uploaded.id}
-            language={uploaded.language}
+            artifactId={bundleArtifact.id}
+            language={bundleArtifact.language}
             onSuccess={(scan) => navigate(`/scans/${scan.id}`)}
           />
+          <div className="sg-form__actions">
+            <button type="button" className="sg-button" onClick={resetFlow}>
+              Upload more files
+            </button>
+            <Link to="/history" className="sg-button sg-button--ghost">
+              History
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {batchResult && (
+        <div className="sg-form">
+          <p className="sg-form__hint">
+            Uploaded {batchResult.summary.ok} ok, {batchResult.summary.error} failed.
+          </p>
+
+          {resultSuccesses.length > 0 && (
+            <div className="sg-preview">
+              <span className="sg-preview__label">Artifacts</span>
+              <ul className="sg-form__hint" style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem" }}>
+                {resultSuccesses.map((row) => (
+                  <li key={`${row.artifact.id}-${row.artifact.filename}`}>
+                    <Link to={`/artifacts/${row.artifact.id}`}>
+                      #{row.artifact.id} {row.artifact.filename}
+                    </Link>{" "}
+                    ({row.artifact.language})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {resultFailures.length > 0 && (
+            <div className="sg-banner sg-banner--error">
+              <strong>Failed</strong>
+              <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem" }}>
+                {resultFailures.map((row) => (
+                  <li key={row.filename}>
+                    {row.filename}: {row.code} — {row.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {singleSuccessArtifact && (
+            <RunScanForm
+              artifactId={singleSuccessArtifact.id}
+              language={singleSuccessArtifact.language}
+              onSuccess={(scan) => navigate(`/scans/${scan.id}`)}
+            />
+          )}
 
           <div className="sg-form__actions">
-            <button
-              type="button"
-              className="sg-button"
-              onClick={() => {
-                setUploaded(null);
-                setFile(null);
-                uploadMutation.reset();
-              }}
-            >
-              Upload another file
+            <button type="button" className="sg-button" onClick={resetFlow}>
+              Upload more files
             </button>
+            <Link to="/history" className="sg-button sg-button--ghost">
+              History
+            </Link>
           </div>
         </div>
       )}

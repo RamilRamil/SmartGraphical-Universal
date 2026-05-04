@@ -1,0 +1,224 @@
+{
+  "catalog_id": "rust_language_rules_catalog",
+  "description": "Rust language ergonomics/safety helpers (tasks 209-216) and Base Azul-oriented review heuristics (217-223) on the shared .rs adapter.",
+  "controlled_vocab": {
+    "scope": [
+      "rust"
+    ],
+    "severity": [
+      "info",
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "undocumented_unsafe_block",
+      "title": "Unsafe block or attribute without SAFETY commentary",
+      "scope": "rust",
+      "block": "critical_safety_concurrency",
+      "risk_category": "safety",
+      "severity": "high",
+      "task_id": "209",
+      "summary": "Require // SAFETY: before unsafe blocks and #[unsafe(...)] uses (skip cfg(test)).",
+      "graph_hint": "function node flagged has_unsafe:true"
+    },
+    {
+      "rule_id": "static_mut_ref_access",
+      "title": "Borrow of static mut binding",
+      "scope": "rust",
+      "block": "critical_safety_concurrency",
+      "risk_category": "safety",
+      "severity": "critical",
+      "task_id": "210",
+      "summary": "Flag references to identifiers declared via static mut.",
+      "graph_hint": "edge from function to state static_mut"
+    },
+    {
+      "rule_id": "interior_mutability_sync_violation",
+      "title": "Interior mutability constructs near spawning APIs",
+      "scope": "rust",
+      "block": "critical_safety_concurrency",
+      "risk_category": "concurrency",
+      "severity": "high",
+      "task_id": "211",
+      "summary": "Heuristic coupling of RefCell/Cell types with threading entrypoints.",
+      "graph_hint": "compound type lacks Sync trait binding"
+    },
+    {
+      "rule_id": "unprotected_panic_in_public_api",
+      "title": "panic!, unwrap, expect exposed publicly",
+      "scope": "rust",
+      "block": "quality_errors",
+      "risk_category": "quality",
+      "severity": "medium",
+      "task_id": "212",
+      "summary": "Prefer Result over traps in externally visible functions (skips cfg(test) attrs).",
+      "graph_hint": "function flagged has_panic"
+    },
+    {
+      "rule_id": "redundant_arc_clone_in_loop",
+      "title": "Arc/Rc clones after loop anchors",
+      "scope": "rust",
+      "block": "quality_errors",
+      "risk_category": "performance",
+      "severity": "low",
+      "task_id": "213",
+      "summary": "Cheap positional heuristic for clones following for/while headers.",
+      "graph_hint": "clone call inside cyclic region"
+    },
+    {
+      "rule_id": "missing_async_fn_trait_bound",
+      "title": "Legacy async Fn ergonomics audit",
+      "scope": "rust",
+      "block": "quality_errors",
+      "risk_category": "async",
+      "severity": "info",
+      "task_id": "214",
+      "summary": "Suggests migration toward AsyncFn* when Fn+Future footprints appear.",
+      "graph_hint": "function taking async closure futures"
+    },
+    {
+      "rule_id": "temporary_lifetime_extension_confusion",
+      "title": "Suspicious borrowing of temporaries",
+      "scope": "rust",
+      "block": "quality_errors",
+      "risk_category": "quality",
+      "severity": "medium",
+      "task_id": "215",
+      "summary": "Greps let bindings that borrow unnamed temporaries outright.",
+      "graph_hint": "function with complex temporaries metadata"
+    },
+    {
+      "rule_id": "forbidden_std_usage",
+      "title": "std:: paths under crate no_std",
+      "scope": "rust",
+      "block": "no_std_wasm",
+      "risk_category": "determinism",
+      "severity": "high",
+      "task_id": "216",
+      "summary": "Blocks std references when#![no_std] is declared (respects cfg-gated helpers).",
+      "graph_hint": "external node std facade"
+    },
+    {
+      "rule_id": "non_deterministic_state_root",
+      "title": "Non-deterministic collections in state-root or commitment paths",
+      "scope": "rust",
+      "block": "base_azul_determinism",
+      "risk_category": "determinism",
+      "severity": "high",
+      "task_id": "217",
+      "summary": "HashMap/HashSet iteration order can fork Merkle/state derivations; prefer BTreeMap or sorted serialization.",
+      "trigger": "HashMap or HashSet from std appears alongside state-root/Merkle/commitment-style logic.",
+      "rationale": "Any iteration-order nondeterminism breaks cross-node state hashes in EL stacks derived from Reth-style execution.",
+      "actionable_check": "Replace with BTreeMap or sort keys before hashing; audit trie/commitment builders.",
+      "graph_hint": "collection type participates in hashing pipeline"
+    },
+    {
+      "rule_id": "async_boundary_panic_leak",
+      "title": "Panic or unwrap leaking across async spawn boundaries",
+      "scope": "rust",
+      "block": "base_azul_concurrency",
+      "risk_category": "concurrency",
+      "severity": "high",
+      "task_id": "218",
+      "summary": "unwrap/expect/panic! near tokio/task spawn risks isolated task failure and partial EL/batcher state.",
+      "trigger": "tokio::spawn or task::spawn shares a region with unwrap/expect/panic!.",
+      "rationale": "Detached tasks may panic without tearing down the whole node, leaving half-committed pipeline state.",
+      "actionable_check": "Propagate Result across spawn boundaries; consider catch_unwind at service edges where justified.",
+      "graph_hint": "async task boundary without structured error propagation"
+    },
+    {
+      "rule_id": "serde_binary_codec_mismatch",
+      "title": "Serde schema drift risk between CL and EL commitments",
+      "scope": "rust",
+      "block": "base_azul_serialization",
+      "risk_category": "binary_codecs",
+      "severity": "critical",
+      "task_id": "219",
+      "summary": "serde(flatten) or unchecked derive layouts can diverge across base-consensus vs base-reth-node crates.",
+      "trigger": "#[serde(flatten)] plus Serialize/Deserialize on commitment-facing structs.",
+      "rationale": "Binary interpretation mismatch breaks block/proposal verification between CL and EL.",
+      "actionable_check": "Align canonical layouts; compare structs across crates; prefer explicit field order/repr where needed.",
+      "graph_hint": "derive serde on cross-boundary payload"
+    },
+    {
+      "rule_id": "divergent_fork_choice_assumptions",
+      "title": "Fork-choice or finality constants misaligned across EL and CL",
+      "scope": "rust",
+      "block": "base_azul_consensus",
+      "risk_category": "consensus",
+      "severity": "critical",
+      "task_id": "220",
+      "summary": "EL safety vs CL confirmation thresholds must match (distance/finality constants).",
+      "trigger": "Fork-choice structs/helpers appear without evidence of shared constant modules.",
+      "rationale": "Earlier EL safety than CL risks building on heads CL later reorgs.",
+      "actionable_check": "Diff fork-choice rules and MAX_SAFE/FINALITY-style constants across base-consensus and base-reth-node.",
+      "graph_hint": "dual-client fork-choice decision surface"
+    },
+    {
+      "rule_id": "gas_limit_cl_el_mismatch",
+      "title": "Gas or execution env mismatch between batching and EL execution",
+      "scope": "rust",
+      "block": "base_azul_execution",
+      "risk_category": "execution",
+      "severity": "high",
+      "task_id": "221",
+      "summary": "Different Env/basefee/gas caps between batcher simulation and Reth executor halt the chain.",
+      "trigger": "gas_limit tuning appears alongside batcher-style paths without shared Env helpers.",
+      "rationale": "Accepted txs that EL rejects stall derivation or sequencing.",
+      "actionable_check": "Ensure batcher and executor share the same env builder and limit checks.",
+      "graph_hint": "transaction validation dual stack"
+    },
+    {
+      "rule_id": "unbounded_proposal_range",
+      "title": "Proposal block ranges missing sane bounds",
+      "scope": "rust",
+      "block": "base_azul_network",
+      "risk_category": "logic",
+      "severity": "high",
+      "task_id": "222",
+      "summary": "Huge proposal ranges can DoS nodes loading state or proofs.",
+      "trigger": "Proposal-like u64 start/end fields without checked span validation.",
+      "rationale": "Attackers can force OOM or excessive IO during range replay.",
+      "actionable_check": "Enforce end>=start, span caps vs MAX_BATCH_SIZE, resource budgets on ingress proposals.",
+      "graph_hint": "proposal validation ingress"
+    },
+    {
+      "rule_id": "tee_side_channel_via_panic",
+      "title": "Distinct panic paths in TEE signing flows",
+      "scope": "rust",
+      "block": "base_azul_tee",
+      "risk_category": "safety",
+      "severity": "high",
+      "task_id": "223",
+      "summary": "Mixing panic_with_error-style macros with plain panic! may leak timing/inference signals.",
+      "trigger": "panic_with_error and panic! both appear (Rust-side signing helpers).",
+      "rationale": "Different error paths can enable observable side channels against signing secrecy goals.",
+      "actionable_check": "Unify error handling; prefer constant-time comparisons on secrets where relevant.",
+      "graph_hint": "TEE-adjacent Rust signer"
+    }
+  ],
+  "review_scenarios": [
+    {
+      "id": "replay_intermediate_commitment",
+      "prompt": "Can an old intermediate commitment be replayed if sequence numbers are outside the signed digest?"
+    },
+    {
+      "id": "hardfork_activation_reorg",
+      "prompt": "If hardfork activates at block N but a depth-1 reorg replaces N with N', does Reth activation logic stay deterministic?"
+    },
+    {
+      "id": "archival_pruned_state",
+      "prompt": "If CL requests state base-reth-node already pruned or archived, does recovery or error handling remain safe and deterministic?"
+    }
+  ],
+  "review_checklist": [
+    "Hash pipelines use only deterministic iteration orders for commitments/state roots.",
+    "Every ingress batch or proposal enforces CPU/memory-friendly bounds.",
+    "Unsafe blocks keep // SAFETY: notes and preserve EL invariants.",
+    "Derivation logic avoids SystemTime::now(); prefer ledger/consensus timestamps from Env."
+  ]
+}

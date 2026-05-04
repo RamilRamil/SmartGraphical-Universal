@@ -5,7 +5,10 @@ All serializers are pure functions that return plain Python containers
 any thin HTTP wrapper call json.dumps on the result directly.
 """
 
+import copy
 import hashlib
+
+from smartgraphical.adapters.c_base.adapter import _TU_INCLUDE_EDGE_SOURCE
 
 
 _VIS_ONLY = frozenset({"public", "external", "internal", "private"})
@@ -24,6 +27,7 @@ _C_NODE_ALLOWED_NODE_GROUPS = frozenset({
 _C_NODE_ALLOWED_EDGE_KINDS = frozenset({
     "function_to_function",
     "function_to_workspace",
+    "function_to_include_template",
     "tile_to_tile",
     "function_to_syscall",
     "pointer_flow",
@@ -40,7 +44,14 @@ _C_NODE_EDGE_KIND_ALIASES = {
 
 _C_NODE_HEURISTIC_EDGE_KINDS = frozenset({
     "pointer_flow",
+    "function_to_function",
+    "function_to_workspace",
+    "function_to_include_template",
 })
+
+# Phase C3: exploration_hints warns when the payload may stress layout clients.
+C_GRAPH_NODE_WARN_THRESHOLD = 4000
+C_GRAPH_EDGE_WARN_THRESHOLD = 12000
 
 _MODIFIER_COLOR = {
     "payable": "#22c55e",
@@ -237,15 +248,28 @@ def _stable_c_node_ids(nodes, edges, model):
 
 
 def _external_class_for_unresolved(edge_kind, symbol):
+    """Classify unresolved call targets for C-profile external:* node ids (Phase C2).
+
+    Uses prefix/suffix heuristics only; names keep original spelling in the id.
+    """
     kind = (edge_kind or "").strip()
-    name = (symbol or "").strip().lower()
+    raw = (symbol or "").strip()
+    name = raw.lower()
     if kind in {"function_to_syscall", "function_to_system"}:
         return "unresolved_syscall"
     if "syscall" in name:
         return "unresolved_syscall"
+    if raw.startswith("SYS_") or raw.startswith("__NR_"):
+        return "unresolved_syscall"
+    if raw.startswith("fd_"):
+        return "unresolved_lib"
+    if name.startswith("pthread_") or name.startswith("epoll_"):
+        return "unresolved_lib"
+    if name == "ioctl" or name.startswith("ioctl_"):
+        return "unresolved_lib"
     if any(marker in name for marker in ("->", "(*", "fnptr", "callback")):
         return "unresolved_fnptr"
-    if "::" in name or "." in name:
+    if "::" in raw or "." in raw:
         return "unresolved_lib"
     return "unresolved_symbol"
 
@@ -517,6 +541,20 @@ def model_graph_to_dict(model):
                 fn_node["modifier_details"] = mod_details
             if ring_details:
                 fn_node["modifier_ring_details"] = ring_details
+            if is_c_profile:
+                fk = f"{type_name}.{function_name}"
+                fd = getattr(model, "findings_data", None)
+                facts = (
+                    getattr(fd, "function_facts", {}) or {}
+                    if fd is not None
+                    else {}
+                )
+                entry = facts.get(fk) or {}
+                dataflow = entry.get("dataflow") or {}
+                ordered = dataflow.get("ordered_calls") or []
+                oc_names = [x.get("call") for x in ordered if x.get("call")]
+                if oc_names:
+                    fn_node["heuristic_callees_ordered"] = oc_names
             add_node(fn_node)
             function_lookup.setdefault(function_name, node_id)
         for entity in getattr(type_entry, "state_entities", []) or []:
@@ -549,6 +587,14 @@ def model_graph_to_dict(model):
             event_short_to_ids.setdefault(event_name, []).append(eid)
 
     def resolve_endpoint(type_name, target_name, edge_kind=""):
+        if (
+            type_name
+            and target_name == _TU_INCLUDE_EDGE_SOURCE
+            and edge_kind == "function_to_include_template"
+        ):
+            tid = _type_id(type_name)
+            if tid in node_ids:
+                return tid
         if type_name:
             candidate = _function_id(type_name, target_name)
             if candidate in node_ids:
@@ -627,6 +673,28 @@ def model_graph_to_dict(model):
     for edge in edges:
         outgoing_kinds.setdefault(edge["source"], set()).add(edge["kind"])
 
+    by_id = {str(n.get("id", "")): n for n in nodes}
+
+    def _ancestor_tile_id(start_id: str) -> str:
+        seen = set()
+        cur = start_id
+        while cur and cur not in seen:
+            seen.add(cur)
+            node = by_id.get(cur)
+            if not node:
+                break
+            grp = str(node.get("group", ""))
+            if grp in ("type", "tile"):
+                return cur
+            cur = str(node.get("parent", "") or "")
+        return ""
+
+    tile_ids_with_inc = set()
+    if is_c_profile:
+        for edge in edges:
+            if edge.get("kind") == "function_to_include_template":
+                tile_ids_with_inc.add(edge.get("source"))
+
     for node in nodes:
         if node.get("group") != "function":
             continue
@@ -635,6 +703,13 @@ def model_graph_to_dict(model):
         node["calls_contract"] = "function_to_object" in kinds
         node["calls_system"] = "function_to_system" in kinds
         node["calls_event"] = "function_to_event" in kinds
+        if is_c_profile:
+            anc = _ancestor_tile_id(str(node.get("id", "")))
+            node["calls_include_template"] = bool(anc) and anc in tile_ids_with_inc
+        else:
+            node["calls_include_template"] = (
+                "function_to_include_template" in kinds
+            )
 
     normalized_nodes = []
     for node in nodes:
@@ -675,10 +750,152 @@ def model_graph_to_dict(model):
         is_c_profile,
     )
 
-    return {
+    result = {
         "graph_schema_version": _GRAPH_SCHEMA_VERSION,
         "nodes": normalized_nodes,
         "edges": normalized_edges,
+    }
+    if is_c_profile:
+        n_nodes = len(normalized_nodes)
+        n_edges = len(normalized_edges)
+        hints = {
+            "call_edges_are_heuristic": True,
+            "call_edge_count": n_edges,
+            "node_count": n_nodes,
+            "edge_count": n_edges,
+            "note": (
+                "C graph uses regex heuristics: function calls, struct references "
+                "(function_to_workspace), quoted/angle #include \"*.c\" template nodes "
+                "(function_to_include_template: one edge per inc from TU tile), "
+                "external callees as separate nodes (prefix classes: SYS_/__NR_, fd_, "
+                "pthread_/epoll_/ioctl)."
+            ),
+        }
+        if (
+            n_nodes > C_GRAPH_NODE_WARN_THRESHOLD
+            or n_edges > C_GRAPH_EDGE_WARN_THRESHOLD
+        ):
+            hints["large_graph_warning"] = True
+            hints["large_graph_note"] = (
+                "Graph size exceeds heuristic thresholds; layout may be slow."
+            )
+        result["exploration_hints"] = hints
+    return result
+
+
+def apply_bundle_source_prefix_to_model_summary_graph(nodes, edges, source_tag):
+    """Prefix graph ids so bundled files can merge without node collisions.
+
+    Mutates nodes and edges in place. Adds ``source_file`` (basename) to each node.
+    """
+    id_map = {}
+    for node in nodes:
+        oid = str(node.get("id", ""))
+        if not oid:
+            continue
+        id_map[oid] = f"{source_tag}::{oid}"
+    for node in nodes:
+        oid = str(node.get("id", ""))
+        if oid in id_map:
+            node["id"] = id_map[oid]
+        node["source_file"] = source_tag
+        parent = node.get("parent")
+        if parent:
+            ps = str(parent)
+            node["parent"] = id_map.get(ps, f"{source_tag}::{ps}")
+    for edge in edges:
+        eid = str(edge.get("id", ""))
+        if eid:
+            edge["id"] = f"{source_tag}::{eid}"
+        osrc = str(edge.get("source", ""))
+        otgt = str(edge.get("target", ""))
+        edge["source"] = id_map.get(osrc, f"{source_tag}::{osrc}")
+        edge["target"] = id_map.get(otgt, f"{source_tag}::{otgt}")
+
+
+def merge_bundled_model_summaries(bundle_root_path, pairs):
+    """Merge per-file ``model_summary_to_dict`` outputs into one summary.
+
+    ``pairs`` is ``(source_tag, summary_dict)`` with ``source_tag`` usually the
+    member basename (e.g. ``Token.sol``).
+
+    Cross-file edges are not synthesized here; same-language TU merge is limited
+    to disjoint union of per-file graphs with stable prefixed ids.
+    """
+    if not pairs:
+        return model_summary_to_dict(None)
+    first_art = pairs[0][1].get("artifact") or {}
+    lang = (first_art.get("language") or "").lower()
+    is_c_profile = lang == "c"
+
+    tot_types = 0
+    tot_funcs = 0
+    tot_state = 0
+    tot_guards = 0
+    merged_nodes = []
+    merged_edges = []
+    tags = []
+    for tag, summary in pairs:
+        tags.append(tag)
+        tot_types += int(summary.get("types_count", 0))
+        tot_funcs += int(summary.get("functions_count", 0))
+        tot_state += int(summary.get("state_entities_count", 0))
+        tot_guards += int(summary.get("guards_count", 0))
+        graph = summary.get("graph") or {}
+        nodes = copy.deepcopy(graph.get("nodes", []))
+        edges = copy.deepcopy(graph.get("edges", []))
+        apply_bundle_source_prefix_to_model_summary_graph(nodes, edges, tag)
+        merged_nodes.extend(nodes)
+        merged_edges.extend(edges)
+
+    merged_nodes, merged_edges = _validate_and_normalize_payload(
+        merged_nodes,
+        merged_edges,
+        is_c_profile,
+    )
+
+    graph_payload = {
+        "graph_schema_version": _GRAPH_SCHEMA_VERSION,
+        "nodes": merged_nodes,
+        "edges": merged_edges,
+    }
+    if is_c_profile:
+        n_nodes = len(merged_nodes)
+        n_edges = len(merged_edges)
+        hints = {
+            "call_edges_are_heuristic": True,
+            "call_edge_count": n_edges,
+            "node_count": n_nodes,
+            "edge_count": n_edges,
+            "note": (
+                "Merged C bundle: per-TU heuristic subgraphs; "
+                "explicit cross-file tile_to_tile edges are added for #include "
+                "of sibling bundle .c/.h when present."
+            ),
+        }
+        if (
+            n_nodes > C_GRAPH_NODE_WARN_THRESHOLD
+            or n_edges > C_GRAPH_EDGE_WARN_THRESHOLD
+        ):
+            hints["large_graph_warning"] = True
+            hints["large_graph_note"] = (
+                "Graph size exceeds heuristic thresholds; layout may be slow."
+            )
+        graph_payload["exploration_hints"] = hints
+
+    return {
+        "artifact": {
+            "path": bundle_root_path,
+            "language": first_art.get("language", ""),
+            "adapter_name": "bundle",
+            "bundle_members": tags,
+        },
+        "types_count": tot_types,
+        "functions_count": tot_funcs,
+        "state_entities_count": tot_state,
+        "guards_count": tot_guards,
+        "call_edges_count": len(merged_edges),
+        "graph": graph_payload,
     }
 
 

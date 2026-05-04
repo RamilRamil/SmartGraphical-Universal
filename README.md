@@ -28,8 +28,7 @@ upstream later, this fork should stay aligned with it.
 - `PROJECT_VISION.md` - intent and direction (auditor-centric, pragmatic parsing).
 - `NEXT_STEPS_PLAN.md` - phased roadmap (CLI, tests, web layer, second language).
 - `KNOWN_QUIRKS.md` - intentional heuristic trade-offs and parser limitations.
-- `docs/c_node_rules_catalog.json` - canonical catalog of C / Solana node rules
-  (validated by `docs/c_node_rules_catalog.schema.json`).
+- `docs/graph_schema_logic_c.md` - C graph payload: target contract vs `c_base` implementation matrix.
 
 ## Quick start
 
@@ -136,6 +135,8 @@ stored payload; they fall back to a hint asking to re-run the analysis.
 
 The second-language PoC lives under `smartgraphical/adapters/c_base/` and
 targets both language-level and domain-level issues in Solana's C node client.
+
+Graph-oriented extraction includes regex call edges, `struct` / `typedef struct` workspace nodes, template `#include "*.c"` **tile→`inc:*`** links (one `function_to_include_template` edge per include node), and heuristic `function_to_workspace` targets; optional `struct_field_access_hints` live on `findings_data.function_facts`, not in the Cytoscape JSON payload. The graph JSON adds C-profile **`exploration_hints`** (counts, large-graph warning above configurable thresholds) and per-function **`heuristic_callees_ordered`** when call-order data is present; unresolved callees use **`external:<class>:<symbol>`** with prefix-based `class` heuristics (`SYS_`/`__NR_`, `fd_`, `pthread_`, etc.).
 
 Rule catalog: `docs/c_node_rules_catalog.json` (20+ rules, 100-series ids).
 

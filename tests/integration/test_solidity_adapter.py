@@ -1,4 +1,7 @@
-"""Integration test: parse SimpleAuction.sol and verify stable normalized facts.
+"""Integration test: parse optional SimpleAuction.sol at repo root.
+
+Requires SimpleAuction.sol in the repo root; skipped when absent. Other tests
+use checked-in fixtures under tests/fixtures/.
 
 This test exercises only the adapter layer. It asserts structural properties
 (names, counts, presence of keys) rather than full message strings, so it
@@ -14,6 +17,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
 
 
+@unittest.skipUnless(
+    os.path.isfile(os.path.join(REPO_ROOT, "SimpleAuction.sol")),
+    "SimpleAuction.sol not present at repo root (optional golden contract)",
+)
 class SolidityAdapterSimpleAuctionTests(unittest.TestCase):
 
     @classmethod

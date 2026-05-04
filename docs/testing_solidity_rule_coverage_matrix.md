@@ -27,6 +27,8 @@ Adapter fixtures (small `.sol` under `tests/fixtures/solidity/`):
 | `WithdrawNoGuard.sol` | same |
 | `MixedMath.sol` | same |
 
+Shared finding-shape checks: `tests/integration/pipeline_invariant_helpers.py` (Solidity + C full-pipeline tests).
+
 End-to-end pipeline invariants (`tests/integration/test_full_pipeline.py`):
 
 - Repo-root `SimpleAuction.sol`: optional golden file; suite is skipped if missing.

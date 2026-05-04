@@ -9,10 +9,12 @@ known rule_id subset, mandatory finding metadata, no duplicate messages per rule
 every finding carries evidence.
 """
 import os
+import time
 import unittest
-from collections import Counter
 
 from smartgraphical.services.analysis_service import AnalysisService
+
+from tests.integration.pipeline_invariant_helpers import assert_pipeline_findings
 
 
 TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,12 +22,12 @@ REPO_ROOT = os.path.dirname(TESTS_DIR)
 SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
 FIXTURE_SOL_DIR = os.path.join(TESTS_DIR, "fixtures", "solidity")
 
-EXPECTED_RULE_IDS = {
+EXPECTED_RULE_IDS = frozenset({
     "contract_version", "unallowed_manipulation", "staking",
     "pool_interactions", "local_points", "exceptions",
     "complicated_calculations", "check_order", "withdraw_check",
     "similar_names", "outer_calls",
-}
+})
 
 
 def _fixture_path(name):
@@ -37,37 +39,10 @@ def _fixture_path(name):
 
 class FullPipelineMixin:
     findings = []
-    """Subclasses must set `findings` in setUpClass."""
+    expected_rule_ids = frozenset()
 
-    def test_pipeline_returns_a_list(self):
-        self.assertIsInstance(self.findings, list)
-
-    def test_all_finding_rule_ids_are_known(self):
-        seen_rule_ids = {f.rule_id for f in self.findings}
-        unknown = seen_rule_ids - EXPECTED_RULE_IDS
-        self.assertFalse(
-            unknown,
-            msg=f"Unexpected rule_id values (update EXPECTED_RULE_IDS if intentional): {unknown}",
-        )
-
-    def test_findings_have_mandatory_metadata(self):
-        for finding in self.findings:
-            self.assertTrue(finding.rule_id)
-            self.assertTrue(finding.title)
-            self.assertTrue(finding.task_id)
-            self.assertTrue(finding.message)
-
-    def test_no_exact_duplicate_messages_within_the_same_rule(self):
-        grouped = Counter((f.rule_id, f.message) for f in self.findings)
-        duplicated = [key for key, count in grouped.items() if count > 1]
-        self.assertEqual(duplicated, [], msg=f"Duplicate findings inside same rule: {duplicated}")
-
-    def test_every_finding_carries_at_least_one_evidence(self):
-        for finding in self.findings:
-            self.assertTrue(
-                finding.evidences,
-                msg=f"Finding {finding.rule_id} has no evidence",
-            )
+    def test_pipeline_findings_invariants(self):
+        assert_pipeline_findings(self, self.findings, self.expected_rule_ids)
 
 
 @unittest.skipUnless(
@@ -76,6 +51,7 @@ class FullPipelineMixin:
 )
 class FullPipelineSimpleAuctionTests(FullPipelineMixin, unittest.TestCase):
     findings = []
+    expected_rule_ids = EXPECTED_RULE_IDS
 
     @classmethod
     def setUpClass(cls):
@@ -88,6 +64,7 @@ class FullPipelineWithdrawFixtureTests(FullPipelineMixin, unittest.TestCase):
     """Withdraw + transfer path; fixture is always in the tree."""
 
     findings = []
+    expected_rule_ids = EXPECTED_RULE_IDS
 
     @classmethod
     def setUpClass(cls):
@@ -101,6 +78,7 @@ class FullPipelineMintFixtureTests(FullPipelineMixin, unittest.TestCase):
     """External mint path; complements withdraw fixture."""
 
     findings = []
+    expected_rule_ids = EXPECTED_RULE_IDS
 
     @classmethod
     def setUpClass(cls):
@@ -108,6 +86,36 @@ class FullPipelineMintFixtureTests(FullPipelineMixin, unittest.TestCase):
         path = _fixture_path("ExternalMint.sol")
         context = service.analyze(path)
         cls.findings = service.run_all(context)
+
+
+_RUN_INTEGRATION_LARGE = os.environ.get("SMARTGRAPHICAL_RUN_INTEGRATION_LARGE") == "1"
+# Loose wall-clock budget per phase 5: full adapter+rules on several small fixtures.
+_PIPELINE_BATCH_BUDGET_SEC = float(
+    os.environ.get("SMARTGRAPHICAL_PIPELINE_BATCH_BUDGET_SEC", "60")
+)
+
+
+@unittest.skipUnless(
+    _RUN_INTEGRATION_LARGE,
+    "integration_large disabled; export SMARTGRAPHICAL_RUN_INTEGRATION_LARGE=1 to enable",
+)
+class IntegrationLargePipelineBudgetTests(unittest.TestCase):
+    def test_fixture_batch_analyze_run_all_under_budget(self):
+        names = ("MinimalGuard.sol", "WithdrawNoGuard.sol", "ExternalMint.sol", "MixedMath.sol")
+        started = time.perf_counter()
+        for name in names:
+            service = AnalysisService()
+            ctx = service.analyze(_fixture_path(name))
+            service.run_all(ctx)
+        elapsed = time.perf_counter() - started
+        self.assertLess(
+            elapsed,
+            _PIPELINE_BATCH_BUDGET_SEC,
+            msg=(
+                f"fixture batch exceeded {_PIPELINE_BATCH_BUDGET_SEC}s "
+                f"(actual {elapsed:.2f}s); raise budget only if deliberate"
+            ),
+        )
 
 
 if __name__ == "__main__":

@@ -8,13 +8,13 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.c_node.alt_resolution_window_mismatch import (
-    run as run_alt,
-)
-from smartgraphical.core.rules.c_node.bank_lifecycle_refcount_concurrency import (
+from smartgraphical.core.rules.c.c_specific.bank_lifecycle_refcount_concurrency import (
     run as run_bank,
 )
-from smartgraphical.core.rules.c_node.bls_aggregate_rogue_key_check import (
+from smartgraphical.core.rules.c_node.node_specific.alt_resolution_window_mismatch import (
+    run as run_alt,
+)
+from smartgraphical.core.rules.c_node.node_specific.bls_aggregate_rogue_key_check import (
     run as run_bls,
 )
 

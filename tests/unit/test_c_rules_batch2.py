@@ -8,14 +8,14 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.c_node.bitwise_flag_normalization_mismatch import (
-    run as run_bitwise,
-)
-from smartgraphical.core.rules.c_node.quic_handshake_eviction_missing import (
+from smartgraphical.core.rules.c_node.node_specific.quic_handshake_eviction_missing import (
     run as run_hs,
 )
-from smartgraphical.core.rules.c_node.quic_invisible_frame_limit import (
+from smartgraphical.core.rules.c_node.node_specific.quic_invisible_frame_limit import (
     run as run_frame,
+)
+from smartgraphical.core.rules.c.portable_with_adapter.bitwise_flag_normalization_mismatch import (
+    run as run_bitwise,
 )
 
 

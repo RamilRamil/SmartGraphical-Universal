@@ -9,13 +9,13 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.c_node.io_uring_submission_race_funk import (
+from smartgraphical.core.rules.c.c_specific.io_uring_submission_race_funk import (
     run as run_io_uring_race,
 )
-from smartgraphical.core.rules.c_node.keyswitch_atomicity_violation import (
+from smartgraphical.core.rules.c_node.node_specific.keyswitch_atomicity_violation import (
     run as run_keyswitch_atomicity,
 )
-from smartgraphical.core.rules.c_node.unsupported_program_id_divergence import (
+from smartgraphical.core.rules.c.portable_with_adapter.unsupported_program_id_divergence import (
     run as run_unsupported_program,
 )
 
