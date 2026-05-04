@@ -26,10 +26,12 @@ function ensurePluginRegistered() {
 function nodeColor(group: GraphNode["group"]): string {
   switch (group) {
     case "type":
+    case "tile":
       return "#2a3344";
     case "function":
       return "#3b82f6";
     case "state":
+    case "workspace":
       return "#f59e0b";
     case "event":
       return "#a855f7";
@@ -84,6 +86,8 @@ function buildElements(graph: GraphData): ElementDefinition[] {
           calls_contract: node.calls_contract,
           calls_system: node.calls_system,
           calls_event: node.calls_event,
+          calls_include_template: node.calls_include_template,
+          heuristic_callees_ordered: node.heuristic_callees_ordered,
           state_reads: node.state_reads,
           state_writes: node.state_writes,
           guards: node.guards,
@@ -111,6 +115,7 @@ function buildElements(graph: GraphData): ElementDefinition[] {
         calls_contract: node.calls_contract,
         calls_system: node.calls_system,
         calls_event: node.calls_event,
+        calls_include_template: node.calls_include_template,
         state_reads: node.state_reads,
         state_writes: node.state_writes,
         guards: node.guards,
@@ -183,6 +188,8 @@ function readSelectedNode(node: NodeSingular): GraphNode {
     calls_contract: node.data("calls_contract"),
     calls_system: node.data("calls_system"),
     calls_event: node.data("calls_event"),
+    calls_include_template: Boolean(node.data("calls_include_template")),
+    heuristic_callees_ordered: readStringArray(node.data("heuristic_callees_ordered")),
     state_reads,
     state_writes,
     guards,
@@ -305,7 +312,7 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
-          selector: 'node[group = "type"]',
+          selector: 'node[group = "type"], node[group = "tile"]',
           style: {
             "background-color": "#1c2230",
             "background-opacity": 0.6,
@@ -328,7 +335,7 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
-          selector: 'node[group = "state"]',
+          selector: 'node[group = "state"], node[group = "workspace"]',
           style: {
             shape: "ellipse",
             width: 24,
@@ -394,6 +401,22 @@ export function GraphView({ graph }: GraphViewProps) {
             "font-size": 9,
             color: "#9ca3af",
             "line-style": "solid",
+          },
+        },
+        {
+          selector: 'edge[kind = "function_to_include_template"]',
+          style: {
+            "line-color": "#2dd4bf",
+            "target-arrow-color": "#2dd4bf",
+            "line-style": "dashed",
+          },
+        },
+        {
+          selector: 'edge[kind = "function_to_workspace"]',
+          style: {
+            "line-color": "#fb923c",
+            "target-arrow-color": "#fb923c",
+            "line-style": "dotted",
           },
         },
         {
@@ -611,10 +634,25 @@ export function GraphView({ graph }: GraphViewProps) {
     if (selected.calls_contract) outgoingLabels.push("external contract call");
     if (selected.calls_system) outgoingLabels.push("system / low-level call");
     if (selected.calls_event) outgoingLabels.push("emit event");
+    if (selected.calls_include_template)
+      outgoingLabels.push("TU .c include template (heuristic)");
   }
+
+  const explorationHints =
+    "exploration_hints" in graph ? graph.exploration_hints : undefined;
 
   return (
     <div className="sg-graph">
+      {explorationHints && (
+        <p className="sg-page__hint" style={{ margin: "0 16px 8px" }}>
+          C graph (heuristic): {explorationHints.call_edge_count} edge(s); nodes{" "}
+          {explorationHints.node_count ?? "?"}, edges {explorationHints.edge_count ?? "?"}.{" "}
+          {explorationHints.large_graph_warning ? (
+            <strong>{explorationHints.large_graph_note ?? "Large graph."} </strong>
+          ) : null}
+          {explorationHints.note ?? ""}
+        </p>
+      )}
       <div className="sg-graph__toolbar">
         <span className="sg-graph__stat">
           {graph.nodes.length} nodes / {graph.edges.length} edges
@@ -627,11 +665,11 @@ export function GraphView({ graph }: GraphViewProps) {
         </span>
         <div className="sg-graph__legend-wrap">
           <div className="sg-graph__legend">
-            <span className="sg-graph__chip sg-graph__chip--type">type</span>
+            <span className="sg-graph__chip sg-graph__chip--type">type / tile</span>
             <span className="sg-graph__chip sg-graph__chip--function">function</span>
             <span className="sg-graph__chip sg-graph__chip--modifier-node">modifier</span>
             <span className="sg-graph__chip sg-graph__chip--modifier">modifier ring</span>
-            <span className="sg-graph__chip sg-graph__chip--state">state</span>
+            <span className="sg-graph__chip sg-graph__chip--state">state / workspace</span>
             <span className="sg-graph__chip sg-graph__chip--event">event</span>
             <span className="sg-graph__chip sg-graph__chip--external">external</span>
           </div>
@@ -642,6 +680,12 @@ export function GraphView({ graph }: GraphViewProps) {
             <span className="sg-graph__edge-key sg-graph__edge-key--system">system</span>
             <span className="sg-graph__edge-key sg-graph__edge-key--call">internal</span>
             <span className="sg-graph__edge-key sg-graph__edge-key--cross">cross-type</span>
+            <span className="sg-graph__edge-key" style={{ color: "#2dd4bf" }}>
+              inc .c
+            </span>
+            <span className="sg-graph__edge-key" style={{ color: "#fb923c" }}>
+              struct/workspace
+            </span>
           </div>
         </div>
         <div className="sg-graph__actions">
@@ -756,6 +800,14 @@ export function GraphView({ graph }: GraphViewProps) {
                     <dd>yes (public or external)</dd>
                   </>
                 )}
+                {selected.group === "function" &&
+                  selected.heuristic_callees_ordered &&
+                  selected.heuristic_callees_ordered.length > 0 && (
+                  <>
+                    <dt>Call order (heuristic)</dt>
+                    <dd>{selected.heuristic_callees_ordered.join(" -> ")}</dd>
+                  </>
+                )}
                 {selected.group === "function" && (selected.full_source || selected.source_body) && (
                   <>
                     <dt>Code</dt>
@@ -822,9 +874,23 @@ export function GraphView({ graph }: GraphViewProps) {
                       </dd>
                     </>
                   )}
-                {selected.group === "state" && selected.kind === "struct" && selected.source_body && (
+                {(selected.group === "state" || selected.group === "workspace") &&
+                  selected.kind === "struct" &&
+                  selected.source_body && (
                   <>
                     <dt>Struct fields</dt>
+                    <dd>
+                      <pre className="sg-graph__code">
+                        <code>{selected.source_body}</code>
+                      </pre>
+                    </dd>
+                  </>
+                )}
+                {(selected.group === "state" || selected.group === "workspace") &&
+                  selected.kind === "include_template" &&
+                  selected.source_body && (
+                  <>
+                    <dt>Include</dt>
                     <dd>
                       <pre className="sg-graph__code">
                         <code>{selected.source_body}</code>

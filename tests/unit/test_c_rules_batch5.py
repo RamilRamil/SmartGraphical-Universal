@@ -9,20 +9,20 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.c_node.division_rounding_divergence import (
-    run as run_division_rounding,
-)
-from smartgraphical.core.rules.c_node.protocol_struct_padding_mismatch import (
-    run as run_struct_padding,
-)
-from smartgraphical.core.rules.c_node.signed_integer_overflow_consensus import (
+from smartgraphical.core.rules.c.c_specific.signed_integer_overflow_consensus import (
     run as run_signed_overflow,
 )
-from smartgraphical.core.rules.c_node.unaligned_memory_access_ebpf import (
+from smartgraphical.core.rules.c.c_specific.unspecified_evaluation_order_side_effects import (
+    run as run_unspecified_order,
+)
+from smartgraphical.core.rules.c_node.node_specific.protocol_struct_padding_mismatch import (
+    run as run_struct_padding,
+)
+from smartgraphical.core.rules.c_node.node_specific.unaligned_memory_access_ebpf import (
     run as run_unaligned_access,
 )
-from smartgraphical.core.rules.c_node.unspecified_evaluation_order_side_effects import (
-    run as run_unspecified_order,
+from smartgraphical.core.rules.c.portable_with_adapter.division_rounding_divergence import (
+    run as run_division_rounding,
 )
 
 

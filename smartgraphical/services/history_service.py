@@ -15,7 +15,11 @@ from smartgraphical.services import web_api
 from smartgraphical.services.web_api import WebApiError
 
 
-ALLOWED_EXTENSIONS = (".sol", ".c", ".h")
+ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs")
+
+BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
+MAX_BUNDLE_FILES = 32
+MAX_UPLOAD_BYTES_PER_FILE = 2 * 1024 * 1024
 
 ERROR_UNSUPPORTED_FILE = "unsupported_file"
 ERROR_NOT_FOUND = "not_found"
@@ -81,6 +85,8 @@ def _detect_tool_version(repo_root):
 def _hash_rules_catalog(repo_root):
     candidates = [
         os.path.join(repo_root, "docs", "c_node_rules_catalog.json"),
+        os.path.join(repo_root, "docs", "rust_stellar", "soroban_rules_catalog.json"),
+        os.path.join(repo_root, "docs", "rust", "language_rules_catalog.json"),
     ]
     digest = hashlib.sha256()
     used_any = False
@@ -132,7 +138,12 @@ class HistoryService:
                 ERROR_UNSUPPORTED_FILE,
                 f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
             )
-        language = "solidity" if extension == ".sol" else "c"
+        if extension == ".sol":
+            language = "solidity"
+        elif extension == ".rs":
+            language = "rust"
+        else:
+            language = "c"
         sha256 = _compute_sha256(bytes(data))
 
         existing = self._artifacts.get_by_sha256(sha256)
@@ -152,6 +163,122 @@ class HistoryService:
             language=language,
             size_bytes=len(data),
             path_on_disk=disk_path,
+            created_at=_now_iso(),
+        )
+
+    def ingest_bundle_upload(self, file_parts):
+        """Persist multiple sources as one artifact (one combined graph scan).
+
+        ``file_parts`` is a list of (bytes, filename). All members must use
+        the same language. On disk: workspace/artifacts/<bundle_id>/ with
+        ``sg_bundle_manifest.json`` and uniquely named member files.
+        """
+        if not file_parts:
+            raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
+        if len(file_parts) > MAX_BUNDLE_FILES:
+            raise HistoryError(
+                ERROR_INVALID_PAYLOAD,
+                f"bundle exceeds {MAX_BUNDLE_FILES} files",
+            )
+        normalized = []
+        languages = []
+        total_size = 0
+        for data, filename in file_parts:
+            if not isinstance(data, (bytes, bytearray)):
+                raise HistoryError(ERROR_INVALID_PAYLOAD, "upload payload must be bytes")
+            if len(data) == 0:
+                raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
+            if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
+                raise HistoryError(
+                    ERROR_UNSUPPORTED_FILE,
+                    f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
+                )
+            clean_name = _sanitize_filename(filename)
+            extension = _extract_extension(clean_name)
+            if extension not in ALLOWED_EXTENSIONS:
+                raise HistoryError(
+                    ERROR_UNSUPPORTED_FILE,
+                    f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
+                )
+            if extension == ".sol":
+                language = "solidity"
+            elif extension == ".rs":
+                language = "rust"
+            else:
+                language = "c"
+            languages.append(language)
+            total_size += len(data)
+            normalized.append((bytes(data), clean_name))
+        if len(set(languages)) != 1:
+            raise HistoryError(
+                ERROR_INVALID_PAYLOAD,
+                "bundle must be single-language "
+                "(for C, .c and .h may be mixed in one bundle; "
+                "Solidity only .sol; Rust only .rs)",
+            )
+        language = languages[0]
+
+        used_names = {}
+        members_for_hash = []
+        staged = []
+        for data, clean_name in sorted(normalized, key=lambda x: x[1]):
+            base = clean_name
+            candidate = base
+            suffix = 0
+            while candidate in used_names:
+                suffix += 1
+                stem, ext = os.path.splitext(base)
+                candidate = f"{stem}_{suffix}{ext}"
+            used_names[candidate] = True
+            file_hash = _compute_sha256(data)
+            members_for_hash.append((candidate, file_hash))
+            staged.append((candidate, data, file_hash))
+
+        digest = hashlib.sha256()
+        for rel_path, file_hash in sorted(members_for_hash, key=lambda x: x[0]):
+            digest.update(rel_path.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(file_hash.encode("ascii"))
+
+        bundle_sha256 = digest.hexdigest()
+        existing = self._artifacts.get_by_sha256(bundle_sha256)
+        if existing is not None:
+            return existing
+
+        bundle_dir = os.path.join(self._workspace, "artifacts", bundle_sha256)
+        os.makedirs(bundle_dir, exist_ok=True)
+        manifest_members = []
+        display_names = []
+        for rel_path, data, file_hash in sorted(staged, key=lambda x: x[0]):
+            disk_member = os.path.join(bundle_dir, rel_path)
+            if not os.path.isfile(disk_member):
+                with open(disk_member, "wb") as handle:
+                    handle.write(data)
+            manifest_members.append({"path": rel_path, "sha256": file_hash})
+            display_names.append(rel_path)
+
+        manifest = {
+            "version": 1,
+            "language": language,
+            "members": manifest_members,
+        }
+        manifest_path = os.path.join(bundle_dir, BUNDLE_MANIFEST_BASENAME)
+        with open(manifest_path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, ensure_ascii=True, indent=2)
+
+        if len(display_names) == 1:
+            bundle_filename = f"bundle:{display_names[0]}"
+        else:
+            bundle_filename = (
+                f"bundle:{display_names[0]} (+{len(display_names) - 1} more)"
+            )
+
+        return self._artifacts.create(
+            sha256=bundle_sha256,
+            filename=bundle_filename,
+            language=language,
+            size_bytes=total_size,
+            path_on_disk=bundle_dir,
             created_at=_now_iso(),
         )
 

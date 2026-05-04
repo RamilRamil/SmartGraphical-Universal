@@ -7,11 +7,12 @@ the `Scan detail -> Graph` tab.
 
 - Scope: implemented graph behavior for the current production serializer and UI.
 - C/Node target profile and best-practice contract: `docs/graph_schema_logic_c.md`.
+- Rust/Soroban target profile and serializer alignment notes: `docs/graph_schema_logic_rust.md`; rule catalog scaffold: `docs/rust_stellar/soroban_rules_catalog.json`.
 - This file is the source of truth for currently implemented graph semantics.
 
 ## 1. End-to-end flow
 
-1. Source code is parsed by an adapter (`solidity` or `c_base`).
+1. Source code is parsed by an adapter (`solidity`, `c_base`, or `rust_stellar`).
 2. Adapter builds a `NormalizedAuditModel`:
    - `types`
    - `functions`
@@ -173,4 +174,5 @@ To keep docs consistent:
 
 1. `graph_schema_logic.md` tracks implemented behavior.
 2. `graph_schema_logic_c.md` tracks C/Node target schema and migration guidance.
-3. When payload fields or `kind` semantics change, update both files in the same PR.
+3. `graph_schema_logic_rust.md` tracks Rust/Soroban target schema and how it maps onto the shared graph payload contract.
+4. When payload fields or `kind` semantics change, update the base doc and any affected target doc (`graph_schema_logic_c.md` or `graph_schema_logic_rust.md`) in the same PR.

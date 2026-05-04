@@ -9,7 +9,7 @@ from smartgraphical.core.model import (
     NormalizedGuardFact,
     NormalizedType,
 )
-from smartgraphical.core.rules.state_mutation import (
+from smartgraphical.core.rules.solidity.state_mutation import (
     run_pool_interactions,
     run_unallowed_manipulation,
 )

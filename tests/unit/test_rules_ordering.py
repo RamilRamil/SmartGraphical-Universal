@@ -8,7 +8,7 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.ordering import run as run_ordering
+from smartgraphical.core.rules.solidity.ordering import run as run_ordering
 
 
 def _context_with_function(statements):

@@ -8,7 +8,7 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.outer_calls import run as run_outer_calls
+from smartgraphical.core.rules.solidity.outer_calls import run as run_outer_calls
 
 
 def _context_with_function(**overrides):

@@ -4,86 +4,107 @@ Extracts function-like units from C source files and populates the same
 NormalizedAuditModel used by the Solidity pipeline. This allows the shared
 rule engine and graph builder to work on C code without changes.
 
+Graph-oriented additions (still heuristic):
+- Per-TU call edges: regex `name(` tokens in each function body, emitted as
+  function_to_function (including callees outside the TU as external nodes).
+- Struct nodes: `struct Name {` tags become NormalizedStateEntity entries.
+- Typedef-of-struct aliases: `typedef struct ... } Alias;` -> `kind=typedef_struct`
+  (Phase B); `struct_names` for edges includes both struct tags and those aliases.
+- Tightened `T*` heuristic: skip primitive-like typenames (Phase B).
+- Optional `struct_field_access_hints` in `findings_data.function_facts` when a
+  parameter binds to a known struct/typedef and body uses `param->field`.
+- Included .c templates: #include with double-quoted or angle-bracket path
+  ending in .c -> workspace node (kind include_template). **One** heuristic edge
+  per inc node from a TU anchor (Phase A1b; kind `function_to_include_template`,
+  source sentinel `__tu_include_anchor__`). Basename collision policy:
+  first path -> inc:<basename>; further distinct paths with same basename ->
+  inc:<basename>~<8-hex(path)>.
+- Struct use edges function -> struct when signature/body mentions struct T
+  or T* (function_to_workspace).
+
 Limitations (acceptable for Phase 7 PoC):
 - Function extraction is regex-based; preprocessor macros and GCC nested
   functions may be missed or misidentified.
 - No type inference: guards, mutations, and external calls are not
   semantically resolved; exploration_statements carries raw C statements.
-- A new C-specific rule module (core/rules/c_node/) pattern-matches on
-  exploration_statements, similar to how Solidity normalized rules work.
+- C rule modules: core/rules/c/{portable_with_adapter,c_specific}/ and
+  core/rules/c_node/node_specific/ (scope in docs/c_node_rules_catalog.json).
+  They pattern-match on exploration_statements like Solidity normalized rules.
 """
+import hashlib
 import os
 import re
-from copy import deepcopy
 
 from smartgraphical.core.engine import RuleSpec
 from smartgraphical.core.model import (
     AnalysisContext,
     NormalizedArtifact,
     NormalizedAuditModel,
+    NormalizedCallEdge,
     NormalizedFunction,
+    NormalizedStateEntity,
     NormalizedType,
 )
 
-from smartgraphical.core.rules.c_node.non_saturating_float_cast import (
-    run as run_non_saturating_float_cast,
-)
-from smartgraphical.core.rules.c_node.unsafe_shift_external_exponent import (
-    run as run_unsafe_shift,
-)
-from smartgraphical.core.rules.c_node.unchecked_return_sensitive import (
-    run as run_unchecked_return,
-)
-from smartgraphical.core.rules.c_node.shared_mem_uaf_pool import (
-    run as run_uaf_pool,
-)
-from smartgraphical.core.rules.c_node.incomplete_reserved_account_list import (
-    run as run_reserved_accounts,
-)
-from smartgraphical.core.rules.c_node.sysvar_decode_callback_type_mismatch import (
-    run as run_sysvar_mismatch,
-)
-from smartgraphical.core.rules.c_node.bitwise_flag_normalization_mismatch import (
-    run as run_bitwise_flag,
-)
-from smartgraphical.core.rules.c_node.quic_invisible_frame_limit import (
-    run as run_quic_frame_limit,
-)
-from smartgraphical.core.rules.c_node.quic_handshake_eviction_missing import (
-    run as run_quic_hs_eviction,
-)
-from smartgraphical.core.rules.c_node.bank_lifecycle_refcount_concurrency import (
+from smartgraphical.core.rules.c.c_specific.bank_lifecycle_refcount_concurrency import (
     run as run_bank_refcount,
 )
-from smartgraphical.core.rules.c_node.alt_resolution_window_mismatch import (
-    run as run_alt_window,
-)
-from smartgraphical.core.rules.c_node.bls_aggregate_rogue_key_check import (
-    run as run_bls_rogue,
-)
-from smartgraphical.core.rules.c_node.io_uring_submission_race_funk import (
+from smartgraphical.core.rules.c.c_specific.io_uring_submission_race_funk import (
     run as run_io_uring_race,
 )
-from smartgraphical.core.rules.c_node.keyswitch_atomicity_violation import (
-    run as run_keyswitch_atomicity,
+from smartgraphical.core.rules.c.c_specific.non_saturating_float_cast import (
+    run as run_non_saturating_float_cast,
 )
-from smartgraphical.core.rules.c_node.unsupported_program_id_divergence import (
-    run as run_unsupported_program_id,
+from smartgraphical.core.rules.c.c_specific.shared_mem_uaf_pool import (
+    run as run_uaf_pool,
 )
-from smartgraphical.core.rules.c_node.signed_integer_overflow_consensus import (
+from smartgraphical.core.rules.c.c_specific.signed_integer_overflow_consensus import (
     run as run_signed_overflow_consensus,
 )
-from smartgraphical.core.rules.c_node.unspecified_evaluation_order_side_effects import (
+from smartgraphical.core.rules.c.c_specific.unsafe_shift_external_exponent import (
+    run as run_unsafe_shift,
+)
+from smartgraphical.core.rules.c.c_specific.unspecified_evaluation_order_side_effects import (
     run as run_unspecified_eval_order,
 )
-from smartgraphical.core.rules.c_node.protocol_struct_padding_mismatch import (
+from smartgraphical.core.rules.c_node.node_specific.alt_resolution_window_mismatch import (
+    run as run_alt_window,
+)
+from smartgraphical.core.rules.c_node.node_specific.bls_aggregate_rogue_key_check import (
+    run as run_bls_rogue,
+)
+from smartgraphical.core.rules.c_node.node_specific.incomplete_reserved_account_list import (
+    run as run_reserved_accounts,
+)
+from smartgraphical.core.rules.c_node.node_specific.keyswitch_atomicity_violation import (
+    run as run_keyswitch_atomicity,
+)
+from smartgraphical.core.rules.c_node.node_specific.protocol_struct_padding_mismatch import (
     run as run_protocol_struct_padding,
 )
-from smartgraphical.core.rules.c_node.division_rounding_divergence import (
+from smartgraphical.core.rules.c_node.node_specific.quic_handshake_eviction_missing import (
+    run as run_quic_hs_eviction,
+)
+from smartgraphical.core.rules.c_node.node_specific.quic_invisible_frame_limit import (
+    run as run_quic_frame_limit,
+)
+from smartgraphical.core.rules.c_node.node_specific.sysvar_decode_callback_type_mismatch import (
+    run as run_sysvar_mismatch,
+)
+from smartgraphical.core.rules.c_node.node_specific.unaligned_memory_access_ebpf import (
+    run as run_unaligned_mem_access,
+)
+from smartgraphical.core.rules.c.portable_with_adapter.bitwise_flag_normalization_mismatch import (
+    run as run_bitwise_flag,
+)
+from smartgraphical.core.rules.c.portable_with_adapter.division_rounding_divergence import (
     run as run_division_rounding_divergence,
 )
-from smartgraphical.core.rules.c_node.unaligned_memory_access_ebpf import (
-    run as run_unaligned_mem_access,
+from smartgraphical.core.rules.c.portable_with_adapter.unchecked_return_sensitive import (
+    run as run_unchecked_return,
+)
+from smartgraphical.core.rules.c.portable_with_adapter.unsupported_program_id_divergence import (
+    run as run_unsupported_program_id,
 )
 
 # ---------------------------------------------------------------------------
@@ -100,6 +121,33 @@ _SKIP_KEYWORDS = frozenset({
     'offsetof', 'assert', 'FD_TEST', 'FD_LIKELY', 'FD_UNLIKELY',
     'defined', 'extern',
 })
+
+# Tokens before `(` that are not function calls (heuristic call-graph extraction).
+_C_CALL_SKIP = frozenset({
+    'if', 'for', 'while', 'switch', 'case', 'do', 'else', 'return',
+    'sizeof', 'alignof', 'offsetof', 'typeof', '__typeof',
+    '_Generic', '_Static_assert', 'static_assert',
+    'FD_LIKELY', 'FD_UNLIKELY', 'FD_TEST',
+})
+
+_CALL_TOKEN_RE = re.compile(r'\b([A-Za-z_]\w*)\s*\(')
+_STRUCT_HEAD_RE = re.compile(r'\bstruct\s+([A-Za-z_]\w*)\s*\{')
+_TYPEDEF_STRUCT_KW = re.compile(r'\btypedef\s+struct\b')
+
+# Exclude primitive / libc typedef names from standalone `T*` matching (Phase B).
+_C_STAR_TYPENAME_DENY = frozenset({
+    'void', 'char', 'short', 'int', 'long', 'float', 'double', 'signed', 'unsigned',
+    'size_t', 'ssize_t', 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
+    'int8_t', 'int16_t', 'int32_t', 'int64_t', 'uintptr_t', 'intptr_t',
+    'bool', '_bool',
+})
+
+_FIELD_DEREF_RE = re.compile(r'\b([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\b')
+# Template .c includes: POSIX-ish paths; angle variant for system-style includes.
+_INCLUDE_QUOTED_C_RE = re.compile(r'#include\s+"([^"]+\.c)"')
+_INCLUDE_ANGLE_C_RE = re.compile(r'#include\s+<([^>]+\.c)>')
+# Sentinel source_name for include-template edges: one edge per inc from TU (A1b).
+_TU_INCLUDE_EDGE_SOURCE = "__tu_include_anchor__"
 
 # Pattern: one or more return-type tokens, then function name, then (params) {
 # Uses re.DOTALL so whitespace tokens match newlines (multi-line signatures).
@@ -242,6 +290,267 @@ def _extract_dataflow_facts(stmts):
     return facts
 
 
+def _function_body_text(function: NormalizedFunction) -> str:
+    body = getattr(function, 'body', '') or ''
+    if body.strip():
+        return body
+    stmts = getattr(function, 'exploration_statements', []) or []
+    return '\n'.join(stmts)
+
+
+def _callee_names_from_body(body: str) -> list:
+    seen = []
+    found = set()
+    for m in _CALL_TOKEN_RE.finditer(body):
+        name = m.group(1)
+        if name in _C_CALL_SKIP:
+            continue
+        if name not in found:
+            found.add(name)
+            seen.append(name)
+    return seen
+
+
+def _build_c_call_edges(unit_name: str, functions: list) -> list:
+    seen_pairs = set()
+    edges = []
+    for fn in functions:
+        caller = getattr(fn, 'name', '') or ''
+        if not caller:
+            continue
+        body = _function_body_text(fn)
+        for callee in _callee_names_from_body(body):
+            pair = (caller, callee)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            edges.append(NormalizedCallEdge(
+                unit_name,
+                caller,
+                unit_name,
+                callee,
+                'function_to_function',
+                label='regex_call_heuristic',
+            ))
+    return edges
+
+
+def _params_blob_from_inputs(inputs: list) -> str:
+    if not inputs:
+        return ''
+    return ', '.join(' '.join(parts) for parts in inputs if parts)
+
+
+def _ok_name_for_star_heuristic(name: str) -> bool:
+    if not name or len(name) < 2:
+        return False
+    if name.lower() in _C_STAR_TYPENAME_DENY:
+        return False
+    return True
+
+
+def _haystack_refs_struct(hnorm: str, struct_name: str) -> bool:
+    if f'struct {struct_name}' in hnorm:
+        return True
+    if not _ok_name_for_star_heuristic(struct_name):
+        return False
+    return bool(re.search(rf'\b{re.escape(struct_name)}\s*\*', hnorm))
+
+
+def _param_struct_bindings_from_inputs(inputs: list, struct_names: set) -> dict:
+    """Map parameter name -> struct or typedef_struct tag used in its type (heuristic)."""
+    out = {}
+    if not inputs or not struct_names:
+        return out
+    for parts in inputs:
+        if not parts:
+            continue
+        line = ' '.join(parts)
+        ident = parts[-1]
+        if not re.match(r'^[A-Za-z_]\w*$', ident):
+            continue
+        for sname in sorted(struct_names):
+            if re.search(rf'\bstruct\s+{re.escape(sname)}\b', line):
+                out[ident] = sname
+                break
+            if re.search(rf'\b{re.escape(sname)}\s*\*', line):
+                out[ident] = sname
+                break
+    return out
+
+
+def _collect_struct_field_access_hints(body: str, bindings: dict) -> list:
+    hints = []
+    seen = set()
+    for m in _FIELD_DEREF_RE.finditer(body):
+        ptr, field = m.group(1), m.group(2)
+        tag = bindings.get(ptr)
+        if not tag:
+            continue
+        key = (tag, field)
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append({
+            'struct': tag,
+            'field': field,
+            'via': ptr,
+        })
+    return hints
+
+
+def _extract_typedef_struct_alias_entities(
+    unit_name: str, cleaned_source: str, struct_tag_names: set,
+) -> list:
+    """typedef struct { ... } Alias; or typedef struct Tag { ... } Alias; -> typedef_struct entities."""
+    entities = []
+    seen = set()
+    for m in _TYPEDEF_STRUCT_KW.finditer(cleaned_source):
+        j = m.end()
+        while j < len(cleaned_source) and cleaned_source[j] in ' \t\n\v\f\r':
+            j += 1
+        if j >= len(cleaned_source):
+            break
+        if cleaned_source[j] == '{':
+            open_idx = j
+        else:
+            tag_open = re.match(r'([A-Za-z_]\w*)\s*\{', cleaned_source[j:])
+            if not tag_open:
+                continue
+            open_idx = j + tag_open.end() - 1
+        if open_idx >= len(cleaned_source) or cleaned_source[open_idx] != '{':
+            continue
+        _inner, after_brace = _extract_body(cleaned_source, open_idx)
+        k = after_brace
+        while k < len(cleaned_source) and cleaned_source[k] in ' \t\n\v\f\r':
+            k += 1
+        alias_m = re.match(r'([A-Za-z_]\w*)\s*;', cleaned_source[k:])
+        if not alias_m:
+            continue
+        alias = alias_m.group(1)
+        if alias in struct_tag_names or alias in seen:
+            continue
+        if not _ok_name_for_star_heuristic(alias):
+            continue
+        seen.add(alias)
+        entities.append(NormalizedStateEntity(
+            name=alias,
+            owner=unit_name,
+            kind='typedef_struct',
+            raw_signature='typedef struct { ... } %s;' % alias,
+        ))
+    return sorted(entities, key=lambda e: e.name)
+
+
+def _build_c_struct_use_edges(
+    unit_name: str, functions: list, struct_names: set,
+) -> list:
+    if not struct_names:
+        return []
+    seen_pairs = set()
+    edges = []
+    for fn in functions:
+        fname = getattr(fn, 'name', '') or ''
+        if not fname:
+            continue
+        inputs = getattr(fn, 'inputs', []) or []
+        hay = _params_blob_from_inputs(inputs) + '\n' + _function_body_text(fn)
+        hnorm = ' '.join(hay.split())
+        for sname in struct_names:
+            if not _haystack_refs_struct(hnorm, sname):
+                continue
+            pair = (fname, sname)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            edges.append(NormalizedCallEdge(
+                unit_name,
+                fname,
+                unit_name,
+                sname,
+                'function_to_workspace',
+                label='struct_use_heuristic',
+            ))
+    return edges
+
+
+def _extract_include_template_entities(unit_name: str, cleaned_source: str) -> list:
+    """Workspace nodes for #include '*.c' (quoted or angle brackets).
+
+    Deduplicate exact path. Basename policy: first path wins inc:base; further
+    distinct paths sharing basename get inc:base~<sha256[:8]>.
+    """
+    events = []
+    for m in _INCLUDE_QUOTED_C_RE.finditer(cleaned_source):
+        raw = m.group(1).strip().replace('\\', '/')
+        events.append((m.start(), raw, '"'))
+    for m in _INCLUDE_ANGLE_C_RE.finditer(cleaned_source):
+        raw = m.group(1).strip().replace('\\', '/')
+        events.append((m.start(), raw, '>'))
+    events.sort(key=lambda t: t[0])
+
+    seen_paths = set()
+    basename_first = {}
+    entities = []
+    for _pos, raw_path, br in events:
+        if not raw_path or raw_path in seen_paths:
+            continue
+        seen_paths.add(raw_path)
+        base = os.path.basename(raw_path)
+        if not base:
+            continue
+        if base not in basename_first:
+            basename_first[base] = raw_path
+            name = f'inc:{base}'
+        elif basename_first[base] == raw_path:
+            continue
+        else:
+            digest = hashlib.sha256(raw_path.encode('utf-8')).hexdigest()[:8]
+            name = f'inc:{base}~{digest}'
+        if br == '"':
+            sig = f'#include "{raw_path}"'
+        else:
+            sig = f'#include <{raw_path}>'
+        entities.append(NormalizedStateEntity(
+            name=name,
+            owner=unit_name,
+            kind='include_template',
+            raw_signature=sig,
+        ))
+    return sorted(entities, key=lambda e: e.name)
+
+
+def _build_c_include_template_edges(
+    unit_name: str, inc_names: list,
+) -> list:
+    if not inc_names:
+        return []
+    out = []
+    for inc in inc_names:
+        out.append(NormalizedCallEdge(
+            unit_name,
+            _TU_INCLUDE_EDGE_SOURCE,
+            unit_name,
+            inc,
+            'function_to_include_template',
+            label='translation_unit_include',
+        ))
+    return out
+
+
+def _extract_struct_state_entities(unit_name: str, cleaned_source: str) -> list:
+    names = sorted(set(_STRUCT_HEAD_RE.findall(cleaned_source)))
+    return [
+        NormalizedStateEntity(
+            name=n,
+            owner=unit_name,
+            kind='struct',
+            raw_signature=f'struct {n} {{ ... }}',
+        )
+        for n in names
+    ]
+
+
 def extract_c_functions(source_text):
     """
     Yield dicts with keys: name, params_str, body, visibility.
@@ -298,6 +607,16 @@ def build_normalized_model(source_path, source_text):
     unit_name = os.path.splitext(os.path.basename(source_path))[0]
     type_entry = NormalizedType(name=unit_name, kind='translation_unit')
 
+    cleaned = _clean(source_text)
+    struct_entities = _extract_struct_state_entities(unit_name, cleaned)
+    struct_tag_names = {e.name for e in struct_entities}
+    typedef_entities = _extract_typedef_struct_alias_entities(
+        unit_name, cleaned, struct_tag_names,
+    )
+    include_entities = _extract_include_template_entities(unit_name, cleaned)
+    type_entry.state_entities = struct_entities + typedef_entities + include_entities
+    struct_names = struct_tag_names | {e.name for e in typedef_entities}
+
     for func_info in extract_c_functions(source_text):
         stmts = _split_statements(func_info['body'])
         inputs = _parse_inputs(func_info['params_str'])
@@ -319,13 +638,25 @@ def build_normalized_model(source_path, source_text):
             'statement_count': len(stmts),
             'raw_statements': stmts,
         }
-        model.findings_data.function_facts[function_key] = {
+        bindings = _param_struct_bindings_from_inputs(inputs, struct_names)
+        hints = _collect_struct_field_access_hints(func_info['body'], bindings)
+        ffacts = {
             'visibility': visibility,
             'entrypoint': visibility == 'external',
             'statement_count': len(stmts),
             'dataflow': _extract_dataflow_facts(stmts),
         }
+        if hints:
+            ffacts['struct_field_access_hints'] = hints
+        model.findings_data.function_facts[function_key] = ffacts
 
+    call_edges = _build_c_call_edges(unit_name, type_entry.functions)
+    call_edges.extend(_build_c_struct_use_edges(
+        unit_name, type_entry.functions, struct_names,
+    ))
+    inc_names = [e.name for e in include_entities]
+    call_edges.extend(_build_c_include_template_edges(unit_name, inc_names))
+    model.call_edges = call_edges
     model.types.append(type_entry)
     return model
 
@@ -339,9 +670,12 @@ def build_c_rule_registry():
     return {
         '101': RuleSpec(
             '101', 101, 'non_saturating_float_cast',
-            'Rust-Incompatible Floating Point Cast',
-            'consensus_failure', 'c_specific', 'high',
-            'Use fd_rust_cast_double_to_ulong or equivalent saturating helper aligned with Rust behavior.',
+            'C float-to-unsigned cast (Rust parity heuristic)',
+            'consensus_failure', 'c_specific', 'medium',
+            (
+                'If the operand is floating-point, use fd_rust_cast_double_to_ulong '
+                'or an equivalent saturating helper for Rust-aligned semantics.'
+            ),
             run_non_saturating_float_cast,
         ),
         '102': RuleSpec(
