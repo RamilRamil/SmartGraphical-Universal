@@ -11,6 +11,35 @@
 
 ## 0. Implementation status (важно)
 
+### 0.1 Сводная таблица: `c_base` и граф (по состоянию репозитория)
+
+| Элемент | Заполняет `c_base` | Примечание |
+|--------|---------------------|------------|
+| `NormalizedType` (1 на TU) | да | `kind=translation_unit`, имя = stem файла |
+| `NormalizedFunction` | да | regex по сигнатуре; `body`, `inputs`, `exploration_statements` |
+| `state_entities` / узлы `struct` | да | тег по `struct Name {` |
+| `state_entities` / `typedef_struct` | да | `typedef struct … } Alias;`; при `Alias ==` тегу `struct` узел typedef не дублируется |
+| `state_entities` / `include_template` | да | `#include "…​.c"` и `#include <…​.c>` |
+| Имена `inc:*` при коллизии basename | да | второй и далее путь: `inc:base~<sha256[:8]>` |
+| `call_edges` `function_to_function` | да | токены `ident(` в теле |
+| `call_edges` `function_to_workspace` | да | текст параметров + тело: `struct T`; для голого `T*` — только если `T` не в deny-list примитивоподобных имён (`int`, `uint32_t`, …); цели — теги `struct` и имена `typedef_struct` |
+| `findings_data.function_facts` / `struct_field_access_hints` | да | опционально в нормализованной модели: эвристика `param->field` при привязке параметра к известному `struct`/`typedef_struct`; через `model_graph_to_dict` в payload графа **не** экспортируется (остаётся для правил и других потребителей модели) |
+| `call_edges` `function_to_include_template` | да | **одно** ребро на пару (узел TU/tile, `inc:*`); в `NormalizedCallEdge.source_name` сентинел `__tu_include_anchor__`; на графе источник — id tile |
+| `exploration_hints` в JSON графа | да | сериализатор, `language=c`; см. ниже расширенные поля |
+| `exploration_hints` / `node_count`, `edge_count` | да | после нормализации payload |
+| `exploration_hints` / предупреждение о размере | да | при превышении `C_GRAPH_NODE_WARN_THRESHOLD` или `C_GRAPH_EDGE_WARN_THRESHOLD` — `large_graph_warning`, `large_graph_note` |
+| Узел `function` / `calls_include_template` (C JSON) | да | `true`, если предок-tile имеет исходящее `function_to_include_template` |
+| Узел `function` / `heuristic_callees_ordered` | да (C JSON) | порядок имён вызовов из `function_facts[stem.fn].dataflow.ordered_calls` |
+| `external:<class>:<symbol>` эвристика класса | да | `model_graph_to_dict`: `_external_class_for_unresolved` — префиксы `SYS_`, `__NR_` → `unresolved_syscall`; `fd_`, `pthread_`, `epoll_`, `ioctl` / `ioctl_*` → `unresolved_lib`; плюс прежние правила (`syscall` в имени, fnptr, `::`/`.` и т.д.) |
+| Edge `is_heuristic` / `confidence` | да | для C: `function_to_function`, `function_to_workspace`, `function_to_include_template`, `pointer_flow` = heuristic |
+| Препроцессор / макросы | нет | |
+| `tile` / `ipc` как в domain-доке | частично | TU мапится на один compound (`type`→`tile`) |
+
+Детали сериализатора: `smartgraphical/services/serializers.py` (`model_graph_to_dict`, `_is_c_profile_graph`).  
+Общая схема UI: `docs/graph_schema_logic.md`.
+
+### 0.2 Исторический блок (архитектура)
+
 - **Реализовано сейчас (общий движок графа):**
   - построение графа из `NormalizedAuditModel` через
     `smartgraphical/services/serializers.py::model_graph_to_dict`,
@@ -41,9 +70,15 @@
     - `unresolved_syscall`,
     - `unresolved_lib`,
     - `unresolved_symbol`,
-  - разделение fact/heuristic на уровне edge payload:
-    - `pointer_flow` помечается как `is_heuristic: true`, `confidence: "heuristic"`,
-    - прочие текущие C-edge kinds получают `is_heuristic: false`, `confidence: "high"`,
+  - для неразрешённых вызовов **`external:<class>:<symbol>`** класс `class`
+    уточняется эвристикой по имени символа (префиксы `SYS_`, `__NR_`, `fd_`,
+    `pthread_`, `epoll_`, `ioctl` и др.; см. `_external_class_for_unresolved` в
+    `serializers.py`),
+  - разделение fact/heuristic на уровне edge payload (C-profile):
+    - виды `function_to_function`, `function_to_workspace`,
+      `function_to_include_template`, `pointer_flow` -> `is_heuristic: true`,
+      `confidence: "heuristic"`,
+    - остальные известные C `kind` из allowlist -> `confidence: "high"` (если появятся),
   - pre-emit validation в serializer:
     - фильтрация пустых/дублирующихся `node.id` и `edge.id`,
     - удаление ребер с несуществующими endpoint,
@@ -78,8 +113,12 @@ payload (без расширения dataclass-модели `NormalizedCallEdge`
 ### 2.2 Опциональные поля (по мере зрелости адаптера)
 
 - node: `parent`, `type_name`, `source_body`, `concurrency_risk`,
-  `storage_access`, `instruction_type`, `cross_tile`, `sandbox_policy`
+  `storage_access`, `instruction_type`, `cross_tile`, `sandbox_policy`,
+  **`heuristic_callees_ordered`** (C-profile, function nodes)
 - edge: `label`, `confidence`, `evidence_ref`, `is_heuristic`
+- graph payload (верхний уровень, C-profile): **`exploration_hints`** с
+  `call_edges_are_heuristic`, `call_edge_count`, **`node_count`**, **`edge_count`**,
+  опционально **`large_graph_warning`**, **`large_graph_note`**, поле `note`
 
 ### 2.3 Версионирование схемы
 
@@ -124,7 +163,8 @@ payload (без расширения dataclass-модели `NormalizedCallEdge`
 Минимально документируемый набор:
 
 - `function_to_function`: обычный call graph.
-- `function_to_workspace`: доступ к разделяемой памяти.
+- `function_to_workspace`: в `c_base` — эвристика использования агрегатного типа: подпись и тело проверяются на `struct T` и на голый `T*` (см. deny-list примитивоподобных имён в адаптере); узлы-цели — сущности `struct` и `typedef_struct`.
+- `function_to_include_template`: в `c_base` — **одно** ребро на каждый узел `inc:*` от **tile** (TU); в модели `source_name` = `__tu_include_anchor__`; полностью эвристично.
 - `tile_to_tile`: IPC/канальные переходы.
 - `function_to_syscall`: системный вызов.
 - `pointer_flow`: эвристический поток указателей.

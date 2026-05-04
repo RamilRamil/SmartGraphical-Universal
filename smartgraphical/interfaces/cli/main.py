@@ -4,6 +4,10 @@ import sys
 import time
 
 from smartgraphical.adapters.c_base.adapter import CBaseAdapterV0, build_c_rule_registry
+from smartgraphical.adapters.rust_stellar.adapter import (
+    RustStellarAdapterV0,
+    build_rust_rule_registry,
+)
 from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0, build_rule_registry
 from smartgraphical.core.engine import RuleEngine, demonstrate_findings, summarize_model
 from smartgraphical.services.analysis_service import AnalysisService
@@ -61,6 +65,7 @@ LANG_FROM_EXTENSION = {
     ".sol": "solidity",
     ".c": "c",
     ".h": "c",
+    ".rs": "rust",
 }
 
 
@@ -79,21 +84,26 @@ def _build_service(language):
             adapter=CBaseAdapterV0(),
             rule_engine=RuleEngine(build_c_rule_registry()),
         )
-    raise CliUserError("Error: lang must be one of solidity or c.")
+    if language == "rust":
+        return AnalysisService(
+            adapter=RustStellarAdapterV0(),
+            rule_engine=RuleEngine(build_rust_rule_registry()),
+        )
+    raise CliUserError("Error: lang must be one of solidity, c, or rust.")
 
 
 def _resolve_language(source_path, explicit_language):
     if explicit_language:
         language = explicit_language.lower()
-        if language not in ("solidity", "c"):
-            raise CliUserError("Error: lang must be one of solidity or c.")
+        if language not in ("solidity", "c", "rust"):
+            raise CliUserError("Error: lang must be one of solidity, c, or rust.")
         return language
     _, extension = os.path.splitext(source_path)
     language = LANG_FROM_EXTENSION.get(extension.lower())
     if language:
         return language
     raise CliUserError(
-        "Error: cannot infer lang from extension; pass lang explicitly (solidity or c)."
+        "Error: cannot infer lang from extension; pass lang explicitly (solidity, c, or rust)."
     )
 
 

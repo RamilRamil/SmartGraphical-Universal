@@ -4,6 +4,7 @@ Each rule is tested with at minimum one positive case (should alert) and
 one negative case (should be silent). No C parsing or adapter is involved;
 model instances are built directly.
 """
+import os
 import unittest
 
 from smartgraphical.core.model import (
@@ -13,23 +14,23 @@ from smartgraphical.core.model import (
     NormalizedFunction,
     NormalizedType,
 )
-from smartgraphical.core.rules.c_node.incomplete_reserved_account_list import (
-    run as run_reserved,
-)
-from smartgraphical.core.rules.c_node.non_saturating_float_cast import (
+from smartgraphical.core.rules.c.c_specific.non_saturating_float_cast import (
     run as run_float_cast,
 )
-from smartgraphical.core.rules.c_node.shared_mem_uaf_pool import (
+from smartgraphical.core.rules.c.c_specific.shared_mem_uaf_pool import (
     run as run_uaf,
 )
-from smartgraphical.core.rules.c_node.sysvar_decode_callback_type_mismatch import (
+from smartgraphical.core.rules.c.c_specific.unsafe_shift_external_exponent import (
+    run as run_shift,
+)
+from smartgraphical.core.rules.c_node.node_specific.incomplete_reserved_account_list import (
+    run as run_reserved,
+)
+from smartgraphical.core.rules.c_node.node_specific.sysvar_decode_callback_type_mismatch import (
     run as run_sysvar,
 )
-from smartgraphical.core.rules.c_node.unchecked_return_sensitive import (
+from smartgraphical.core.rules.c.portable_with_adapter.unchecked_return_sensitive import (
     run as run_unchecked,
-)
-from smartgraphical.core.rules.c_node.unsafe_shift_external_exponent import (
-    run as run_shift,
 )
 
 
@@ -60,11 +61,29 @@ class FloatCastRuleTests(unittest.TestCase):
         ctx = _context(['ulong lamports = (ulong)calculated_double'])
         findings = run_float_cast(ctx)
         self.assertTrue(findings)
-        self.assertIn('float-to-uint', findings[0].message)
+        self.assertIn('float-to-unsigned', findings[0].message)
 
     def test_direct_cast_to_uint64_t_alerts(self):
         ctx = _context(['uint64_t val = (uint64_t)some_double'])
         self.assertTrue(run_float_cast(ctx))
+
+    def test_nested_cast_float_literal_alerts(self):
+        ctx = _context(['return (uint64_t)(v * 1.0)'])
+        self.assertTrue(run_float_cast(ctx))
+
+    def test_integer_bitfield_style_cast_is_silent(self):
+        ctx = _context(['ulong staging_lane = (ulong)block->staging_lane'])
+        self.assertEqual(run_float_cast(ctx), [])
+
+    def test_uint_find_lsb_cast_chain_is_silent(self):
+        ctx = _context([
+            'return (ulong)fd_uint_find_lsb((uint)disp->free_lanes)',
+        ])
+        self.assertEqual(run_float_cast(ctx), [])
+
+    def test_integer_identifier_cast_is_silent(self):
+        ctx = _context(['ulong x = (ulong)lane_count'])
+        self.assertEqual(run_float_cast(ctx), [])
 
     def test_saturating_wrapper_is_silent(self):
         ctx = _context(['ulong x = fd_rust_cast_double_to_ulong(val)'])
@@ -83,6 +102,35 @@ class FloatCastRuleTests(unittest.TestCase):
         findings = run_float_cast(ctx)
         self.assertEqual(findings[0].task_id, '101')
         self.assertEqual(findings[0].rule_id, 'non_saturating_float_cast')
+        self.assertEqual(findings[0].confidence, 'medium')
+
+    def test_finding_evidence_has_line_when_source_exists(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        fixture = os.path.normpath(
+            os.path.join(here, '..', 'fixtures', 'c', 'FloatToUintCast.c')
+        )
+        self.assertTrue(os.path.isfile(fixture), msg=fixture)
+        artifact = NormalizedArtifact(
+            path=fixture, language='c', adapter_name='Test',
+        )
+        model = NormalizedAuditModel(artifact=artifact)
+        type_entry = NormalizedType(name='FloatToUintCast', kind='translation_unit')
+        type_entry.functions.append(NormalizedFunction(
+            name='cast_double_to_uint64',
+            owner='FloatToUintCast',
+            exploration_statements=['return (uint64_t)(v * 1.0)'],
+        ))
+        model.types.append(type_entry)
+        ctx = AnalysisContext(
+            path=fixture, language='c', reader=None, lines=[],
+            unified_code='', rets=[], hierarchy={},
+            high_connections=[], normalized_model=model,
+        )
+        findings = run_float_cast(ctx)
+        self.assertTrue(findings)
+        ev = findings[0].evidences[0]
+        self.assertGreater(ev.line_number, 0)
+        self.assertIn('return (uint64_t)(v * 1.0)', ev.statement)
 
 
 # ---------------------------------------------------------------------------

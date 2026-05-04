@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UseQueryOptions } from "@tanstack/react-query";
 
 import { api } from "./client";
-import type { Artifact, RunScanRequest, Scan } from "./types";
+import type { Artifact, BatchUploadResponse, RunScanRequest, Scan } from "./types";
 
 export const queryKeys = {
   health: ["health"] as const,
@@ -112,6 +112,26 @@ export function useUploadArtifact() {
   const queryClient = useQueryClient();
   return useMutation<Artifact, Error, File>({
     mutationFn: (file: File) => api.uploadArtifact(file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.artifacts });
+    },
+  });
+}
+
+export function useUploadArtifactsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation<BatchUploadResponse, Error, File[]>({
+    mutationFn: (files: File[]) => api.uploadArtifactsBatch(files),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.artifacts });
+    },
+  });
+}
+
+export function useUploadArtifactBundle() {
+  const queryClient = useQueryClient();
+  return useMutation<Artifact, Error, File[]>({
+    mutationFn: (files: File[]) => api.uploadArtifactBundle(files),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.artifacts });
     },

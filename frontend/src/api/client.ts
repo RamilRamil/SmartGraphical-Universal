@@ -1,6 +1,7 @@
 import type {
   ApiError,
   Artifact,
+  BatchUploadResponse,
   DiffResponse,
   Finding,
   GraphResponse,
@@ -76,6 +77,26 @@ export const api = {
     const formData = new FormData();
     formData.append("file", file);
     return request<Artifact>("/artifacts", {
+      method: "POST",
+      body: formData,
+    });
+  },
+  uploadArtifactsBatch: (files: File[]) => {
+    const formData = new FormData();
+    for (const f of files) {
+      formData.append("files", f);
+    }
+    return request<BatchUploadResponse>("/artifacts/batch", {
+      method: "POST",
+      body: formData,
+    });
+  },
+  uploadArtifactBundle: (files: File[]) => {
+    const formData = new FormData();
+    for (const f of files) {
+      formData.append("files", f);
+    }
+    return request<Artifact>("/artifacts/bundle", {
       method: "POST",
       body: formData,
     });

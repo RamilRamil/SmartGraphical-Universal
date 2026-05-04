@@ -15,6 +15,15 @@ export type Artifact = {
   created_at: string;
 };
 
+export type BatchArtifactItem =
+  | { ok: true; artifact: Artifact }
+  | { ok: false; filename: string; code: string; message: string };
+
+export type BatchUploadResponse = {
+  items: BatchArtifactItem[];
+  summary: { ok: number; error: number };
+};
+
 export type Scan = {
   id: number;
   artifact_id: number;
@@ -57,6 +66,7 @@ export type Finding = {
   message: string;
   remediation_hint: string;
   evidences: Evidence[];
+  source_file?: string;
 };
 
 export type ScanDetail = {
@@ -73,7 +83,16 @@ export type ModifierSwatch = {
 export type GraphNode = {
   id: string;
   label: string;
-  group: "type" | "function" | "state" | "event" | "modifier" | "external";
+  group:
+    | "type"
+    | "tile"
+    | "function"
+    | "state"
+    | "workspace"
+    | "event"
+    | "modifier"
+    | "external"
+    | "modifier_ring";
   parent?: string;
   kind?: string;
   type_name?: string;
@@ -88,10 +107,13 @@ export type GraphNode = {
   calls_contract?: boolean;
   calls_system?: boolean;
   calls_event?: boolean;
+  calls_include_template?: boolean;
+  heuristic_callees_ordered?: string[];
   state_reads?: string[];
   state_writes?: string[];
   guards?: string[];
   write_paths?: Array<{ path: string; confidence: string }>;
+  source_file?: string;
 };
 
 export type GraphEdge = {
@@ -105,22 +127,35 @@ export type GraphEdge = {
   line_numbers?: number[];
 };
 
+export type GraphExplorationHints = {
+  call_edges_are_heuristic: boolean;
+  call_edge_count: number;
+  node_count?: number;
+  edge_count?: number;
+  large_graph_warning?: boolean;
+  large_graph_note?: string;
+  note?: string;
+};
+
 export type GraphData = {
+  graph_schema_version?: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  exploration_hints?: GraphExplorationHints;
 };
 
 export type GraphPayload = {
   status: string;
-  artifact: {
-    path: string;
-    language: string;
-    adapter_name: string;
-  } | null;
+  artifact: string | { path: string; language: string; adapter_name: string } | null;
   language: string;
   duration_ms: number;
   model_summary: {
-    artifact: { path: string; language: string; adapter_name: string } | null;
+    artifact: {
+      path: string;
+      language: string;
+      adapter_name: string;
+      bundle_members?: string[];
+    } | null;
     types_count: number;
     functions_count: number;
     state_entities_count: number;

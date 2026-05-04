@@ -25,15 +25,18 @@ from smartgraphical.adapters.solidity.helpers import (
 )
 
 # Rule runner imports (Phase 2: no legacy dependency)
-from smartgraphical.core.rules.naming import run_contract_version, run_similar_names
-from smartgraphical.core.rules.state_mutation import run_unallowed_manipulation, run_pool_interactions
-from smartgraphical.core.rules.staking import run as run_staking
-from smartgraphical.core.rules.access_control import run as run_local_points
-from smartgraphical.core.rules.error_handling import run as run_exceptions
-from smartgraphical.core.rules.computation import run as run_complicated_calculations
-from smartgraphical.core.rules.ordering import run as run_check_order
-from smartgraphical.core.rules.withdraw import run as run_withdraw_check
-from smartgraphical.core.rules.outer_calls import run as run_outer_calls
+from smartgraphical.core.rules.solidity.naming import run_contract_version, run_similar_names
+from smartgraphical.core.rules.solidity.state_mutation import (
+    run_unallowed_manipulation,
+    run_pool_interactions,
+)
+from smartgraphical.core.rules.solidity.staking import run as run_staking
+from smartgraphical.core.rules.solidity.access_control import run as run_local_points
+from smartgraphical.core.rules.solidity.error_handling import run as run_exceptions
+from smartgraphical.core.rules.solidity.computation import run as run_complicated_calculations
+from smartgraphical.core.rules.solidity.ordering import run as run_check_order
+from smartgraphical.core.rules.solidity.withdraw import run as run_withdraw_check
+from smartgraphical.core.rules.solidity.outer_calls import run as run_outer_calls
 
 
 TASK_GROUPS = {

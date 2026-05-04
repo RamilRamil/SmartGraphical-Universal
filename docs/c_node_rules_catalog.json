@@ -115,10 +115,10 @@
     },
     {
       "rule_id": "non_saturating_float_cast",
-      "title": "Rust-Incompatible Floating Point Cast",
+      "title": "C float-to-unsigned cast (Rust parity heuristic)",
       "scope": "c_specific",
       "risk_category": "consensus_failure",
-      "rationale": "Prevents consensus splits between Agave and Firedancer caused by different handling of negative infinity to unsigned integer conversion.",
+      "rationale": "Prevents consensus splits between Agave and Firedancer caused by different handling of out-of-range or non-finite float to unsigned integer conversion when the cast operand is actually floating-point.",
       "normalized_facts_required": [
         "float_to_uint_cast",
         "consensus_critical_path_tag"
@@ -128,18 +128,20 @@
       ],
       "preconditions": [
         "Code is in consensus-critical paths such as runtime, rent, stake, rewards, or bank-hash related logic.",
-        "Target cast is direct C cast to unsigned integer type."
+        "Heuristic detects a direct C cast to unsigned integer where the operand text suggests float/double (C adapter has no type graph)."
       ],
-      "detection_logic": "Find direct casts from float or double to unsigned integer types without fd_rust_cast wrappers or equivalent saturating conversion.",
+      "detection_logic": "Find casts to unsigned integer types without fd_rust_cast (or related wrappers) where the operand snippet contains float/double keywords, float-like literals, *_double / *_float identifiers, or other heuristic FP markers.",
       "false_positive_patterns": [
+        "Integer-only casts such as (ulong)bitmask or (ulong)field from bit-struct or int storage.",
+        "Operands that are int or pointer but use names resembling float tokens.",
         "Value is proven in-range and non-negative by prior checks.",
         "Floating-point value is telemetry-only and not consensus-relevant."
       ],
-      "severity": "critical",
-      "confidence": "high",
+      "severity": "medium",
+      "confidence": "medium",
       "autofixable": true,
-      "priority_score": 36,
-      "remediation_hint": "Use fd_rust_cast_double_to_ulong or equivalent saturating helper aligned with Rust behavior.",
+      "priority_score": 24,
+      "remediation_hint": "If the operand is floating-point, use fd_rust_cast_double_to_ulong or an equivalent saturating helper for Rust-aligned semantics.",
       "minimal_example_bad": "ulong lamports = (ulong)calculated_double;",
       "minimal_example_good": "ulong lamports = fd_rust_cast_double_to_ulong( calculated_double );"
     },

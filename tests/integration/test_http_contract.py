@@ -8,9 +8,15 @@ import os
 import tempfile
 import unittest
 
-from fastapi.testclient import TestClient
+try:
+    from fastapi.testclient import TestClient
+    from smartgraphical.interfaces.http.app import create_app
+    _HTTP_DEPS_AVAILABLE = True
+except ImportError:  # pragma: no cover - env without web extras
+    TestClient = None  # type: ignore
+    create_app = None  # type: ignore
+    _HTTP_DEPS_AVAILABLE = False
 
-from smartgraphical.interfaces.http.app import create_app
 from smartgraphical.persistence.artifact_repository import ArtifactRepository
 from smartgraphical.persistence.scan_repository import ScanRepository
 from smartgraphical.persistence.sqlite_store import SqliteStore
@@ -18,9 +24,11 @@ from smartgraphical.services.history_service import HistoryService
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
+SOL_FIXTURE = os.path.join(REPO_ROOT, "tests", "fixtures", "solidity", "MinimalGuard.sol")
+FIXTURE_SOL_NAME = os.path.basename(SOL_FIXTURE)
 
 
+@unittest.skipUnless(_HTTP_DEPS_AVAILABLE, "fastapi stack is not installed")
 class HttpContractTests(unittest.TestCase):
 
     def setUp(self):
@@ -37,7 +45,9 @@ class HttpContractTests(unittest.TestCase):
         )
         self.app = create_app(service, static_dir=None)
         self.client = TestClient(self.app)
-        with open(SIMPLE_AUCTION_PATH, "rb") as handle:
+        if not os.path.isfile(SOL_FIXTURE):
+            self.skipTest(f"solidity fixture missing: {SOL_FIXTURE}")
+        with open(SOL_FIXTURE, "rb") as handle:
             self._source_bytes = handle.read()
 
     def tearDown(self):
@@ -46,7 +56,7 @@ class HttpContractTests(unittest.TestCase):
     def _upload_artifact(self):
         response = self.client.post(
             "/api/artifacts",
-            files={"file": ("SimpleAuction.sol", self._source_bytes, "text/plain")},
+            files={"file": (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")},
         )
         self.assertEqual(response.status_code, 201, msg=response.text)
         return response.json()
@@ -56,7 +66,10 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["status"], "ok")
-        self.assertIn("solidity", payload["supported_languages"])
+        langs = payload["supported_languages"]
+        self.assertIn("solidity", langs)
+        self.assertIn("c", langs)
+        self.assertIn("rust", langs)
 
     def test_tasks_for_solidity(self):
         response = self.client.get("/api/languages/solidity/tasks")
@@ -67,8 +80,17 @@ class HttpContractTests(unittest.TestCase):
         self.assertIn("11", ids)
         self.assertEqual(ids[-1], "all")
 
-    def test_tasks_for_unknown_language(self):
+    def test_tasks_for_rust(self):
         response = self.client.get("/api/languages/rust/tasks")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["language"], "rust")
+        ids = [task["id"] for task in payload["tasks"]]
+        self.assertIn("216", ids)
+        self.assertEqual(ids[-1], "all")
+
+    def test_tasks_for_unknown_language(self):
+        response = self.client.get("/api/languages/go/tasks")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "invalid_language")
 
@@ -102,6 +124,134 @@ class HttpContractTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "unsupported_file")
+
+    def test_upload_artifacts_batch_two_files(self):
+        path_b = os.path.join(
+            REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol",
+        )
+        self.assertTrue(os.path.isfile(path_b), msg=path_b)
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        response = self.client.post(
+            "/api/artifacts/batch",
+            files=[
+                ("files", (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")),
+                ("files", ("ExternalMint.sol", bytes_b, "text/plain")),
+            ],
+        )
+        self.assertEqual(response.status_code, 200, msg=response.text)
+        payload = response.json()
+        self.assertEqual(payload["summary"]["ok"], 2)
+        self.assertEqual(payload["summary"]["error"], 0)
+        self.assertEqual(len(payload["items"]), 2)
+        self.assertTrue(payload["items"][0]["ok"])
+        self.assertTrue(payload["items"][1]["ok"])
+        self.assertNotEqual(
+            payload["items"][0]["artifact"]["id"],
+            payload["items"][1]["artifact"]["id"],
+        )
+
+    def test_upload_artifacts_batch_partial_failure(self):
+        response = self.client.post(
+            "/api/artifacts/batch",
+            files=[
+                ("files", (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")),
+                ("files", ("bad.exe", b"MZ\x00\x00", "application/octet-stream")),
+            ],
+        )
+        self.assertEqual(response.status_code, 200, msg=response.text)
+        payload = response.json()
+        self.assertEqual(payload["summary"]["ok"], 1)
+        self.assertEqual(payload["summary"]["error"], 1)
+        self.assertTrue(payload["items"][0]["ok"])
+        self.assertFalse(payload["items"][1]["ok"])
+        self.assertEqual(payload["items"][1]["code"], "unsupported_file")
+
+    def test_upload_artifacts_batch_rejects_empty(self):
+        response = self.client.post("/api/artifacts/batch", files=[])
+        self.assertIn(response.status_code, (400, 422), msg=response.text)
+
+    def test_upload_artifacts_bundle_two_sol_merged_graph(self):
+        path_b = os.path.join(
+            REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol",
+        )
+        self.assertTrue(os.path.isfile(path_b), msg=path_b)
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")),
+                ("files", ("ExternalMint.sol", bytes_b, "text/plain")),
+            ],
+        )
+        self.assertEqual(response.status_code, 201, msg=response.text)
+        art = response.json()
+        self.assertTrue(os.path.isdir(art["path_on_disk"]))
+        man = os.path.join(art["path_on_disk"], "sg_bundle_manifest.json")
+        self.assertTrue(os.path.isfile(man))
+        scan_r = self.client.post(
+            f"/api/artifacts/{art['id']}/scans",
+            json={"task": "all", "mode": "auditor"},
+        )
+        self.assertEqual(scan_r.status_code, 201, msg=scan_r.text)
+        scan_id = scan_r.json()["id"]
+        graph_r = self.client.get(f"/api/scans/{scan_id}/graph")
+        self.assertEqual(graph_r.status_code, 200)
+        body = graph_r.json()
+        self.assertTrue(body.get("available"))
+        ms = body["graph"]["model_summary"]
+        self.assertIn("bundle_members", (ms.get("artifact") or {}))
+        nodes = (ms.get("graph") or {}).get("nodes") or []
+        tags = {n.get("source_file") for n in nodes if n.get("source_file")}
+        self.assertIn(FIXTURE_SOL_NAME, tags)
+        self.assertIn("ExternalMint.sol", tags)
+
+    def test_upload_artifacts_bundle_rejects_mixed_language(self):
+        path_c = os.path.join(REPO_ROOT, "tests", "fixtures", "c", "MinimalTu.c")
+        if not os.path.isfile(path_c):
+            self.skipTest(f"missing {path_c}")
+        with open(path_c, "rb") as fh:
+            c_bytes = fh.read()
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")),
+                ("files", ("MinimalTu.c", c_bytes, "text/plain")),
+            ],
+        )
+        self.assertEqual(response.status_code, 400, msg=response.text)
+        self.assertEqual(response.json().get("code"), "invalid_payload")
+
+    def test_upload_artifacts_bundle_c_h_header_edge_in_graph(self):
+        user_src = (
+            b'#include "dep.h"\n'
+            b"static void u(void) { (void)0; }\n"
+        )
+        dep_h = b"#ifndef DEP_H\n#define DEP_H\n#endif\n"
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", ("dep.h", dep_h, "text/plain")),
+                ("files", ("user.c", user_src, "text/plain")),
+            ],
+        )
+        self.assertEqual(response.status_code, 201, msg=response.text)
+        art = response.json()
+        scan_r = self.client.post(
+            f"/api/artifacts/{art['id']}/scans",
+            json={"task": "all", "mode": "auditor"},
+        )
+        self.assertEqual(scan_r.status_code, 201, msg=scan_r.text)
+        scan_id = scan_r.json()["id"]
+        graph_r = self.client.get(f"/api/scans/{scan_id}/graph")
+        self.assertEqual(graph_r.status_code, 200)
+        edges = (graph_r.json()["graph"]["model_summary"].get("graph") or {}).get("edges") or []
+        bundle_edges = [
+            e for e in edges
+            if e.get("kind") == "tile_to_tile" and e.get("label") == "bundle_member_include"
+        ]
+        self.assertEqual(len(bundle_edges), 1, msg=bundle_edges)
 
     def test_list_artifacts_returns_uploaded_entries(self):
         artifact = self._upload_artifact()

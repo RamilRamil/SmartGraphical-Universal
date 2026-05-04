@@ -5,13 +5,15 @@ See docs/testing_practices_implementation_plan.md (phase 1).
 import unittest
 
 from smartgraphical.core.model import NormalizedFunction, NormalizedGuardFact, NormalizedStateEntity
-from smartgraphical.core.rules.access_control import run as run_local_points
-from smartgraphical.core.rules.computation import run as run_complicated_calculations
-from smartgraphical.core.rules.error_handling import run as run_exceptions
-from smartgraphical.core.rules.naming import run_contract_version, run_similar_names
-from smartgraphical.core.rules.staking import run as run_staking
-from smartgraphical.core.rules.state_mutation import run_pool_interactions as run_pool_interactions
-from smartgraphical.core.rules.withdraw import run as run_withdraw_check
+from smartgraphical.core.rules.solidity.access_control import run as run_local_points
+from smartgraphical.core.rules.solidity.computation import run as run_complicated_calculations
+from smartgraphical.core.rules.solidity.error_handling import run as run_exceptions
+from smartgraphical.core.rules.solidity.naming import run_contract_version, run_similar_names
+from smartgraphical.core.rules.solidity.staking import run as run_staking
+from smartgraphical.core.rules.solidity.state_mutation import (
+    run_pool_interactions as run_pool_interactions,
+)
+from smartgraphical.core.rules.solidity.withdraw import run as run_withdraw_check
 from tests.support.solidity_context import (
     TextLineSepReader,
     analysis_context_stub,

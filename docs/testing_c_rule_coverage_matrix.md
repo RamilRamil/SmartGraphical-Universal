@@ -6,6 +6,21 @@ Machine-readable checklist (phase 4): `tests/fixtures/c_task_coverage.json`.
 
 Drift gate: `tests/unit/test_c_task_coverage_declared.py` (also checks `web_api.list_tasks("c")` ids + trailing `all`).
 
+Integration (`.c` fixtures under `tests/fixtures/c/`):
+
+| Fixture | Purpose |
+|---------|---------|
+| `MinimalTu.c` | Adapter: static + external linkage; HTTP `task: all` shape (`test_http_c_fixture_contract.py` if FastAPI installed). |
+| `FloatToUintCast.c` | Adapter + pipeline: expect task **101** (`non_saturating_float_cast`) firing on float-like operand heuristics (e.g. literal `1.0`). |
+| `MinimalStructTu.c` | `struct` tag + heuristic call edge (`widget_sum` -> `getv`); graph / adapter tests. |
+| `MinimalIncludeTu.c` | Quoted `#include "*.c"` -> `inc:*` + **одно** `function_to_include_template` на пару (tile, `inc`) за TU. |
+| `MinimalIncludeAngleTu.c` | Angle `#include <.../*.c>`. |
+| `MinimalIncludeDupBasename.c` | Two paths, same basename -> `inc:pool.c` and disambiguated `inc:pool.c~*`. |
+
+C PoC adapter is lexer-light: rule **101** uses text heuristics for float-like operands only, not arbitrary `(ulong)` casts.
+
+Tests: `tests/integration/test_c_adapter_fixtures.py`, `tests/integration/test_full_pipeline_c_fixtures.py`.
+
 | task_id | rule_id (slug) | Unit tests (synthetic model) |
 |--------|----------------|------------------------------|
 | 101 | non_saturating_float_cast | `tests/unit/test_c_rules.py` |
