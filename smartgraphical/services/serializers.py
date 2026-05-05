@@ -786,7 +786,8 @@ def model_graph_to_dict(model):
 def apply_bundle_source_prefix_to_model_summary_graph(nodes, edges, source_tag):
     """Prefix graph ids so bundled files can merge without node collisions.
 
-    Mutates nodes and edges in place. Adds ``source_file`` (basename) to each node.
+    Mutates nodes and edges in place. Adds ``source_file`` (manifest member path,
+    often basename for flat bundles) to each node.
     """
     id_map = {}
     for node in nodes:
@@ -816,8 +817,9 @@ def apply_bundle_source_prefix_to_model_summary_graph(nodes, edges, source_tag):
 def merge_bundled_model_summaries(bundle_root_path, pairs):
     """Merge per-file ``model_summary_to_dict`` outputs into one summary.
 
-    ``pairs`` is ``(source_tag, summary_dict)`` with ``source_tag`` usually the
-    member basename (e.g. ``Token.sol``).
+    ``pairs`` is ``(source_tag, summary_dict)`` where ``source_tag`` is the bundle
+    member path from the manifest (POSIX relative, e.g. ``Token.sol`` or
+    ``contracts/Token.sol``).
 
     Cross-file edges are not synthesized here; same-language TU merge is limited
     to disjoint union of per-file graphs with stable prefixed ids.

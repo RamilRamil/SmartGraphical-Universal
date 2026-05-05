@@ -5,7 +5,9 @@ Conventions:
 - Handlers call services; they never touch repositories or adapters directly.
 - Responses are plain dicts; schemas.py documents them for OpenAPI.
 """
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+import json
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from smartgraphical.services import web_api
 from smartgraphical.services.history_service import (
@@ -106,10 +108,37 @@ def build_router() -> APIRouter:
 
     @router.post("/artifacts/bundle", status_code=201)
     async def upload_artifact_bundle(
-        files: list[UploadFile] = File(...),
+        files: list[UploadFile] = File(
+            ...,
+            description=(
+                "Multipart parts named 'files' (repeat per file). Creates one artifact; "
+                "all parts must be the same language: .sol only, .rs only, or .c/.h mix. "
+                "Limits: empty batch rejected; at most 32 files; each part at most 2 MiB; "
+                "total bundle at most 64 MiB (enforced on ingest)."
+            ),
+        ),
+        bundle_paths_json: str | None = Form(
+            None,
+            description=(
+                "Optional JSON array of strings, one per file, same order as 'files'. "
+                "When set, each entry is a POSIX relative path for that upload (tree layout, "
+                "manifest version 2 with layout 'tree'). When omitted, paths default to upload "
+                "basenames with collision suffixes (flat layout, manifest version 1). "
+                "Paths must be relative (no leading '/', no '..', no Windows drive roots), "
+                "unique after normalization, within server length/segment limits. "
+                "HTTP 400 with code 'invalid_payload': invalid JSON, not an array, length "
+                "mismatch, non-string entries, duplicate paths, path rules, empty file, "
+                "mixed languages, or too many files. Code 'unsupported_file': per-file or "
+                "total size over limit or disallowed extension."
+            ),
+        ),
         service: HistoryService = Depends(get_history_service),
     ):
-        """Ingest multiple files as one artifact (mode 2: combined graph)."""
+        """Ingest multiple files as one artifact (combined graph / single scan target).
+
+        Error contract (JSON body ``{status, code, message}``) uses ``invalid_payload`` or
+        ``unsupported_file`` for validation failures, same as other HistoryService ingest routes.
+        """
         if not files:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
         if len(files) > MAX_BATCH_ARTIFACT_FILES:
@@ -117,8 +146,37 @@ def build_router() -> APIRouter:
                 ERROR_INVALID_PAYLOAD,
                 f"batch exceeds {MAX_BATCH_ARTIFACT_FILES} files",
             )
+        tree_mode = False
+        path_hints: list[str] = []
+        if bundle_paths_json is not None and str(bundle_paths_json).strip():
+            try:
+                parsed = json.loads(bundle_paths_json)
+            except json.JSONDecodeError as exc:
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "bundle_paths_json must be valid JSON",
+                ) from exc
+            if not isinstance(parsed, list):
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "bundle_paths_json must be a JSON array",
+                )
+            if len(parsed) != len(files):
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "bundle_paths_json length must match files count",
+                )
+            for item in parsed:
+                if not isinstance(item, str):
+                    raise HistoryError(
+                        ERROR_INVALID_PAYLOAD,
+                        "bundle_paths_json entries must be strings",
+                    )
+            tree_mode = True
+            path_hints = list(parsed)
+
         parts = []
-        for upload in files:
+        for idx, upload in enumerate(files):
             data = await upload.read()
             if len(data) == 0:
                 raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
@@ -127,8 +185,9 @@ def build_router() -> APIRouter:
                     ERROR_UNSUPPORTED_FILE,
                     f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
                 )
-            parts.append((data, upload.filename or "source"))
-        return service.ingest_bundle_upload(parts)
+            hint = path_hints[idx] if tree_mode else (upload.filename or "source")
+            parts.append((data, hint))
+        return service.ingest_bundle_upload(parts, tree_mode=tree_mode)
 
     @router.get("/artifacts")
     def list_artifacts(

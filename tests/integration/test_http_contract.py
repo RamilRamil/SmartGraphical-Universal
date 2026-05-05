@@ -4,6 +4,7 @@ These tests spin up a real FastAPI app wired to real HistoryService and
 SQLite (in a temp directory) so the HTTP contract is validated end-to-end
 against the same stack that will serve the frontend.
 """
+import json
 import os
 import tempfile
 import unittest
@@ -98,6 +99,17 @@ class HttpContractTests(unittest.TestCase):
         response = self.client.get("/api/openapi.json")
         self.assertEqual(response.status_code, 200)
         self.assertIn("paths", response.json())
+
+    def test_openapi_includes_bundle_paths_json_on_bundle_post(self):
+        response = self.client.get("/api/openapi.json")
+        self.assertEqual(response.status_code, 200)
+        spec = response.json()
+        self.assertIn("/api/artifacts/bundle", spec.get("paths", {}))
+        post = spec["paths"]["/api/artifacts/bundle"].get("post") or {}
+        self.assertIn("requestBody", post)
+        as_text = json.dumps(spec)
+        self.assertIn("bundle_paths_json", as_text)
+        self.assertIn("manifest version 2", as_text)
 
     def test_upload_artifact_success(self):
         artifact = self._upload_artifact()
@@ -206,6 +218,77 @@ class HttpContractTests(unittest.TestCase):
         tags = {n.get("source_file") for n in nodes if n.get("source_file")}
         self.assertIn(FIXTURE_SOL_NAME, tags)
         self.assertIn("ExternalMint.sol", tags)
+
+    def test_upload_artifacts_bundle_with_tree_paths_json(self):
+        path_b = os.path.join(
+            REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol",
+        )
+        self.assertTrue(os.path.isfile(path_b), msg=path_b)
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", ("ignored.sol", self._source_bytes, "text/plain")),
+                ("files", ("ignored2.sol", bytes_b, "text/plain")),
+            ],
+            data={
+                "bundle_paths_json": json.dumps(
+                    ["contracts/A.sol", "contracts/B.sol"],
+                ),
+            },
+        )
+        self.assertEqual(response.status_code, 201, msg=response.text)
+        art = response.json()
+        man_path = os.path.join(art["path_on_disk"], "sg_bundle_manifest.json")
+        self.assertTrue(os.path.isfile(man_path))
+        with open(man_path, "r", encoding="utf-8") as fh:
+            man_body = json.load(fh)
+        self.assertEqual(man_body.get("version"), 2)
+        self.assertEqual(man_body.get("layout"), "tree")
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(art["path_on_disk"], "contracts", "A.sol"),
+            ),
+        )
+        scan_r = self.client.post(
+            f"/api/artifacts/{art['id']}/scans",
+            json={"task": "all", "mode": "auditor"},
+        )
+        self.assertEqual(scan_r.status_code, 201, msg=scan_r.text)
+        scan_id = scan_r.json()["id"]
+        graph_r = self.client.get(f"/api/scans/{scan_id}/graph")
+        self.assertEqual(graph_r.status_code, 200)
+        body = graph_r.json()
+        self.assertTrue(body.get("available"))
+        ms = body["graph"]["model_summary"]
+        nodes = (ms.get("graph") or {}).get("nodes") or []
+        tags = {n.get("source_file") for n in nodes if n.get("source_file")}
+        self.assertIn("contracts/A.sol", tags)
+        self.assertIn("contracts/B.sol", tags)
+
+    def test_upload_artifacts_bundle_bundle_paths_json_length_mismatch_is_400(self):
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", ("a.sol", self._source_bytes, "text/plain")),
+                ("files", ("b.sol", self._source_bytes, "text/plain")),
+            ],
+            data={"bundle_paths_json": json.dumps(["only/one.sol"])},
+        )
+        self.assertEqual(response.status_code, 400, msg=response.text)
+        self.assertEqual(response.json().get("code"), "invalid_payload")
+
+    def test_upload_artifacts_bundle_bundle_paths_json_invalid_json_is_400(self):
+        response = self.client.post(
+            "/api/artifacts/bundle",
+            files=[
+                ("files", (FIXTURE_SOL_NAME, self._source_bytes, "text/plain")),
+            ],
+            data={"bundle_paths_json": "not-json"},
+        )
+        self.assertEqual(response.status_code, 400, msg=response.text)
+        self.assertEqual(response.json().get("code"), "invalid_payload")
 
     def test_upload_artifacts_bundle_rejects_mixed_language(self):
         path_c = os.path.join(REPO_ROOT, "tests", "fixtures", "c", "MinimalTu.c")

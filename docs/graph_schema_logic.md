@@ -95,6 +95,58 @@ For each edge endpoint `(type_name, target_name)`:
 
 This guarantees every edge references existing nodes.
 
+### 2.6 Multi-file bundle (combined artifact) and `source_file`
+
+When the analyzer target is a **bundle** (directory on disk containing
+`sg_bundle_manifest.json` and member files), the graph is built by analyzing
+each member file, then **merging** per-file graph payloads with stable id
+prefixes. See `merge_bundled_model_summaries` and
+`apply_bundle_source_prefix_to_model_summary_graph` in
+`smartgraphical/services/serializers.py`.
+
+**On-disk manifest** (`sg_bundle_manifest.json`):
+
+| Field | Meaning |
+|-------|---------|
+| `version` | `1` = flat layout (member `path` is a single path segment, effectively basename within the bundle). |
+| `version` | `2` with `"layout": "tree"` = member `path` is a POSIX relative path (may contain `/`). |
+| `members` | Array of `{ "path", "sha256" }` listing every source file in the bundle. |
+| `solidity_remappings` | Optional: JSON array of prefix maps for Solidity imports, e.g. `[["@vendor/", "contracts/vendor/"]]` or `[{ "prefix": "@oz/", "path": "lib/oz/" }]`. Longest prefix wins; applied before resolving an import to a manifest `path` (see `_apply_solidity_remappings` in `web_api.py`). Ignored for non-Solidity bundles. |
+| `c_include_prefixes` | Optional (C bundles): JSON array of POSIX directory prefixes. After resolving a quoted `#include` relative to the consumer file, the resolver also tries `prefix/rel` for each prefix, with the same traversal-safety checks as other bundle path logic (`_normalize_manifest_c_include_prefixes`, `_resolve_c_provider_rel` in `web_api.py`). |
+
+**`source_file` on nodes (and merge tag):**
+
+After merge, each node carries `source_file` equal to that member's **`path`**
+string from the manifest — not only the basename. For flat bundles this is
+usually the same as the filename (e.g. `Token.sol`). For tree bundles it is
+the full relative path (e.g. `contracts/Token.sol`). The UI and downstream
+logic should treat `source_file` as the stable **bundle-relative** identifier
+for the file that produced the node.
+
+**Merged artifact metadata:** `model_summary.artifact.bundle_members` is the
+ordered list of those manifest paths (see `merge_bundled_model_summaries`).
+
+**Cross-file bundle edges** (Solidity imports, C quoted/includes between member
+`.c`/`.h`, Rust `mod`/`crate` links) are added in `smartgraphical/services/web_api.py`
+after merge. They resolve provider/consumer members using manifest paths and
+relative import/include strings so duplicate basenames in different
+directories can still match when paths are unambiguous. **Rust:** file-module
+``mod foo;`` resolves under the consumer file's directory, optionally extended
+by segments for each enclosing inline ``mod bar { ... }`` block; ``super::``
+checks that directory first, then one path segment up; ``crate::`` is restricted
+to members under a single inferred crate root when the bundle lists exactly one
+qualifying `lib.rs` or `main.rs` path (see `web_api._rust_pick_crate_root_for_consumer`).
+**Solidity:** unqualified imports that match more than one member basename do not create a
+synthetic edge.
+
+**Solidity import scan:** Block comments `/* ... */` are removed before import path extraction so commented-out `import` lines do not create bundle edges (`_strip_solidity_block_comments`). Each logical line is then stripped of trailing `//` comments in a quote-aware way (`_solidity_strip_line_comment`) so paths like `"./a//b.sol"` are not truncated naively at `//`. The `import ... ;` match may span lines (`re.DOTALL`), so `import { Symbols } from "path";` and multiline braced imports are covered (`_solidity_file_import_paths`, `_solidity_clause_to_paths`).
+
+**Bundle graph hints:** When cross-file edges are skipped (ambiguous basename, unresolved import/include/module), `graph.exploration_hints.bundle_edge_resolution` may list non-zero integer counts per reason, for example `skipped_solidity_ambiguous_basename`, `skipped_solidity_unresolved_import`, `skipped_c_ambiguous_basename`, `skipped_c_unresolved_include`, `skipped_rust_unresolved_module` (`_apply_bundle_edge_hints`).
+
+**HTTP ingest:** tree layout is selected when the client sends
+`bundle_paths_json` with `POST /api/artifacts/bundle`. See
+`docs/bundle_folder_upload_iterations.md`.
+
 ## 3. Solidity adapter edge sources
 
 File: `smartgraphical/adapters/solidity/adapter.py`
