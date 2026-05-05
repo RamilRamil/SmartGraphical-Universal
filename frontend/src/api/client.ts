@@ -91,10 +91,17 @@ export const api = {
       body: formData,
     });
   },
-  uploadArtifactBundle: (files: File[]) => {
+  uploadArtifactBundle: (files: File[], bundleRelativePaths?: string[]) => {
     const formData = new FormData();
     for (const f of files) {
       formData.append("files", f);
+    }
+    if (
+      bundleRelativePaths !== undefined &&
+      bundleRelativePaths.length === files.length &&
+      bundleRelativePaths.length > 0
+    ) {
+      formData.append("bundle_paths_json", JSON.stringify(bundleRelativePaths));
     }
     return request<Artifact>("/artifacts/bundle", {
       method: "POST",

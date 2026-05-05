@@ -128,10 +128,17 @@ export function useUploadArtifactsBatch() {
   });
 }
 
+export type UploadBundleVariables = {
+  files: File[];
+  /** Same length as files; enables tree manifest on the server */
+  bundleRelativePaths?: string[];
+};
+
 export function useUploadArtifactBundle() {
   const queryClient = useQueryClient();
-  return useMutation<Artifact, Error, File[]>({
-    mutationFn: (files: File[]) => api.uploadArtifactBundle(files),
+  return useMutation<Artifact, Error, UploadBundleVariables>({
+    mutationFn: (input: UploadBundleVariables) =>
+      api.uploadArtifactBundle(input.files, input.bundleRelativePaths),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.artifacts });
     },

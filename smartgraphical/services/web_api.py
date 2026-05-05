@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+from pathlib import PurePosixPath
 
 from smartgraphical.adapters.c_base.adapter import _clean
 from smartgraphical.adapters.rust_stellar.adapter import _strip_rust_comments
@@ -36,9 +37,309 @@ BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
 _RE_C_BUNDLE_INC_QUOTED = re.compile(r'#include\s+"([^"]+)"')
 _RE_C_BUNDLE_INC_ANGLE = re.compile(r'#include\s+<([^>\n]+)>')
 _RE_SOL_IMPORT = re.compile(r"\bimport\s+(.+?);", re.DOTALL)
-_RE_RUST_MOD = re.compile(r"\bmod\s+(\w+)\s*;")
+_RE_RUST_MOD_HEAD = re.compile(
+    r"(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*([;{])",
+)
 _RE_RUST_USE_CRATE = re.compile(r"\buse\s+crate::([\w:]+)")
 _RE_RUST_USE_SUPER = re.compile(r"\buse\s+super::([\w:]+)")
+
+
+def _touch_bundle_stat(stats: dict | None, key: str, delta: int = 1) -> None:
+    if stats is None:
+        return
+    stats[key] = stats.get(key, 0) + delta
+
+
+def _solidity_same_basename_count(members_rels, raw_path: str) -> int:
+    raw_path = (raw_path or "").strip().replace("\\", "/")
+    if not raw_path.lower().endswith(".sol"):
+        return 0
+    base = os.path.basename(raw_path).lower()
+    return sum(
+        1
+        for r in members_rels
+        if r.lower().endswith(".sol") and os.path.basename(r).lower() == base
+    )
+
+
+def _c_same_basename_count(members_rels, raw_inc: str) -> int:
+    raw = (raw_inc or "").strip().replace("\\", "/")
+    low = raw.lower()
+    if not low.endswith((".h", ".c")):
+        return 0
+    base = os.path.basename(raw).lower()
+    return sum(
+        1
+        for r in members_rels
+        if os.path.basename(r).lower() == base
+    )
+
+
+def _normalize_manifest_c_include_prefixes(raw) -> list:
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        s = item.strip().replace("\\", "/").strip("/")
+        if not s:
+            continue
+        if any(p == ".." for p in PurePosixPath(s).parts):
+            continue
+        if s.startswith("/") or (len(s) > 1 and s[1] == ":"):
+            continue
+        out.append(s)
+    return out
+
+
+def _apply_bundle_edge_hints(graph: dict, stats: dict | None) -> None:
+    if not stats:
+        return
+    interesting = {k: int(v) for k, v in stats.items() if int(v) > 0}
+    if not interesting:
+        return
+    hints = graph.setdefault("exploration_hints", {})
+    if not isinstance(hints, dict):
+        hints = {}
+        graph["exploration_hints"] = hints
+    hints["bundle_edge_resolution"] = interesting
+
+
+def _bundle_members_rel_set(manifest):
+    members = manifest.get("members") or []
+    out = set()
+    for entry in members:
+        rel = entry.get("path") or ""
+        if rel:
+            out.add(rel)
+    return out
+
+
+def _resolve_solidity_provider_rel(members_rels, consumer_rel, raw_path):
+    raw_path = (raw_path or "").strip().replace("\\", "/")
+    if not raw_path.lower().endswith(".sol"):
+        return None
+    direct = str(PurePosixPath(raw_path))
+    if direct in members_rels:
+        return direct
+    joined = str(PurePosixPath(PurePosixPath(consumer_rel).parent / raw_path))
+    if joined in members_rels:
+        return joined
+    base = os.path.basename(raw_path).lower()
+    matches = [
+        r
+        for r in members_rels
+        if r.lower().endswith(".sol") and os.path.basename(r).lower() == base
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _normalize_manifest_solidity_remappings(raw) -> list:
+    """Return (prefix, target) pairs longest-prefix-first for manifest ``solidity_remappings``."""
+    if not isinstance(raw, list) or not raw:
+        return []
+    out = []
+    for item in raw:
+        prefix = None
+        target = None
+        if isinstance(item, dict):
+            prefix = item.get("prefix")
+            target = item.get("path")
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            prefix, target = item[0], item[1]
+        if not isinstance(prefix, str) or not isinstance(target, str):
+            continue
+        prefix = prefix.strip().replace("\\", "/")
+        target = target.strip().replace("\\", "/")
+        if not prefix:
+            continue
+        out.append((prefix, target))
+    out.sort(key=lambda x: -len(x[0]))
+    return out
+
+
+def _apply_solidity_remappings(raw_path: str, remaps: list) -> str:
+    if not remaps:
+        return raw_path
+    s = (raw_path or "").strip().replace("\\", "/")
+    for prefix, path in remaps:
+        if s.startswith(prefix):
+            return path + s[len(prefix):]
+    return s
+
+
+def _resolve_c_provider_rel(members_rels, consumer_rel, raw_inc, include_prefixes=None):
+    raw = (raw_inc or "").strip().replace("\\", "/")
+    if not raw:
+        return None
+    low = raw.lower()
+    if not low.endswith((".h", ".c")):
+        return None
+    direct = str(PurePosixPath(raw))
+    if direct in members_rels:
+        return direct
+    joined = str(PurePosixPath(PurePosixPath(consumer_rel).parent / raw))
+    if joined in members_rels:
+        return joined
+    if any(p == ".." for p in PurePosixPath(raw).parts):
+        return None
+    prefixes = include_prefixes or []
+    for prefix in prefixes:
+        cand = str(PurePosixPath(prefix) / raw)
+        if any(p == ".." for p in PurePosixPath(cand).parts):
+            continue
+        if cand in members_rels:
+            return cand
+    base = os.path.basename(raw).lower()
+    matches = [r for r in members_rels if os.path.basename(r).lower() == base]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _resolve_rust_mod_provider_rel(members_rels, consumer_rel, stem, prefix_segments=()):
+    """Resolve ``mod stem;`` using consumer file dir plus optional inline-mod path.
+
+    ``prefix_segments`` is the chain of parent inline modules (e.g. ``account`` for
+    ``mod account { mod logic; }`` -> ``.../account/logic.rs``).
+    """
+    stem = stem.split("::")[0].strip().lower()
+    if not stem:
+        return None
+    parent = PurePosixPath(consumer_rel).parent
+    dir_path = parent
+    for seg in prefix_segments:
+        dir_path = dir_path / seg
+    for cand in (str(dir_path / f"{stem}.rs"), str(dir_path / stem / "mod.rs")):
+        if cand in members_rels:
+            return cand
+    return None
+
+
+def _resolve_rust_super_provider_rel(members_rels, consumer_rel, stem):
+    """Resolve ``super::stem`` (file-path heuristic).
+
+    Prefer the grandparent directory (one path segment up); if that is the
+    bundle root, fall back to the parent directory so ``src/child.rs`` can
+    resolve ``super::sibling`` to ``src/sibling.rs``.
+    """
+    stem = stem.split("::")[0].strip().lower()
+    if not stem:
+        return None
+    parent = PurePosixPath(consumer_rel).parent
+    super_parent = parent.parent
+    search_dirs = []
+    if str(super_parent) != ".":
+        search_dirs.append(super_parent)
+    search_dirs.append(parent)
+    seen = set()
+    for d in search_dirs:
+        for extra in (f"{stem}.rs", f"{stem}/mod.rs"):
+            cand = str(d / extra)
+            if cand in seen:
+                continue
+            seen.add(cand)
+            if cand in members_rels:
+                return cand
+    return None
+
+
+def _rust_crate_root_dirs(members_rels):
+    roots = []
+    seen = set()
+    for r in members_rels:
+        if not r.lower().endswith(".rs"):
+            continue
+        p = PurePosixPath(r)
+        if p.name not in ("lib.rs", "main.rs"):
+            continue
+        root = str(p.parent)
+        if root not in seen:
+            seen.add(root)
+            roots.append(root)
+    return roots
+
+
+def _rust_pick_crate_root_for_consumer(members_rels, consumer_rel):
+    """If manifest exposes lib.rs/main.rs roots, scope ``crate::`` to one root when unambiguous."""
+    roots = _rust_crate_root_dirs(members_rels)
+    if not roots:
+        return None
+    cons = consumer_rel.replace("\\", "/")
+    applicable = []
+    for root in roots:
+        if root == ".":
+            if "/" not in cons:
+                applicable.append(root)
+        elif cons == root or cons.startswith(root + "/"):
+            applicable.append(root)
+    if len(applicable) == 1:
+        return applicable[0]
+    if not applicable:
+        return None
+    applicable.sort(key=len, reverse=True)
+    inner = applicable[0]
+    if all((x.startswith(inner + "/") or x == inner) for x in applicable):
+        return inner
+    return None
+
+
+def _rust_member_pool_for_crate_root(members_rels, root: str):
+    if root == ".":
+        return set(members_rels)
+    return {r for r in members_rels if r == root or r.startswith(root + "/")}
+
+
+def _resolve_rust_crate_provider_rel(members_rels, consumer_rel, stem):
+    stem = stem.split("::")[0].strip().lower()
+    if not stem:
+        return None
+    picked_root = _rust_pick_crate_root_for_consumer(members_rels, consumer_rel)
+    pool = (
+        _rust_member_pool_for_crate_root(members_rels, picked_root)
+        if picked_root is not None
+        else set(members_rels)
+    )
+    matches = [
+        r
+        for r in pool
+        if r.lower().endswith(".rs") and PurePosixPath(r).stem.lower() == stem
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _strip_solidity_block_comments(source_text: str) -> str:
+    return re.sub(r"/\*.*?\*/", " ", source_text, flags=re.DOTALL)
+
+
+def _solidity_strip_line_comment(line: str) -> str:
+    """Drop a trailing // comment; do not treat // inside quotes as comment start."""
+    in_quote = None
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_quote:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if c in "\"'":
+            in_quote = c
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and line[i + 1] == "/":
+            return line[:i].rstrip()
+        i += 1
+    return line
 
 
 def _solidity_clause_to_paths(clause: str) -> list:
@@ -56,8 +357,9 @@ def _solidity_clause_to_paths(clause: str) -> list:
 def _solidity_file_import_paths(source_text: str) -> list:
     lines = []
     for line in source_text.splitlines():
-        lines.append(line.split("//")[0])
+        lines.append(_solidity_strip_line_comment(line))
     buf = "\n".join(lines)
+    buf = _strip_solidity_block_comments(buf)
     out = []
     for m in _RE_SOL_IMPORT.finditer(buf):
         out.extend(_solidity_clause_to_paths(m.group(1).strip()))
@@ -108,7 +410,11 @@ def _revalidate_bundle_graph(model_summary: dict, is_c_profile: bool) -> None:
     model_summary["call_edges_count"] = len(validated_edges)
 
 
-def _attach_solidity_bundle_import_edges(bundle_root: str, model_summary: dict) -> None:
+def _attach_solidity_bundle_import_edges(
+    bundle_root: str,
+    model_summary: dict,
+    bundle_stats: dict | None = None,
+) -> None:
     graph = model_summary.get("graph") or {}
     nodes = graph.get("nodes") or []
     edges = list(graph.get("edges") or [])
@@ -117,43 +423,55 @@ def _attach_solidity_bundle_import_edges(bundle_root: str, model_summary: dict) 
         return
     with open(manifest_path, "r", encoding="utf-8") as handle:
         manifest = json.load(handle)
-    members = manifest.get("members") or []
-    tag_by_sol = {}
-    for entry in members:
-        rel = entry.get("path") or ""
-        if not rel.lower().endswith(".sol"):
-            continue
-        base = os.path.basename(rel)
-        tag_by_sol[base.lower()] = base
+    members_rels = _bundle_members_rel_set(manifest)
+    sol_remaps = _normalize_manifest_solidity_remappings(manifest.get("solidity_remappings"))
 
     dedupe = _bundle_import_dedupe(edges, "solidity_import")
     new_edges = []
-    for entry in members:
+    for entry in manifest.get("members") or []:
         rel = entry.get("path") or ""
         if not rel.lower().endswith(".sol"):
             continue
-        consumer_tag = os.path.basename(rel)
+        consumer_rel = rel
         abs_path = os.path.join(bundle_root, rel)
         if not os.path.isfile(abs_path):
             continue
         with open(abs_path, "r", encoding="utf-8", errors="replace") as handle:
             text = handle.read()
-        source_id = _first_type_anchor_id(nodes, consumer_tag)
+        source_id = _first_type_anchor_id(nodes, consumer_rel)
         if not source_id:
             continue
         seen_provider = set()
         for raw_path in _solidity_file_import_paths(text):
-            raw_path = raw_path.strip().replace("\\", "/")
-            base = os.path.basename(raw_path)
-            if not base.lower().endswith(".sol"):
+            provider_rel = None
+            candidates = []
+            remapped = _apply_solidity_remappings(raw_path, sol_remaps)
+            if remapped != raw_path:
+                candidates.append(remapped)
+            candidates.append(raw_path)
+            for cand in candidates:
+                provider_rel = _resolve_solidity_provider_rel(
+                    members_rels, consumer_rel, cand,
+                )
+                if provider_rel:
+                    break
+            if not provider_rel or provider_rel == consumer_rel:
+                if bundle_stats is not None and raw_path.lower().endswith(".sol"):
+                    if _solidity_same_basename_count(members_rels, raw_path) > 1:
+                        _touch_bundle_stat(
+                            bundle_stats,
+                            "skipped_solidity_ambiguous_basename",
+                        )
+                    else:
+                        _touch_bundle_stat(
+                            bundle_stats,
+                            "skipped_solidity_unresolved_import",
+                        )
                 continue
-            provider_tag = tag_by_sol.get(base.lower())
-            if not provider_tag or provider_tag == consumer_tag:
+            if provider_rel in seen_provider:
                 continue
-            if provider_tag in seen_provider:
-                continue
-            seen_provider.add(provider_tag)
-            target_id = _first_type_anchor_id(nodes, provider_tag)
+            seen_provider.add(provider_rel)
+            target_id = _first_type_anchor_id(nodes, provider_rel)
             if not target_id:
                 continue
             pair = (source_id, target_id)
@@ -179,19 +497,76 @@ def _attach_solidity_bundle_import_edges(bundle_root: str, model_summary: dict) 
     _revalidate_bundle_graph(model_summary, False)
 
 
+def _rust_naive_match_brace(source: str, open_idx: int) -> int:
+    """Return index of brace matching ``source[open_idx]``, or -1 (string-unaware)."""
+    if open_idx >= len(source) or source[open_idx] != "{":
+        return -1
+    depth = 0
+    i = open_idx
+    while i < len(source):
+        c = source[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _rust_collect_file_module_declarations(
+    stripped: str,
+    lo: int,
+    hi: int,
+    stack: list,
+    out: list,
+) -> None:
+    """Fill ``out`` with ``(tuple(stack), name)`` for each file-module ``mod name;``."""
+    i = lo
+    while i < hi:
+        m = _RE_RUST_MOD_HEAD.search(stripped, i, hi)
+        if not m:
+            break
+        name = m.group(1)
+        kind = m.group(2)
+        if kind == ";":
+            out.append((tuple(stack), name))
+            i = m.end()
+            continue
+        brace_open = m.end() - 1
+        if brace_open >= hi or stripped[brace_open] != "{":
+            i = m.end()
+            continue
+        close = _rust_naive_match_brace(stripped, brace_open)
+        if close < 0 or close > hi:
+            i = m.end()
+            continue
+        _rust_collect_file_module_declarations(
+            stripped, brace_open + 1, close, stack + [name], out,
+        )
+        i = close + 1
+
+
 def _rust_collect_module_links(source_text: str) -> list:
     stripped = _strip_rust_comments(source_text)
-    refs = []
-    for m in _RE_RUST_MOD.finditer(stripped):
-        refs.append(("mod", m.group(1)))
+    mod_refs = []
+    _rust_collect_file_module_declarations(
+        stripped, 0, len(stripped), [], mod_refs,
+    )
+    refs = [("mod", name, prefix) for prefix, name in mod_refs]
     for m in _RE_RUST_USE_CRATE.finditer(stripped):
-        refs.append(("crate", m.group(1).split("::")[0]))
+        refs.append(("crate", m.group(1).split("::")[0], ()))
     for m in _RE_RUST_USE_SUPER.finditer(stripped):
-        refs.append(("super", m.group(1).split("::")[0]))
+        refs.append(("super", m.group(1).split("::")[0], ()))
     return refs
 
 
-def _attach_rust_bundle_module_edges(bundle_root: str, model_summary: dict) -> None:
+def _attach_rust_bundle_module_edges(
+    bundle_root: str,
+    model_summary: dict,
+    bundle_stats: dict | None = None,
+) -> None:
     graph = model_summary.get("graph") or {}
     nodes = graph.get("nodes") or []
     edges = list(graph.get("edges") or [])
@@ -200,43 +575,44 @@ def _attach_rust_bundle_module_edges(bundle_root: str, model_summary: dict) -> N
         return
     with open(manifest_path, "r", encoding="utf-8") as handle:
         manifest = json.load(handle)
-    members = manifest.get("members") or []
-    tag_by_rs = {}
-    for entry in members:
-        rel = entry.get("path") or ""
-        if not rel.lower().endswith(".rs"):
-            continue
-        base = os.path.basename(rel)
-        stem = os.path.splitext(base)[0].lower()
-        tag_by_rs[stem] = base
+    members_rels = _bundle_members_rel_set(manifest)
 
     dedupe = _bundle_import_dedupe(edges, "rust_module")
     new_edges = []
-    for entry in members:
+    for entry in manifest.get("members") or []:
         rel = entry.get("path") or ""
         if not rel.lower().endswith(".rs"):
             continue
-        consumer_tag = os.path.basename(rel)
+        consumer_rel = rel
         abs_path = os.path.join(bundle_root, rel)
         if not os.path.isfile(abs_path):
             continue
         with open(abs_path, "r", encoding="utf-8", errors="replace") as handle:
             text = handle.read()
-        source_id = _first_type_anchor_id(nodes, consumer_tag)
+        source_id = _first_type_anchor_id(nodes, consumer_rel)
         if not source_id:
             continue
         seen = set()
-        for _rk, name in _rust_collect_module_links(text):
-            stem = name.strip().lower()
-            if not stem:
+        for kind, name, mod_prefix in _rust_collect_module_links(text):
+            stem = name.split("::")[0]
+            if kind == "crate":
+                provider_rel = _resolve_rust_crate_provider_rel(members_rels, consumer_rel, stem)
+            elif kind == "super":
+                provider_rel = _resolve_rust_super_provider_rel(
+                    members_rels, consumer_rel, stem,
+                )
+            else:
+                provider_rel = _resolve_rust_mod_provider_rel(
+                    members_rels, consumer_rel, stem, mod_prefix,
+                )
+            if not provider_rel or provider_rel == consumer_rel:
+                if bundle_stats is not None:
+                    _touch_bundle_stat(bundle_stats, "skipped_rust_unresolved_module")
                 continue
-            provider_tag = tag_by_rs.get(stem)
-            if not provider_tag or provider_tag == consumer_tag:
+            if provider_rel in seen:
                 continue
-            if provider_tag in seen:
-                continue
-            seen.add(provider_tag)
-            target_id = _first_type_anchor_id(nodes, provider_tag)
+            seen.add(provider_rel)
+            target_id = _first_type_anchor_id(nodes, provider_rel)
             if not target_id:
                 continue
             pair = (source_id, target_id)
@@ -263,7 +639,7 @@ def _attach_rust_bundle_module_edges(bundle_root: str, model_summary: dict) -> N
 
 
 def _c_bundle_collect_local_includes(source_text: str) -> list:
-    """Basenames of #include targets that look like project .c/.h (not system libs)."""
+    """Paths from #include \"...\" / <...> that look like project .c/.h (not system libs)."""
     cleaned = _clean(source_text)
     out = []
     for rx in (_RE_C_BUNDLE_INC_QUOTED, _RE_C_BUNDLE_INC_ANGLE):
@@ -271,22 +647,26 @@ def _c_bundle_collect_local_includes(source_text: str) -> list:
             raw = m.group(1).strip().replace("\\", "/")
             base = os.path.basename(raw)
             if base and base.lower().endswith((".h", ".c")):
-                out.append(base)
+                out.append(raw)
     return out
 
 
-def _find_c_bundle_tile_id(nodes, source_basename: str, unit_stem: str):
+def _find_c_bundle_tile_id(nodes, source_rel: str, unit_stem: str):
     for n in nodes:
         if str(n.get("group", "")) != "tile":
             continue
-        if n.get("source_file") != source_basename:
+        if n.get("source_file") != source_rel:
             continue
         if str(n.get("label", "")) == unit_stem:
             return str(n.get("id", ""))
     return ""
 
 
-def _attach_c_bundle_include_edges(bundle_root: str, model_summary: dict) -> None:
+def _attach_c_bundle_include_edges(
+    bundle_root: str,
+    model_summary: dict,
+    bundle_stats: dict | None = None,
+) -> None:
     """Add tile_to_tile edges for #include of another bundle member (.c/.h)."""
     graph = model_summary.get("graph") or {}
     nodes = graph.get("nodes") or []
@@ -296,15 +676,8 @@ def _attach_c_bundle_include_edges(bundle_root: str, model_summary: dict) -> Non
         return
     with open(manifest_path, "r", encoding="utf-8") as handle:
         manifest = json.load(handle)
-    members = manifest.get("members") or []
-    tag_by_base = {}
-    for entry in members:
-        rel = entry.get("path") or ""
-        low = rel.lower()
-        if not low.endswith((".c", ".h")):
-            continue
-        base = os.path.basename(rel)
-        tag_by_base[base.lower()] = base
+    members_rels = _bundle_members_rel_set(manifest)
+    c_prefixes = _normalize_manifest_c_include_prefixes(manifest.get("c_include_prefixes"))
 
     dedupe = set()
     for e in edges:
@@ -315,32 +688,40 @@ def _attach_c_bundle_include_edges(bundle_root: str, model_summary: dict) -> Non
         dedupe.add((str(e.get("source", "")), str(e.get("target", ""))))
 
     new_edges = []
-    for entry in members:
+    for entry in manifest.get("members") or []:
         rel = entry.get("path") or ""
         if not rel.lower().endswith((".c", ".h")):
             continue
-        consumer_tag = os.path.basename(rel)
+        consumer_rel = rel
         abs_path = os.path.join(bundle_root, rel)
         if not os.path.isfile(abs_path):
             continue
         with open(abs_path, "r", encoding="utf-8", errors="replace") as handle:
             text = handle.read()
-        consumer_stem = os.path.splitext(consumer_tag)[0]
-        source_id = _find_c_bundle_tile_id(nodes, consumer_tag, consumer_stem)
+        consumer_stem = os.path.splitext(os.path.basename(consumer_rel))[0]
+        source_id = _find_c_bundle_tile_id(nodes, consumer_rel, consumer_stem)
         if not source_id:
             continue
-        for inc_base in _c_bundle_collect_local_includes(text):
-            provider_tag = tag_by_base.get(inc_base.lower())
-            if not provider_tag or provider_tag == consumer_tag:
+        for raw_inc in _c_bundle_collect_local_includes(text):
+            provider_rel = _resolve_c_provider_rel(
+                members_rels, consumer_rel, raw_inc, c_prefixes,
+            )
+            if not provider_rel or provider_rel == consumer_rel:
+                if bundle_stats is not None:
+                    if _c_same_basename_count(members_rels, raw_inc) > 1:
+                        _touch_bundle_stat(bundle_stats, "skipped_c_ambiguous_basename")
+                    else:
+                        _touch_bundle_stat(bundle_stats, "skipped_c_unresolved_include")
                 continue
-            prov_stem = os.path.splitext(provider_tag)[0]
-            target_id = _find_c_bundle_tile_id(nodes, provider_tag, prov_stem)
+            prov_stem = os.path.splitext(os.path.basename(provider_rel))[0]
+            target_id = _find_c_bundle_tile_id(nodes, provider_rel, prov_stem)
             if not target_id:
                 continue
             pair = (source_id, target_id)
             if pair in dedupe:
                 continue
             dedupe.add(pair)
+            inc_base = os.path.basename(raw_inc)
             digest = hashlib.sha256(
                 f"{source_id}\0{target_id}\0{inc_base}".encode("utf-8"),
             ).hexdigest()[:12]
@@ -411,7 +792,7 @@ def _bundle_member_abs_paths(bundle_root):
                 ERROR_INVALID_PATH,
                 f"bundle member missing on disk: {rel}",
             )
-        pairs.append((abs_path, os.path.basename(rel)))
+        pairs.append((abs_path, rel))
     if not pairs:
         raise WebApiError(ERROR_INVALID_PATH, "bundle manifest lists no files")
     return pairs
@@ -638,12 +1019,14 @@ def graph(path, language=None):
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     merged = merge_bundled_model_summaries(path, summaries)
+    bundle_stats: dict = {}
     if resolved_language == "c":
-        _attach_c_bundle_include_edges(path, merged)
+        _attach_c_bundle_include_edges(path, merged, bundle_stats)
     elif resolved_language == "solidity":
-        _attach_solidity_bundle_import_edges(path, merged)
+        _attach_solidity_bundle_import_edges(path, merged, bundle_stats)
     elif resolved_language == "rust":
-        _attach_rust_bundle_module_edges(path, merged)
+        _attach_rust_bundle_module_edges(path, merged, bundle_stats)
+    _apply_bundle_edge_hints(merged.get("graph") or {}, bundle_stats)
     return {
         "status": "ok",
         "artifact": path,

@@ -221,6 +221,13 @@ Best practice:
 
 Не удалять такие ребра: это важно для security triage.
 
+## 8.1 Multi-file C bundles
+
+Для комбинированного артефакта (несколько `.c`/`.h` в одном bundle) поле
+`source_file` на узлах после merge совпадает с `path` в `sg_bundle_manifest.json`
+(см. `docs/graph_schema_logic.md`, п. 2.6). Рёбра `bundle_member_include` между
+файлами бандла добавляет `web_api._attach_c_bundle_include_edges`.
+
 ## 9. Валидация и QA
 
 Перед отдачей payload:

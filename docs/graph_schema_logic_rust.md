@@ -197,6 +197,13 @@ Flag host-only or non-deterministic constructs (wall clock, restricted floating-
 
 `create_import!`-style workflows without hard versioning deserve metadata cross-checks (for example imported contract metadata vs deployed code hash) to flag drift.
 
+### 5.5 Multi-file Rust bundles
+
+When multiple `.rs` files are ingested as one bundle artifact, merged graph
+nodes use `source_file` equal to the manifest member `path` (see
+`docs/graph_schema_logic.md`, section 2.6). Cross-file `mod` / `crate::` links
+between bundle members are added via `web_api._attach_rust_bundle_module_edges`.
+
 ---
 
 ## 6. Validation and QA (target)

@@ -20,6 +20,9 @@ ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs")
 BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
 MAX_BUNDLE_FILES = 32
 MAX_UPLOAD_BYTES_PER_FILE = 2 * 1024 * 1024
+MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024
+MAX_BUNDLE_REL_PATH_LEN = 512
+MAX_BUNDLE_REL_PARTS = 64
 
 ERROR_UNSUPPORTED_FILE = "unsupported_file"
 ERROR_NOT_FOUND = "not_found"
@@ -58,6 +61,53 @@ def _sanitize_filename(filename):
 def _extract_extension(filename):
     _, extension = os.path.splitext(filename or "")
     return extension.lower()
+
+
+def _normalize_bundle_rel_path(raw: str) -> str:
+    if raw is None or not isinstance(raw, str):
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path must be a non-empty string")
+    s = raw.strip().replace("\\", "/")
+    if not s or "\x00" in s:
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "invalid bundle path")
+    if len(s) > MAX_BUNDLE_REL_PATH_LEN:
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path is too long")
+    if s.startswith("/") or (len(s) > 1 and s[1] == ":" and s[0].isalpha()):
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path must be relative")
+    parts = []
+    for seg in s.split("/"):
+        if seg == "" or seg == ".":
+            continue
+        if seg == "..":
+            raise HistoryError(
+                ERROR_INVALID_PAYLOAD,
+                "bundle path must not contain parent segments",
+            )
+        parts.append(seg)
+    if not parts:
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path is empty after normalization")
+    if len(parts) > MAX_BUNDLE_REL_PARTS:
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path has too many segments")
+    return "/".join(parts)
+
+
+def _safe_write_bundle_file(bundle_root: str, rel_posix: str, data: bytes) -> str:
+    """Write ``data`` to bundle_root/rel_posix; ensure path stays inside bundle_root."""
+    abs_target = os.path.normpath(
+        os.path.join(bundle_root, *rel_posix.split("/")),
+    )
+    root_real = os.path.realpath(bundle_root)
+    try:
+        target_real = os.path.realpath(abs_target)
+    except OSError as exc:
+        raise HistoryError(ERROR_INVALID_PAYLOAD, f"invalid bundle path: {exc}") from exc
+    if target_real != root_real and not target_real.startswith(root_real + os.sep):
+        raise HistoryError(ERROR_INVALID_PAYLOAD, "bundle path escapes bundle root")
+    parent = os.path.dirname(abs_target)
+    os.makedirs(parent, exist_ok=True)
+    if not os.path.isfile(abs_target):
+        with open(abs_target, "wb") as handle:
+            handle.write(data)
+    return abs_target
 
 
 def _detect_tool_version(repo_root):
@@ -166,74 +216,129 @@ class HistoryService:
             created_at=_now_iso(),
         )
 
-    def ingest_bundle_upload(self, file_parts):
+    def ingest_bundle_upload(self, members, tree_mode=False):
         """Persist multiple sources as one artifact (one combined graph scan).
 
-        ``file_parts`` is a list of (bytes, filename). All members must use
-        the same language. On disk: workspace/artifacts/<bundle_id>/ with
-        ``sg_bundle_manifest.json`` and uniquely named member files.
+        ``members`` is a list of ``(bytes, path_hint)``. When ``tree_mode`` is
+        False (legacy), ``path_hint`` is the upload filename (basename only,
+        collisions get numeric suffixes). When True, ``path_hint`` is a POSIX
+        relative path (may contain ``/``); normalized paths must be unique.
+
+        Manifest: ``version`` 1 (flat) or 2 (``layout: tree``).
         """
-        if not file_parts:
+        if not members:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
-        if len(file_parts) > MAX_BUNDLE_FILES:
+        if len(members) > MAX_BUNDLE_FILES:
             raise HistoryError(
                 ERROR_INVALID_PAYLOAD,
                 f"bundle exceeds {MAX_BUNDLE_FILES} files",
             )
-        normalized = []
-        languages = []
         total_size = 0
-        for data, filename in file_parts:
-            if not isinstance(data, (bytes, bytearray)):
-                raise HistoryError(ERROR_INVALID_PAYLOAD, "upload payload must be bytes")
-            if len(data) == 0:
-                raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
-            if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
-                raise HistoryError(
-                    ERROR_UNSUPPORTED_FILE,
-                    f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
-                )
-            clean_name = _sanitize_filename(filename)
-            extension = _extract_extension(clean_name)
-            if extension not in ALLOWED_EXTENSIONS:
-                raise HistoryError(
-                    ERROR_UNSUPPORTED_FILE,
-                    f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
-                )
-            if extension == ".sol":
-                language = "solidity"
-            elif extension == ".rs":
-                language = "rust"
-            else:
-                language = "c"
-            languages.append(language)
-            total_size += len(data)
-            normalized.append((bytes(data), clean_name))
-        if len(set(languages)) != 1:
-            raise HistoryError(
-                ERROR_INVALID_PAYLOAD,
-                "bundle must be single-language "
-                "(for C, .c and .h may be mixed in one bundle; "
-                "Solidity only .sol; Rust only .rs)",
-            )
-        language = languages[0]
-
-        used_names = {}
-        members_for_hash = []
+        languages = []
         staged = []
-        for data, clean_name in sorted(normalized, key=lambda x: x[1]):
-            base = clean_name
-            candidate = base
-            suffix = 0
-            while candidate in used_names:
-                suffix += 1
-                stem, ext = os.path.splitext(base)
-                candidate = f"{stem}_{suffix}{ext}"
-            used_names[candidate] = True
-            file_hash = _compute_sha256(data)
-            members_for_hash.append((candidate, file_hash))
-            staged.append((candidate, data, file_hash))
 
+        if tree_mode:
+            normalized_rows = []
+            for data, raw_rel in members:
+                if not isinstance(data, (bytes, bytearray)):
+                    raise HistoryError(ERROR_INVALID_PAYLOAD, "upload payload must be bytes")
+                if len(data) == 0:
+                    raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
+                if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
+                    raise HistoryError(
+                        ERROR_UNSUPPORTED_FILE,
+                        f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
+                    )
+                rel_norm = _normalize_bundle_rel_path(raw_rel)
+                extension = _extract_extension(os.path.basename(rel_norm))
+                if extension not in ALLOWED_EXTENSIONS:
+                    raise HistoryError(
+                        ERROR_UNSUPPORTED_FILE,
+                        f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
+                    )
+                if extension == ".sol":
+                    language = "solidity"
+                elif extension == ".rs":
+                    language = "rust"
+                else:
+                    language = "c"
+                languages.append(language)
+                total_size += len(data)
+                normalized_rows.append((bytes(data), rel_norm, language))
+            if len(set(languages)) != 1:
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "bundle must be single-language "
+                    "(for C, .c and .h may be mixed in one bundle; "
+                    "Solidity only .sol; Rust only .rs)",
+                )
+            language = languages[0]
+            paths_only = [r[1] for r in normalized_rows]
+            if len(set(paths_only)) != len(paths_only):
+                raise HistoryError(ERROR_INVALID_PAYLOAD, "duplicate bundle paths after normalization")
+            if total_size > MAX_BUNDLE_BYTES_TOTAL:
+                raise HistoryError(
+                    ERROR_UNSUPPORTED_FILE,
+                    f"bundle total size exceeds {MAX_BUNDLE_BYTES_TOTAL} bytes",
+                )
+            for data, rel_norm, _lang in normalized_rows:
+                file_hash = _compute_sha256(data)
+                staged.append((rel_norm, data, file_hash))
+        else:
+            normalized_flat = []
+            for data, filename in members:
+                if not isinstance(data, (bytes, bytearray)):
+                    raise HistoryError(ERROR_INVALID_PAYLOAD, "upload payload must be bytes")
+                if len(data) == 0:
+                    raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
+                if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
+                    raise HistoryError(
+                        ERROR_UNSUPPORTED_FILE,
+                        f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
+                    )
+                clean_name = _sanitize_filename(filename)
+                extension = _extract_extension(clean_name)
+                if extension not in ALLOWED_EXTENSIONS:
+                    raise HistoryError(
+                        ERROR_UNSUPPORTED_FILE,
+                        f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
+                    )
+                if extension == ".sol":
+                    language = "solidity"
+                elif extension == ".rs":
+                    language = "rust"
+                else:
+                    language = "c"
+                languages.append(language)
+                total_size += len(data)
+                normalized_flat.append((bytes(data), clean_name, language))
+            if len(set(languages)) != 1:
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "bundle must be single-language "
+                    "(for C, .c and .h may be mixed in one bundle; "
+                    "Solidity only .sol; Rust only .rs)",
+                )
+            language = languages[0]
+            if total_size > MAX_BUNDLE_BYTES_TOTAL:
+                raise HistoryError(
+                    ERROR_UNSUPPORTED_FILE,
+                    f"bundle total size exceeds {MAX_BUNDLE_BYTES_TOTAL} bytes",
+                )
+            used_names = {}
+            for data, clean_name, _lang in sorted(normalized_flat, key=lambda x: x[1]):
+                base = clean_name
+                candidate = base
+                suffix = 0
+                while candidate in used_names:
+                    suffix += 1
+                    stem, ext = os.path.splitext(base)
+                    candidate = f"{stem}_{suffix}{ext}"
+                used_names[candidate] = True
+                file_hash = _compute_sha256(data)
+                staged.append((candidate, data, file_hash))
+
+        members_for_hash = [(r[0], r[2]) for r in staged]
         digest = hashlib.sha256()
         for rel_path, file_hash in sorted(members_for_hash, key=lambda x: x[0]):
             digest.update(rel_path.encode("utf-8"))
@@ -250,18 +355,23 @@ class HistoryService:
         manifest_members = []
         display_names = []
         for rel_path, data, file_hash in sorted(staged, key=lambda x: x[0]):
-            disk_member = os.path.join(bundle_dir, rel_path)
-            if not os.path.isfile(disk_member):
-                with open(disk_member, "wb") as handle:
-                    handle.write(data)
+            _safe_write_bundle_file(bundle_dir, rel_path, data)
             manifest_members.append({"path": rel_path, "sha256": file_hash})
             display_names.append(rel_path)
 
-        manifest = {
-            "version": 1,
-            "language": language,
-            "members": manifest_members,
-        }
+        if tree_mode:
+            manifest = {
+                "version": 2,
+                "layout": "tree",
+                "language": language,
+                "members": manifest_members,
+            }
+        else:
+            manifest = {
+                "version": 1,
+                "language": language,
+                "members": manifest_members,
+            }
         manifest_path = os.path.join(bundle_dir, BUNDLE_MANIFEST_BASENAME)
         with open(manifest_path, "w", encoding="utf-8") as handle:
             json.dump(manifest, handle, ensure_ascii=True, indent=2)

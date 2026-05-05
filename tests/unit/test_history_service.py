@@ -1,4 +1,5 @@
 """Unit tests for HistoryService."""
+import json
 import os
 import tempfile
 import unittest
@@ -117,6 +118,43 @@ class HistoryServiceTests(unittest.TestCase):
         ])
         self.assertEqual(art["language"], "c")
         self.assertTrue(os.path.isdir(art["path_on_disk"]))
+
+    def test_ingest_bundle_tree_writes_manifest_v2_and_nested_files(self):
+        path_b = os.path.join(
+            REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol",
+        )
+        if not os.path.isfile(path_b):
+            self.skipTest(f"missing {path_b}")
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        artifact = self.service.ingest_bundle_upload(
+            [
+                (self._source_bytes, "pkg/MinimalGuard.sol"),
+                (bytes_b, "pkg/ExternalMint.sol"),
+            ],
+            tree_mode=True,
+        )
+        self.assertEqual(artifact["language"], "solidity")
+        man_path = os.path.join(artifact["path_on_disk"], "sg_bundle_manifest.json")
+        with open(man_path, "r", encoding="utf-8") as fh:
+            man = json.load(fh)
+        self.assertEqual(man.get("version"), 2)
+        self.assertEqual(man.get("layout"), "tree")
+        paths = {m["path"] for m in man.get("members", [])}
+        self.assertEqual(paths, {"pkg/MinimalGuard.sol", "pkg/ExternalMint.sol"})
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(artifact["path_on_disk"], "pkg", "MinimalGuard.sol"),
+            ),
+        )
+
+    def test_ingest_bundle_tree_rejects_parent_path_segments(self):
+        with self.assertRaises(HistoryError) as ctx:
+            self.service.ingest_bundle_upload(
+                [(self._source_bytes, "../evil.sol")],
+                tree_mode=True,
+            )
+        self.assertEqual(ctx.exception.code, ERROR_INVALID_PAYLOAD)
 
     def test_run_analysis_creates_scan_and_findings_file(self):
         artifact = self.service.ingest_upload(self._source_bytes, FIXTURE_SOL_NAME)

@@ -8,8 +8,17 @@ import { useUploadArtifactBundle, useUploadArtifactsBatch } from "../api/hooks";
 import type { Artifact, BatchUploadResponse } from "../api/types";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024;
 const MAX_BATCH_FILES = 32;
+const BUNDLE_REL_MAX_LEN = 512;
+const BUNDLE_REL_MAX_PARTS = 64;
 const ALLOWED_EXTENSIONS = [".sol", ".c", ".h", ".rs"];
+
+type PendingEntry = {
+  file: File;
+  /** Raw relative path from folder picker or directory drop; null = flat / basename-only bundle */
+  treePath: string | null;
+};
 
 function detectLanguage(fileName: string): string | null {
   const lower = fileName.toLowerCase();
@@ -31,35 +40,122 @@ function formatApiError(err: unknown): string {
   return "Unknown error";
 }
 
-function validateFilesArray(
-  files: File[],
+function readWebkitRelativePath(file: File): string | null {
+  const w = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  if (typeof w !== "string" || w.length === 0) return null;
+  return w;
+}
+
+function isAllowedFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function normalizeClientTreePath(
+  raw: string,
+): { ok: true; path: string } | { ok: false; error: string } {
+  const s = raw.trim().replace(/\\/g, "/");
+  if (!s || s.includes("\0")) {
+    return { ok: false, error: "Invalid path." };
+  }
+  if (s.length > BUNDLE_REL_MAX_LEN) {
+    return { ok: false, error: `Path exceeds ${BUNDLE_REL_MAX_LEN} characters.` };
+  }
+  if (s.startsWith("/") || /^[a-zA-Z]:/.test(s)) {
+    return { ok: false, error: "Path must be relative (no absolute paths)." };
+  }
+  const parts: string[] = [];
+  for (const seg of s.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      return { ok: false, error: "Path must not contain parent segments (..)." };
+    }
+    parts.push(seg);
+  }
+  if (parts.length === 0) {
+    return { ok: false, error: "Path is empty after normalization." };
+  }
+  if (parts.length > BUNDLE_REL_MAX_PARTS) {
+    return { ok: false, error: `Path has more than ${BUNDLE_REL_MAX_PARTS} segments.` };
+  }
+  return { ok: true, path: parts.join("/") };
+}
+
+function displayPathForEntry(entry: PendingEntry): string {
+  if (entry.treePath) return entry.treePath.replace(/\\/g, "/");
+  return entry.file.name;
+}
+
+function validatePendingEntries(
+  entries: PendingEntry[],
   layout: "separate" | "combined",
-): { ok: true; files: File[] } | { ok: false; error: string } {
-  if (files.length === 0) {
+):
+  | { ok: true; entries: PendingEntry[]; pathsForUpload?: string[] }
+  | { ok: false; error: string } {
+  if (entries.length === 0) {
     return { ok: false, error: "No files selected." };
   }
-  if (files.length > MAX_BATCH_FILES) {
+  if (entries.length > MAX_BATCH_FILES) {
     return { ok: false, error: `At most ${MAX_BATCH_FILES} files per batch.` };
   }
-  for (const f of files) {
-    if (f.size === 0) {
-      return { ok: false, error: `${f.name} is empty.` };
-    }
-    if (f.size > MAX_UPLOAD_BYTES) {
-      return { ok: false, error: `${f.name} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
-    }
-    const allowed = ALLOWED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext));
-    if (!allowed) {
+
+  let pathsForUpload: string[] | undefined;
+
+  if (layout === "combined") {
+    const rawPaths = entries.map((e) => e.treePath);
+    const allNull = rawPaths.every((p) => p === null);
+    const allSet = rawPaths.every((p) => p !== null);
+    if (!allNull && !allSet) {
       return {
         ok: false,
-        error: `${f.name}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
+        error:
+          "Combined upload: use either a folder selection (paths for all files) or plain files (no mixed folder + loose files).",
+      };
+    }
+    if (!allNull) {
+      const normalized: string[] = [];
+      for (const e of entries) {
+        const n = normalizeClientTreePath(e.treePath!);
+        if (!n.ok) return { ok: false, error: `${displayPathForEntry(e)}: ${n.error}` };
+        normalized.push(n.path);
+      }
+      if (new Set(normalized).size !== normalized.length) {
+        return { ok: false, error: "Duplicate paths after normalization." };
+      }
+      pathsForUpload = normalized;
+    }
+
+    let total = 0;
+    for (const e of entries) {
+      total += e.file.size;
+    }
+    if (total > MAX_BUNDLE_BYTES_TOTAL) {
+      return {
+        ok: false,
+        error: `Bundle total size exceeds ${formatSize(MAX_BUNDLE_BYTES_TOTAL)}.`,
       };
     }
   }
+
+  for (const e of entries) {
+    if (e.file.size === 0) {
+      return { ok: false, error: `${e.file.name} is empty.` };
+    }
+    if (e.file.size > MAX_UPLOAD_BYTES) {
+      return { ok: false, error: `${e.file.name} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
+    }
+    if (!isAllowedFileName(e.file.name)) {
+      return {
+        ok: false,
+        error: `${e.file.name}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
+      };
+    }
+  }
+
   if (layout === "combined") {
     const langs = new Set<string>();
-    for (const f of files) {
-      const d = detectLanguage(f.name);
+    for (const e of entries) {
+      const d = detectLanguage(e.file.name);
       if (d) langs.add(d);
     }
     if (langs.size > 1) {
@@ -69,23 +165,52 @@ function validateFilesArray(
       };
     }
   }
-  return { ok: true, files };
+
+  return { ok: true, entries, pathsForUpload };
 }
 
-function validateFileList(
-  list: FileList | null,
-  layout: "separate" | "combined",
-): { ok: true; files: File[] } | { ok: false; error: string } {
-  if (!list || list.length === 0) {
-    return { ok: false, error: "No files selected." };
+function getFileFromEntry(fileEntry: FileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => {
+    fileEntry.file(resolve, reject);
+  });
+}
+
+async function readAllDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const chunks: FileSystemEntry[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((res, rej) => {
+      reader.readEntries(res, rej);
+    });
+    if (batch.length === 0) break;
+    chunks.push(...batch);
   }
-  return validateFilesArray(Array.from(list), layout);
+  return chunks;
+}
+
+async function walkDirectoryEntry(dir: FileSystemDirectoryEntry, prefix: string): Promise<PendingEntry[]> {
+  const out: PendingEntry[] = [];
+  const reader = dir.createReader();
+  const entries = await readAllDirectoryEntries(reader);
+  for (const ent of entries) {
+    if (ent.isFile) {
+      const fe = ent as FileSystemFileEntry;
+      if (!isAllowedFileName(fe.name)) continue;
+      const file = await getFileFromEntry(fe);
+      const rel = prefix ? `${prefix}/${fe.name}` : fe.name;
+      out.push({ file, treePath: rel });
+    } else if (ent.isDirectory) {
+      const de = ent as FileSystemDirectoryEntry;
+      const nextPrefix = prefix ? `${prefix}/${de.name}` : de.name;
+      out.push(...(await walkDirectoryEntry(de, nextPrefix)));
+    }
+  }
+  return out;
 }
 
 export function UploadPage() {
   const navigate = useNavigate();
   const [uploadLayout, setUploadLayout] = useState<"separate" | "combined">("separate");
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchUploadResponse | null>(null);
   const [bundleArtifact, setBundleArtifact] = useState<Artifact | null>(null);
@@ -96,24 +221,29 @@ export function UploadPage() {
 
   const previewLanguages = useMemo(() => {
     const langs = new Set<string>();
-    for (const f of pendingFiles) {
-      const d = detectLanguage(f.name);
+    for (const e of pendingEntries) {
+      const d = detectLanguage(e.file.name);
       if (d) langs.add(d);
     }
     return Array.from(langs).sort().join(", ") || "unknown";
-  }, [pendingFiles]);
+  }, [pendingEntries]);
 
-  function applyFileList(list: FileList | null) {
+  const combinedUsesTreePaths = useMemo(() => {
+    if (pendingEntries.length === 0) return false;
+    return pendingEntries.every((e) => e.treePath !== null);
+  }, [pendingEntries]);
+
+  function applyPendingEntries(entries: PendingEntry[]) {
     setClientError(null);
     setBatchResult(null);
     setBundleArtifact(null);
-    const result = validateFileList(list, uploadLayout);
+    const result = validatePendingEntries(entries, uploadLayout);
     if (!result.ok) {
       setClientError(result.error);
-      setPendingFiles([]);
+      setPendingEntries([]);
       return;
     }
-    setPendingFiles(result.files);
+    setPendingEntries(result.entries);
   }
 
   function handleLayoutChange(next: "separate" | "combined") {
@@ -123,22 +253,67 @@ export function UploadPage() {
     setBundleArtifact(null);
     batchMutation.reset();
     bundleMutation.reset();
-    if (pendingFiles.length === 0) return;
-    const v = validateFilesArray(pendingFiles, next);
+    if (pendingEntries.length === 0) return;
+    const v = validatePendingEntries(pendingEntries, next);
     if (!v.ok) {
       setClientError(v.error);
-      setPendingFiles([]);
+      setPendingEntries([]);
     }
   }
 
-  function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
-    applyFileList(event.target.files);
+  function handleFlatFileInput(event: ChangeEvent<HTMLInputElement>) {
+    const list = event.target.files;
+    if (!list || list.length === 0) return;
+    const entries: PendingEntry[] = Array.from(list).map((f) => ({
+      file: f,
+      treePath: readWebkitRelativePath(f),
+    }));
+    applyPendingEntries(entries);
+    event.target.value = "";
   }
 
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
+  function handleFolderFileInput(event: ChangeEvent<HTMLInputElement>) {
+    const list = event.target.files;
+    if (!list || list.length === 0) return;
+    const entries: PendingEntry[] = Array.from(list).map((f) => ({
+      file: f,
+      treePath: readWebkitRelativePath(f) ?? f.name,
+    }));
+    applyPendingEntries(entries);
+    event.target.value = "";
+  }
+
+  async function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragOver(false);
-    applyFileList(event.dataTransfer.files);
+    setClientError(null);
+    setBatchResult(null);
+    setBundleArtifact(null);
+
+    if (uploadLayout === "combined") {
+      const items = [...event.dataTransfer.items];
+      const first = items[0];
+      if (items.length === 1 && first && typeof first.webkitGetAsEntry === "function") {
+        const entry = first.webkitGetAsEntry();
+        if (entry?.isDirectory) {
+          try {
+            const walked = await walkDirectoryEntry(entry as FileSystemDirectoryEntry, "");
+            applyPendingEntries(walked);
+          } catch {
+            setClientError("Could not read dropped folder.");
+            setPendingEntries([]);
+          }
+          return;
+        }
+      }
+    }
+
+    const files = Array.from(event.dataTransfer.files);
+    const entries: PendingEntry[] = files.map((f) => ({
+      file: f,
+      treePath: readWebkitRelativePath(f),
+    }));
+    applyPendingEntries(entries);
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -153,13 +328,21 @@ export function UploadPage() {
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pendingFiles.length === 0) return;
+    if (pendingEntries.length === 0) return;
+    const v = validatePendingEntries(pendingEntries, uploadLayout);
+    if (!v.ok) {
+      setClientError(v.error);
+      return;
+    }
     try {
       if (uploadLayout === "combined") {
-        const art = await bundleMutation.mutateAsync(pendingFiles);
+        const art = await bundleMutation.mutateAsync({
+          files: v.entries.map((e) => e.file),
+          bundleRelativePaths: v.pathsForUpload,
+        });
         setBundleArtifact(art);
       } else {
-        const data = await batchMutation.mutateAsync(pendingFiles);
+        const data = await batchMutation.mutateAsync(v.entries.map((e) => e.file));
         setBatchResult(data);
       }
     } catch {
@@ -197,7 +380,7 @@ export function UploadPage() {
   function resetFlow() {
     setBatchResult(null);
     setBundleArtifact(null);
-    setPendingFiles([]);
+    setPendingEntries([]);
     setClientError(null);
     batchMutation.reset();
     bundleMutation.reset();
@@ -244,34 +427,65 @@ export function UploadPage() {
           >
             <p className="sg-dropzone__label">
               {uploadLayout === "combined"
-                ? "Drop or select multiple files for one bundle. C: .c/.h includes; Solidity: import of other .sol in the bundle; Rust: mod / use crate:: / use super:: to other .rs. Union graph plus these links."
+                ? "Drop files, or drop a single folder (Chrome/Edge/Safari). Or use Select files / Select folder. Folder uploads preserve relative paths for imports and includes."
                 : "Drag and drop source files here, or select them (multiple allowed). Each file becomes a separate artifact."}
             </p>
-            <input
-              type="file"
-              accept=".sol,.c,.h,.rs"
-              multiple
-              onChange={handleFileInput}
-              aria-label="Source files"
-            />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
+              <label className="sg-button sg-button--ghost" style={{ cursor: "pointer", margin: 0 }}>
+                Select files
+                <input
+                  type="file"
+                  accept=".sol,.c,.h,.rs"
+                  multiple
+                  onChange={handleFlatFileInput}
+                  aria-label="Source files"
+                  style={{ display: "none" }}
+                />
+              </label>
+              {uploadLayout === "combined" && (
+                <label className="sg-button sg-button--ghost" style={{ cursor: "pointer", margin: 0 }}>
+                  Select folder
+                  <input
+                    type="file"
+                    accept=".sol,.c,.h,.rs"
+                    multiple
+                    {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                    onChange={handleFolderFileInput}
+                    aria-label="Source folder"
+                    style={{ display: "none" }}
+                  />
+                </label>
+              )}
+            </div>
             <p className="sg-form__hint">
-              Max {MAX_BATCH_FILES} files; {formatSize(MAX_UPLOAD_BYTES)} per file.
-              Allowed: {ALLOWED_EXTENSIONS.join(", ")}.
+              Max {MAX_BATCH_FILES} files; {formatSize(MAX_UPLOAD_BYTES)} per file
+              {uploadLayout === "combined" ? `; bundle total ${formatSize(MAX_BUNDLE_BYTES_TOTAL)}.` : "."} Allowed:{" "}
+              {ALLOWED_EXTENSIONS.join(", ")}.
             </p>
           </div>
 
           {clientError && <p className="sg-banner sg-banner--error">{clientError}</p>}
 
-          {pendingFiles.length > 0 && (
+          {pendingEntries.length > 0 && (
             <div className="sg-preview">
               <div>
                 <span className="sg-preview__label">Files</span>
-                <span className="sg-preview__value">{pendingFiles.length} selected</span>
+                <span className="sg-preview__value">{pendingEntries.length} selected</span>
               </div>
+              {uploadLayout === "combined" && (
+                <div>
+                  <span className="sg-preview__label">Bundle layout</span>
+                  <span className="sg-preview__value">
+                    {combinedUsesTreePaths ? "tree (manifest v2 paths)" : "flat (basenames)"}
+                  </span>
+                </div>
+              )}
               <ul className="sg-form__hint" style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem" }}>
-                {pendingFiles.map((f) => (
-                  <li key={`${f.name}-${f.size}-${f.lastModified}`}>
-                    {f.name} ({formatSize(f.size)})
+                {pendingEntries.map((e, i) => (
+                  <li
+                    key={`${displayPathForEntry(e)}-${e.file.size}-${e.file.lastModified}-${i}`}
+                  >
+                    {displayPathForEntry(e)} ({formatSize(e.file.size)})
                   </li>
                 ))}
               </ul>
@@ -287,13 +501,13 @@ export function UploadPage() {
           <button
             type="submit"
             className="sg-button sg-button--primary"
-            disabled={pendingFiles.length === 0 || uploadPending}
+            disabled={pendingEntries.length === 0 || uploadPending}
           >
             {uploadPending
               ? "Uploading..."
-              : pendingFiles.length <= 1
+              : pendingEntries.length <= 1
                 ? "Upload"
-                : `Upload ${pendingFiles.length} files`}
+                : `Upload ${pendingEntries.length} files`}
           </button>
         </form>
       )}
