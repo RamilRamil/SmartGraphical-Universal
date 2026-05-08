@@ -65,6 +65,17 @@ export function ScanDetailPage() {
     return list.filter((finding) => finding.confidence === filter);
   }, [filter, scanQuery.data]);
 
+  const uploadBackHref = useMemo(() => {
+    const detailEarly = scanQuery.data;
+    const scanRecord = detailEarly?.scan;
+    if (!scanRecord) return "/upload";
+    const qs = new URLSearchParams();
+    qs.set("mode", parseAnalysisMode(scanRecord.mode));
+    const layout = getUploadLayoutForArtifact(scanRecord.artifact_id);
+    if (layout) qs.set("layout", layout);
+    return `/upload?${qs.toString()}`;
+  }, [scanQuery.data]);
+
   if (!parsedScanId || Number.isNaN(parsedScanId)) {
     return (
       <section className="sg-page">
@@ -108,14 +119,6 @@ export function ScanDetailPage() {
 
   const { scan, artifact, findings } = detail;
   const isError = scan.status === "error";
-  const uploadReturnMode = parseAnalysisMode(scan.mode);
-  const uploadBackHref = useMemo(() => {
-    const qs = new URLSearchParams();
-    qs.set("mode", uploadReturnMode);
-    const layout = getUploadLayoutForArtifact(scan.artifact_id);
-    if (layout) qs.set("layout", layout);
-    return `/upload?${qs.toString()}`;
-  }, [uploadReturnMode, scan.artifact_id]);
   const graphAvailable =
     !isError &&
     scan.task === "all" &&
