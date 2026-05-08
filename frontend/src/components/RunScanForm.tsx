@@ -5,8 +5,16 @@ import { SgApiError } from "../api/client";
 import { useCreateScan, useTasks } from "../api/hooks";
 import type { Scan } from "../api/types";
 
-const ALLOWED_MODES = ["auditor", "legacy", "explore"] as const;
-type Mode = (typeof ALLOWED_MODES)[number];
+export const ANALYSIS_MODES = ["auditor", "legacy", "explore"] as const;
+type Mode = (typeof ANALYSIS_MODES)[number];
+
+export function parseAnalysisMode(raw: string | null | undefined): Mode {
+  const v = (raw || "").trim().toLowerCase();
+  if ((ANALYSIS_MODES as readonly string[]).includes(v)) {
+    return v as Mode;
+  }
+  return "auditor";
+}
 
 type RunScanFormProps = {
   artifactId: number;
@@ -31,6 +39,10 @@ export function RunScanForm({
 }: RunScanFormProps) {
   const [mode, setMode] = useState<Mode>(defaultMode);
   const [task, setTask] = useState<string>("");
+
+  useEffect(() => {
+    setMode(defaultMode);
+  }, [defaultMode]);
 
   const tasksQuery = useTasks(language);
   const createScanMutation = useCreateScan(artifactId);
@@ -76,7 +88,7 @@ export function RunScanForm({
           value={mode}
           onChange={(event) => setMode(event.target.value as Mode)}
         >
-          {ALLOWED_MODES.map((option) => (
+          {ANALYSIS_MODES.map((option) => (
             <option key={option} value={option}>
               {option}
             </option>

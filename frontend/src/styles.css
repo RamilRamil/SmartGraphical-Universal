@@ -112,6 +112,14 @@ body {
   margin-bottom: 8px;
 }
 
+.sg-page__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
 .sg-history__actions {
   display: flex;
   align-items: center;
