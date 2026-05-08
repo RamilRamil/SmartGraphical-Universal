@@ -61,6 +61,11 @@
       "slug": "outer_calls",
       "primary_coverage": "model_unit",
       "notes": "tests/unit/test_rules_outer_calls.py"
+    },
+    "14": {
+      "slug": "min_slippage_bounds",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_min_slippage_bounds.py"
     }
   },
   "primary_coverage_values_documented": [
