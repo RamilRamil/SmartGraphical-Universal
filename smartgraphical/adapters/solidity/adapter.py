@@ -37,20 +37,23 @@ from smartgraphical.core.rules.solidity.computation import run as run_complicate
 from smartgraphical.core.rules.solidity.ordering import run as run_check_order
 from smartgraphical.core.rules.solidity.withdraw import run as run_withdraw_check
 from smartgraphical.core.rules.solidity.outer_calls import run as run_outer_calls
+from smartgraphical.core.rules.solidity.min_slippage_bounds import (
+    run as run_min_slippage_bounds,
+)
 
 
 TASK_GROUPS = {
     'NamingAndConsistency': ['1', '10'],
     'StateAndMutation': ['2', '4', '11'],
     'FlowAndOrdering': ['6', '8', '9'],
-    'ComputationAndEconomics': ['3', '5', '7'],
+    'ComputationAndEconomics': ['3', '5', '7', '14'],
     'VisualizationOnly': ['12'],
 }
 
 SECOND_LANGUAGE_POC = AdapterBlueprint(
     target_language='rust_or_cpp',
     required_entities=['FunctionLike', 'StateEntity', 'CallSite', 'Guard', 'Mutation'],
-    portable_rule_tasks=['3', '6', '7', '8', '9', '10', '11'],
+    portable_rule_tasks=['3', '6', '7', '8', '9', '10', '11', '14'],
     success_criteria=[
         'Extract the normalized entities for one non-trivial source file.',
         'Run at least two portable rules on the normalized model.',
@@ -73,6 +76,7 @@ def build_rule_registry():
         '9':  RuleSpec('9',  9,  'withdraw_check',          'Withdraw Preconditions',      'FlowAndOrdering',         'portable_with_adapter', 'medium', 'Ensure withdraw-style operations are preceded by guards, conditions, or validated system checks.',              run_withdraw_check),
         '10': RuleSpec('10', 11, 'similar_names',           'Similar Names',               'NamingAndConsistency',    'portable',              'medium', 'Rename near-duplicate identifiers when they can confuse reviewers or callers.',                                 run_similar_names),
         '11': RuleSpec('11', 12, 'outer_calls',             'Outer Calls',                 'StateAndMutation',        'portable_with_adapter', 'medium', 'Review public entrypoints that consume inputs and mutate state without stronger constraints.',                  run_outer_calls),
+        '14': RuleSpec('14', 14, 'min_slippage_bounds',    'Minimum Bounds On Swap And Liquidity Calls', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Replace zero literals for min-amount, min-shares, and deadline parameters with user-supplied or quote-derived bounds.', run_min_slippage_bounds),
     }
 
 

@@ -17,6 +17,7 @@ Registry: `smartgraphical/adapters/solidity/adapter.py` (`build_rule_registry`).
 | 9 | withdraw_check | `tests/unit/test_rules_solidity_normalized_coverage.py` |
 | 10 | similar_names | `tests/unit/test_rules_solidity_normalized_coverage.py` |
 | 11 | outer_calls | `tests/unit/test_rules_outer_calls.py` |
+| 14 | min_slippage_bounds | `tests/unit/test_rules_min_slippage_bounds.py` |
 
 Adapter fixtures (small `.sol` under `tests/fixtures/solidity/`):
 
