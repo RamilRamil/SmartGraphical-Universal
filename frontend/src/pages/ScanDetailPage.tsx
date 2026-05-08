@@ -3,6 +3,9 @@ import { Link, useParams } from "react-router-dom";
 
 import { SgApiError } from "../api/client";
 import { useGraph, useScan } from "../api/hooks";
+import type { Finding } from "../api/types";
+import { parseAnalysisMode } from "../components/RunScanForm";
+import { getUploadLayoutForArtifact } from "../lib/uploadNavigationContext";
 import { FindingCard } from "../components/FindingCard";
 import { GraphView } from "../components/GraphView";
 
@@ -26,27 +29,22 @@ function normalizeContractName(filename: string | undefined, scanId: number): st
   return normalized || `scan-${scanId}`;
 }
 
-function buildLocation(finding: {
-  evidences?: Array<{
-    type_name?: string;
-    function_name?: string;
-    line_numbers?: number[];
-    line_number?: number;
-  }>;
-}): string {
+/** Label for Markdown export: scope + line(s), without duplicating bundle member path. */
+function buildLocation(finding: Finding): string {
   const evidence = finding.evidences?.[0];
   if (!evidence) return "unknown";
   const scope = [evidence.type_name, evidence.function_name].filter(Boolean).join(".");
-  const lines =
+  const validLineNums =
     Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0
-      ? evidence.line_numbers.join(", ")
-      : typeof evidence.line_number === "number"
-        ? `${evidence.line_number}`
-        : "";
-  if (scope && lines) return `${scope} (lines: ${lines})`;
-  if (scope) return scope;
-  if (lines) return `lines: ${lines}`;
-  return "unknown";
+      ? evidence.line_numbers
+      : typeof evidence.line_number === "number" && evidence.line_number > 0
+        ? [evidence.line_number]
+        : [];
+  const linesStr = validLineNums.length > 0 ? validLineNums.join(", ") : "";
+  if (scope && linesStr) return `${scope} (lines: ${linesStr})`;
+  if (scope) return `${scope} (line unknown — see description)`;
+  if (linesStr) return `lines: ${linesStr}`;
+  return "line unknown (see description)";
 }
 
 export function ScanDetailPage() {
@@ -110,6 +108,14 @@ export function ScanDetailPage() {
 
   const { scan, artifact, findings } = detail;
   const isError = scan.status === "error";
+  const uploadReturnMode = parseAnalysisMode(scan.mode);
+  const uploadBackHref = useMemo(() => {
+    const qs = new URLSearchParams();
+    qs.set("mode", uploadReturnMode);
+    const layout = getUploadLayoutForArtifact(scan.artifact_id);
+    if (layout) qs.set("layout", layout);
+    return `/upload?${qs.toString()}`;
+  }, [uploadReturnMode, scan.artifact_id]);
   const graphAvailable =
     !isError &&
     scan.task === "all" &&
@@ -140,6 +146,9 @@ export function ScanDetailPage() {
       reportLines.push(`### ${index + 1}. ${finding.title || finding.rule_id}`);
       reportLines.push("");
       reportLines.push(`- severity: ${finding.confidence || "unknown"}`);
+      if (finding.source_file?.trim()) {
+        reportLines.push(`- file: ${finding.source_file.trim()}`);
+      }
       reportLines.push(`- location: ${location}`);
       reportLines.push(`- description: ${finding.message || "n/a"}`);
       reportLines.push(`- recommendation: ${finding.remediation_hint || "n/a"}`);
@@ -160,9 +169,17 @@ export function ScanDetailPage() {
     <section className="sg-page">
       <div className="sg-page__header">
         <h1 className="sg-page__title">Scan #{scan.id}</h1>
-        <Link to="/history" className="sg-link">
-          All scans
-        </Link>
+        <div className="sg-page__header-actions">
+          <Link
+            to={uploadBackHref}
+            className="sg-button sg-button--ghost"
+          >
+            Back to upload
+          </Link>
+          <Link to="/history" className="sg-link">
+            All scans
+          </Link>
+        </div>
       </div>
 
       {isError && (

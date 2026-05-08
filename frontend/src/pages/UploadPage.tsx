@@ -1,18 +1,28 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { RunScanForm } from "../components/RunScanForm";
+import { parseAnalysisMode, RunScanForm } from "../components/RunScanForm";
 import { SgApiError } from "../api/client";
 import { useUploadArtifactBundle, useUploadArtifactsBatch } from "../api/hooks";
 import type { Artifact, BatchUploadResponse } from "../api/types";
+import {
+  ALLOWED_EXTENSIONS,
+  coalesceFolderRelativePath,
+  entryLeafFileName,
+  isAllowedFileName,
+  normalizeClientTreePath,
+  readWebkitRelativePath,
+} from "../lib/bundleUploadPaths";
+import {
+  parseUploadLayoutParam,
+  saveUploadContextForScan,
+  type UploadLayoutMode,
+} from "../lib/uploadNavigationContext";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024;
 const MAX_BATCH_FILES = 32;
-const BUNDLE_REL_MAX_LEN = 512;
-const BUNDLE_REL_MAX_PARTS = 64;
-const ALLOWED_EXTENSIONS = [".sol", ".c", ".h", ".rs"];
 
 type PendingEntry = {
   file: File;
@@ -38,47 +48,6 @@ function formatApiError(err: unknown): string {
   if (err instanceof SgApiError) return `${err.code}: ${err.message}`;
   if (err instanceof Error) return err.message;
   return "Unknown error";
-}
-
-function readWebkitRelativePath(file: File): string | null {
-  const w = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-  if (typeof w !== "string" || w.length === 0) return null;
-  return w;
-}
-
-function isAllowedFileName(name: string): boolean {
-  const lower = name.toLowerCase();
-  return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
-
-function normalizeClientTreePath(
-  raw: string,
-): { ok: true; path: string } | { ok: false; error: string } {
-  const s = raw.trim().replace(/\\/g, "/");
-  if (!s || s.includes("\0")) {
-    return { ok: false, error: "Invalid path." };
-  }
-  if (s.length > BUNDLE_REL_MAX_LEN) {
-    return { ok: false, error: `Path exceeds ${BUNDLE_REL_MAX_LEN} characters.` };
-  }
-  if (s.startsWith("/") || /^[a-zA-Z]:/.test(s)) {
-    return { ok: false, error: "Path must be relative (no absolute paths)." };
-  }
-  const parts: string[] = [];
-  for (const seg of s.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      return { ok: false, error: "Path must not contain parent segments (..)." };
-    }
-    parts.push(seg);
-  }
-  if (parts.length === 0) {
-    return { ok: false, error: "Path is empty after normalization." };
-  }
-  if (parts.length > BUNDLE_REL_MAX_PARTS) {
-    return { ok: false, error: `Path has more than ${BUNDLE_REL_MAX_PARTS} segments.` };
-  }
-  return { ok: true, path: parts.join("/") };
 }
 
 function displayPathForEntry(entry: PendingEntry): string {
@@ -139,15 +108,16 @@ function validatePendingEntries(
 
   for (const e of entries) {
     if (e.file.size === 0) {
-      return { ok: false, error: `${e.file.name} is empty.` };
+      return { ok: false, error: `${displayPathForEntry(e)} is empty.` };
     }
     if (e.file.size > MAX_UPLOAD_BYTES) {
-      return { ok: false, error: `${e.file.name} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
+      return { ok: false, error: `${displayPathForEntry(e)} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
     }
-    if (!isAllowedFileName(e.file.name)) {
+    const leaf = entryLeafFileName(e);
+    if (!isAllowedFileName(leaf)) {
       return {
         ok: false,
-        error: `${e.file.name}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
+        error: `${displayPathForEntry(e)}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
       };
     }
   }
@@ -155,7 +125,7 @@ function validatePendingEntries(
   if (layout === "combined") {
     const langs = new Set<string>();
     for (const e of entries) {
-      const d = detectLanguage(e.file.name);
+      const d = detectLanguage(entryLeafFileName(e));
       if (d) langs.add(d);
     }
     if (langs.size > 1) {
@@ -194,10 +164,12 @@ async function walkDirectoryEntry(dir: FileSystemDirectoryEntry, prefix: string)
   for (const ent of entries) {
     if (ent.isFile) {
       const fe = ent as FileSystemFileEntry;
-      if (!isAllowedFileName(fe.name)) continue;
-      const file = await getFileFromEntry(fe);
       const rel = prefix ? `${prefix}/${fe.name}` : fe.name;
-      out.push({ file, treePath: rel });
+      const file = await getFileFromEntry(fe);
+      const treePath = coalesceFolderRelativePath(file, rel) ?? rel;
+      const pend: PendingEntry = { file, treePath };
+      if (!isAllowedFileName(entryLeafFileName(pend))) continue;
+      out.push(pend);
     } else if (ent.isDirectory) {
       const de = ent as FileSystemDirectoryEntry;
       const nextPrefix = prefix ? `${prefix}/${de.name}` : de.name;
@@ -209,7 +181,17 @@ async function walkDirectoryEntry(dir: FileSystemDirectoryEntry, prefix: string)
 
 export function UploadPage() {
   const navigate = useNavigate();
-  const [uploadLayout, setUploadLayout] = useState<"separate" | "combined">("separate");
+  const [searchParams] = useSearchParams();
+  const defaultRunMode = parseAnalysisMode(searchParams.get("mode"));
+
+  const [uploadLayout, setUploadLayout] = useState<UploadLayoutMode>(
+    () => parseUploadLayoutParam(searchParams.get("layout")) ?? "separate",
+  );
+
+  useEffect(() => {
+    const fromUrl = parseUploadLayoutParam(searchParams.get("layout"));
+    if (fromUrl) setUploadLayout(fromUrl);
+  }, [searchParams]);
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchUploadResponse | null>(null);
@@ -222,7 +204,7 @@ export function UploadPage() {
   const previewLanguages = useMemo(() => {
     const langs = new Set<string>();
     for (const e of pendingEntries) {
-      const d = detectLanguage(e.file.name);
+      const d = detectLanguage(entryLeafFileName(e));
       if (d) langs.add(d);
     }
     return Array.from(langs).sort().join(", ") || "unknown";
@@ -266,7 +248,7 @@ export function UploadPage() {
     if (!list || list.length === 0) return;
     const entries: PendingEntry[] = Array.from(list).map((f) => ({
       file: f,
-      treePath: readWebkitRelativePath(f),
+      treePath: coalesceFolderRelativePath(f, readWebkitRelativePath(f)),
     }));
     applyPendingEntries(entries);
     event.target.value = "";
@@ -277,7 +259,7 @@ export function UploadPage() {
     if (!list || list.length === 0) return;
     const entries: PendingEntry[] = Array.from(list).map((f) => ({
       file: f,
-      treePath: readWebkitRelativePath(f) ?? f.name,
+      treePath: coalesceFolderRelativePath(f, readWebkitRelativePath(f) ?? f.name),
     }));
     applyPendingEntries(entries);
     event.target.value = "";
@@ -311,7 +293,7 @@ export function UploadPage() {
     const files = Array.from(event.dataTransfer.files);
     const entries: PendingEntry[] = files.map((f) => ({
       file: f,
-      treePath: readWebkitRelativePath(f),
+      treePath: coalesceFolderRelativePath(f, readWebkitRelativePath(f)),
     }));
     applyPendingEntries(entries);
   }
@@ -526,7 +508,11 @@ export function UploadPage() {
           <RunScanForm
             artifactId={bundleArtifact.id}
             language={bundleArtifact.language}
-            onSuccess={(scan) => navigate(`/scans/${scan.id}`)}
+            defaultMode={defaultRunMode}
+            onSuccess={(scan) => {
+              saveUploadContextForScan(scan.artifact_id, uploadLayout);
+              navigate(`/scans/${scan.id}`);
+            }}
           />
           <div className="sg-form__actions">
             <button type="button" className="sg-button" onClick={resetFlow}>
@@ -578,7 +564,11 @@ export function UploadPage() {
             <RunScanForm
               artifactId={singleSuccessArtifact.id}
               language={singleSuccessArtifact.language}
-              onSuccess={(scan) => navigate(`/scans/${scan.id}`)}
+              defaultMode={defaultRunMode}
+              onSuccess={(scan) => {
+              saveUploadContextForScan(scan.artifact_id, uploadLayout);
+              navigate(`/scans/${scan.id}`);
+            }}
             />
           )}
 
