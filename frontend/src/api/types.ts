@@ -92,6 +92,7 @@ export type GraphNode = {
     | "event"
     | "modifier"
     | "external"
+    | "external_import"
     | "modifier_ring";
   parent?: string;
   kind?: string;

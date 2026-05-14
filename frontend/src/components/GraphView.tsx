@@ -39,6 +39,8 @@ function nodeColor(group: GraphNode["group"]): string {
       return "#22c55e";
     case "external":
       return "#6b7280";
+    case "external_import":
+      return "#6366f1";
     default:
       return "#4b5563";
   }
@@ -228,6 +230,8 @@ export function GraphView({ graph }: GraphViewProps) {
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [highlightStateWrites, setHighlightStateWrites] = useState(false);
   const [highlightEntrypointWrites, setHighlightEntrypointWrites] = useState(false);
+  const [showImports, setShowImports] = useState(false);
+  const [showCrossContractCalls, setShowCrossContractCalls] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -335,6 +339,14 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: 'node[group = "external_import"]',
+          style: {
+            shape: "diamond",
+            width: 32,
+            height: 32,
+          },
+        },
+        {
           selector: 'node[group = "state"], node[group = "workspace"]',
           style: {
             shape: "ellipse",
@@ -435,6 +447,23 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: 'edge[kind = "cross_contract_call"]',
+          style: {
+            "line-color": "#f97316",
+            "target-arrow-color": "#f97316",
+            width: 2.5,
+          },
+        },
+        {
+          selector: 'edge[kind = "import_dependency"]',
+          style: {
+            "line-color": "#6366f1",
+            "target-arrow-color": "#6366f1",
+            "line-style": "dashed",
+            width: 1,
+          },
+        },
+        {
           selector: 'edge[kind = "function_to_system"]',
           style: {
             "line-color": "#a78bfa",
@@ -486,6 +515,10 @@ export function GraphView({ graph }: GraphViewProps) {
     });
 
     coreRef.current = core;
+
+    core.elements('edge[kind = "import_dependency"]').hide();
+    core.elements('node[group = "external_import"]').hide();
+    core.elements('edge[kind = "cross_contract_call"]').hide();
 
     core.on("tap", "node", (event: EventObject) => {
       const node = event.target;
@@ -564,6 +597,31 @@ export function GraphView({ graph }: GraphViewProps) {
       }
     });
   }, [graph, highlightStateWrites, highlightEntrypointWrites]);
+
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core) return;
+    const edges = core.elements('edge[kind = "import_dependency"]');
+    const importNodes = core.elements('node[group = "external_import"]');
+    if (showImports) {
+      edges.show();
+      importNodes.show();
+    } else {
+      edges.hide();
+      importNodes.hide();
+    }
+  }, [showImports]);
+
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core) return;
+    const edges = core.elements('edge[kind = "cross_contract_call"]');
+    if (showCrossContractCalls) {
+      edges.show();
+    } else {
+      edges.hide();
+    }
+  }, [showCrossContractCalls]);
 
   const handleExportPng = () => {
     const core = coreRef.current;
@@ -733,6 +791,20 @@ export function GraphView({ graph }: GraphViewProps) {
             {highlightEntrypointWrites
               ? "Show all nodes"
               : "Only entrypoints writing state"}
+          </button>
+          <button
+            type="button"
+            className="sg-button sg-button--ghost"
+            onClick={() => setShowImports((v) => !v)}
+          >
+            {showImports ? "Hide imports" : "Show imports"}
+          </button>
+          <button
+            type="button"
+            className="sg-button sg-button--ghost"
+            onClick={() => setShowCrossContractCalls((v) => !v)}
+          >
+            {showCrossContractCalls ? "Hide cross-contract calls" : "Show cross-contract calls"}
           </button>
         </div>
       </div>
@@ -918,7 +990,13 @@ export function GraphView({ graph }: GraphViewProps) {
                 <dd>{nodeLabelById.get(selectedEdge.source) ?? selectedEdge.source}</dd>
                 <dt>To</dt>
                 <dd>{nodeLabelById.get(selectedEdge.target) ?? selectedEdge.target}</dd>
-                {selectedEdge.label && (
+                {selectedEdge.kind === "import_dependency" && selectedEdge.label && (
+                  <>
+                    <dt>Import path</dt>
+                    <dd>{selectedEdge.label}</dd>
+                  </>
+                )}
+                {selectedEdge.kind !== "import_dependency" && selectedEdge.label && (
                   <>
                     <dt>Label</dt>
                     <dd>{selectedEdge.label}</dd>

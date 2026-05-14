@@ -438,6 +438,24 @@ def _emit_event_edges(contract_name, funcs, event_names):
     return edges
 
 
+def _extract_import_name(import_str):
+    """Parse a raw Solidity import string into (short_name, full_path).
+
+    Handles plain paths and named imports:
+      '"./Token.sol"'                         -> ('Token', './Token.sol')
+      '{ IERC20 } from "@oz/.../IERC20.sol"'  -> ('IERC20', '@oz/.../IERC20.sol')
+      '* as Utils from "./Utils.sol"'         -> ('Utils', './Utils.sol')
+    """
+    s = import_str.strip()
+    if ' from ' in s:
+        s = s.split(' from ', 1)[-1].strip()
+    s = s.strip('"').strip("'")
+    full_path = s
+    basename = s.rsplit('/', 1)[-1] if '/' in s else s
+    short_name = basename.rsplit('.', 1)[0] if '.' in basename else basename
+    return short_name, full_path
+
+
 def build_normalized_model(context):
     artifact = NormalizedArtifact(context.path, context.language, 'SolidityAdapterV0')
     model = NormalizedAuditModel(
@@ -567,9 +585,28 @@ def build_normalized_model(context):
         for sys_name, users in sysfunc_func_mapping.items():
             for fn in users:
                 model.call_edges.append(NormalizedCallEdge(contract_name, fn, contract_name, sys_name, 'function_to_system'))
+        obj_to_type = {obj[-1]: obj[0] for obj in objs}
         for obj_name, mappings in obj_func_mapping.items():
             for m in mappings:
                 model.call_edges.append(NormalizedCallEdge(contract_name, m[0], contract_name, obj_name, 'function_to_object', m[1]))
+                target_type = obj_to_type.get(obj_name, '')
+                if target_type:
+                    model.call_edges.append(NormalizedCallEdge(
+                        contract_name, m[0],
+                        target_type, m[1],
+                        'cross_contract_call',
+                        label=f"{obj_name}.{m[1]}",
+                    ))
+
+        for imp_str in imps:
+            imp_name, imp_path = _extract_import_name(imp_str)
+            if imp_name:
+                model.call_edges.append(NormalizedCallEdge(
+                    contract_name, contract_name,
+                    imp_name, imp_name,
+                    'import_dependency',
+                    label=imp_path,
+                ))
 
     for conn in context.high_connections:
         parent, child = conn['parent'], conn['child']
