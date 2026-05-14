@@ -587,6 +587,18 @@ def model_graph_to_dict(model):
             event_short_to_ids.setdefault(event_name, []).append(eid)
 
     def resolve_endpoint(type_name, target_name, edge_kind=""):
+        if edge_kind == "import_dependency":
+            type_id = _type_id(type_name)
+            if type_id in node_ids:
+                return type_id
+            ext_id = f"external:import:{target_name}"
+            if ext_id not in node_ids:
+                add_node({
+                    "id": ext_id,
+                    "label": target_name,
+                    "group": "external_import",
+                })
+            return ext_id
         if (
             type_name
             and target_name == _TU_INCLUDE_EDGE_SOURCE
@@ -700,7 +712,7 @@ def model_graph_to_dict(model):
             continue
         kinds = outgoing_kinds.get(node["id"], set())
         node["calls_internal"] = "function_to_function" in kinds
-        node["calls_contract"] = "function_to_object" in kinds
+        node["calls_contract"] = "function_to_object" in kinds or "cross_contract_call" in kinds
         node["calls_system"] = "function_to_system" in kinds
         node["calls_event"] = "function_to_event" in kinds
         if is_c_profile:
