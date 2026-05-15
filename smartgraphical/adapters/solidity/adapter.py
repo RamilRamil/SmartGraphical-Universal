@@ -463,12 +463,22 @@ def build_normalized_model(context):
         rule_groups=deepcopy(TASK_GROUPS),
         second_language_poc=deepcopy(SECOND_LANGUAGE_POC),
     )
+    unit_kinds = getattr(context, 'solidity_unit_kinds', None) or {}
     for contract_data in context.rets:
         (contract_name, funcs, vars, structs, imps,
          var_func_mapping, func_func_mapping, sysfunc_func_mapping,
          obj_func_mapping, func_conditionals, constructor, events, objs, using) = contract_data
 
-        type_entry = NormalizedType(contract_name, 'contract_like', parents=context.hierarchy.get(contract_name, []))
+        sk = (unit_kinds.get(contract_name) or 'concrete').strip().lower()
+        if sk not in ('concrete', 'abstract', 'interface', 'library'):
+            sk = 'concrete'
+        type_entry = NormalizedType(
+            contract_name,
+            'contract_like',
+            parents=context.hierarchy.get(contract_name, []),
+            is_abstract=(sk == 'abstract'),
+            solidity_unit_kind=sk,
+        )
 
         for variable in vars:
             type_entry.state_entities.append(NormalizedStateEntity(variable[-1], contract_name, 'state_variable', ' '.join(variable)))
@@ -630,7 +640,7 @@ class SolidityAdapterV0:
     def parse_source(self, source_path):
         lines = self.reader.read_file(source_path)
         unified_source = self.reader.unify_text(lines)
-        parsed_rets, parsed_hierarchy, parsed_high_connections = self.reader(unified_source)
+        parsed_rets, parsed_hierarchy, parsed_high_connections, parsed_unit_kinds = self.reader(unified_source)
         context = AnalysisContext(
             path=source_path,
             language='solidity',
@@ -640,6 +650,7 @@ class SolidityAdapterV0:
             rets=parsed_rets,
             hierarchy=parsed_hierarchy,
             high_connections=parsed_high_connections,
+            solidity_unit_kinds=parsed_unit_kinds,
         )
         context.normalized_model = build_normalized_model(context)
         return context

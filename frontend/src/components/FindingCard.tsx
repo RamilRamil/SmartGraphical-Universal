@@ -30,6 +30,11 @@ export function FindingCard({ finding, defaultOpen = false }: FindingCardProps) 
             {finding.title || finding.rule_id}
           </span>
         </div>
+        {finding.source_file?.trim() && (
+          <div className="sg-form__hint" style={{ marginTop: "0.25rem" }}>
+            file: {finding.source_file.trim()}
+          </div>
+        )}
         <div className="sg-finding__meta">
           <span className={`sg-badge sg-badge--${finding.confidence || "unknown"}`}>
             {finding.confidence || "unknown"}
@@ -59,11 +64,15 @@ export function FindingCard({ finding, defaultOpen = false }: FindingCardProps) 
                       {evidence.function_name ? `.${evidence.function_name}` : ""}
                     </div>
                   )}
-                  {Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0 && (
+                  {(Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0) ||
+                  (typeof evidence.line_number === "number" && evidence.line_number > 0) ? (
                     <div className="sg-evidence__reason">
-                      lines: {evidence.line_numbers.join(", ")}
+                      lines:{" "}
+                      {Array.isArray(evidence.line_numbers) && evidence.line_numbers.length > 0
+                        ? evidence.line_numbers.join(", ")
+                        : String(evidence.line_number)}
                     </div>
-                  )}
+                  ) : null}
                   {evidence.statement && (
                     <pre className="sg-evidence__statement">{evidence.statement}</pre>
                   )}

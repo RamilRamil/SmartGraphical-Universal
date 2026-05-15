@@ -92,6 +92,48 @@ class HistoryServiceTests(unittest.TestCase):
         man = os.path.join(artifact["path_on_disk"], "sg_bundle_manifest.json")
         self.assertTrue(os.path.isfile(man))
 
+    def test_ingest_bundle_skips_unsupported_extensions(self):
+        """README / lockfiles alongside sources do not abort the ingest."""
+        path_b = os.path.join(REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol")
+        if not os.path.isfile(path_b):
+            self.skipTest(f"missing {path_b}")
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        artifact = self.service.ingest_bundle_upload([
+            (b"# readme\n", "README.md"),
+            (self._source_bytes, FIXTURE_SOL_NAME),
+            (bytes_b, "ExternalMint.sol"),
+        ])
+        self.assertEqual(artifact["language"], "solidity")
+        man_path = os.path.join(artifact["path_on_disk"], "sg_bundle_manifest.json")
+        with open(man_path, "r", encoding="utf-8") as fh:
+            man = json.load(fh)
+        paths = sorted(m["path"] for m in man.get("members", []))
+        self.assertEqual(paths, sorted([FIXTURE_SOL_NAME, "ExternalMint.sol"]))
+
+    def test_ingest_bundle_tree_skips_non_source_then_single_language_ok(self):
+        path_b = os.path.join(
+            REPO_ROOT, "tests", "fixtures", "solidity", "ExternalMint.sol",
+        )
+        if not os.path.isfile(path_b):
+            self.skipTest(f"missing {path_b}")
+        with open(path_b, "rb") as fh:
+            bytes_b = fh.read()
+        artifact = self.service.ingest_bundle_upload(
+            [
+                (b"y", "pkg/LICENSE.txt"),
+                (self._source_bytes, "pkg/MinimalGuard.sol"),
+                (bytes_b, "pkg/ExternalMint.sol"),
+            ],
+            tree_mode=True,
+        )
+        self.assertEqual(artifact["language"], "solidity")
+        man_path = os.path.join(artifact["path_on_disk"], "sg_bundle_manifest.json")
+        with open(man_path, "r", encoding="utf-8") as fh:
+            man = json.load(fh)
+        paths = {m["path"] for m in man.get("members", [])}
+        self.assertEqual(paths, {"pkg/MinimalGuard.sol", "pkg/ExternalMint.sol"})
+
     def test_ingest_bundle_rejects_mixed_language(self):
         path_c = os.path.join(REPO_ROOT, "tests", "fixtures", "c", "MinimalTu.c")
         if not os.path.isfile(path_c):

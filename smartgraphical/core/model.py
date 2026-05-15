@@ -88,6 +88,8 @@ class NormalizedType:
     state_entities: list = field(default_factory=list)
     events: list = field(default_factory=list)
     objects: list = field(default_factory=list)
+    is_abstract: bool = False
+    solidity_unit_kind: str = "concrete"
 
 
 @dataclass
@@ -145,3 +147,4 @@ class AnalysisContext:
     hierarchy: dict
     high_connections: list
     normalized_model: object = None
+    solidity_unit_kinds: dict = field(default_factory=dict)

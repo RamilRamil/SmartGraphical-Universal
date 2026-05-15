@@ -1,0 +1,227 @@
+{
+  "catalog_id": "solidity_rules_catalog",
+  "description": "Human-readable Solidity rule definitions aligned with smartgraphical/adapters/solidity/adapter.py (build_rule_registry). Machine-readable checklist: tests/fixtures/solidity_task_coverage.json.",
+  "registry_source": "smartgraphical/adapters/solidity/adapter.py",
+  "readme_source": "README.md (section SmartGraphical checks the Solidity tasks below)",
+  "task_groups": {
+    "NamingAndConsistency": ["1", "10"],
+    "StateAndMutation": ["2", "4", "11"],
+    "FlowAndOrdering": ["6", "8", "9"],
+    "ComputationAndEconomics": ["3", "5", "7", "14"],
+    "VisualizationOnly": ["12"]
+  },
+  "notes": {
+    "task_12": "CLI/API task 12 is graph visualization only; no RuleSpec entry in build_rule_registry().",
+    "meta_all": "Task 13 / 'all' runs tasks 1-11 plus 14 then graph; see adapter and API docs."
+  },
+  "controlled_vocab": {
+    "portability": ["portable", "portable_with_adapter"],
+    "confidence": ["low", "medium", "high"]
+  },
+  "rules": [
+    {
+      "rule_id": "contract_version",
+      "task_id": "1",
+      "legacy_finding_code": 1,
+      "title": "Old Version Markers",
+      "task_group": "NamingAndConsistency",
+      "portability": "portable",
+      "confidence": "low",
+      "remediation_hint": "Review rewrite markers and keep comments aligned with the current implementation.",
+      "rationale": "After a rewrite or upgrade, stale comments about versions or signatures can mislead maintainers and hide logical mismatches between documentation and behavior (README Task 1).",
+      "detection_logic": "Flag comments that contain loose keywords such as ' version ', ' new ', or ' old ' as possible rewrite drift markers.",
+      "false_positive_patterns": [
+        "Comments that legitimately describe versioning without implying a stale contract migration.",
+        "Narrative text in NatSpec that uses the same words in a non-signature context."
+      ],
+      "readme_tasks": ["1"]
+    },
+    {
+      "rule_id": "unallowed_manipulation",
+      "task_id": "2",
+      "legacy_finding_code": 2,
+      "title": "External State Manipulation",
+      "task_group": "StateAndMutation",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Check assignments sourced from inputs or external values before they update sensitive state.",
+      "rationale": "Parameters or reads from other contracts can change between calls; mutating totals, balances, or fees using that data without guards risks inconsistent state (README Tasks 2 and shared themes with 4/5/9).",
+      "detection_logic": "Heuristic: assignments touching names like totalSupply, balance, fee, supply, or amount without a require on the same statement; normalized path skips guarded or permissioned entrypoints.",
+      "false_positive_patterns": [
+        "Assignments already conditioned on require/assert or admin-only modifiers.",
+        "Renamed variables that no longer represent economic state."
+      ],
+      "readme_tasks": ["2", "4", "5", "9"]
+    },
+    {
+      "rule_id": "staking",
+      "task_id": "3",
+      "legacy_finding_code": 3,
+      "title": "Stake And Release Logic",
+      "task_group": "ComputationAndEconomics",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Verify that stake and release paths are symmetric and guard the manipulated amount.",
+      "rationale": "Collateral and staking flows must stay balanced; mistakes in release, caps, or encumbrance windows enable over-withdrawal or duplicate borrowing style issues (README Task 3 and joint note with 5/9).",
+      "detection_logic": "Surface functions or bodies mentioning stake/unstake tokens for manual review of symmetric accounting and guards.",
+      "false_positive_patterns": [
+        "Narrow helper names that contain 'stake' but are view-only or unrelated to collateral.",
+        "Libraries that wrap staking without holding funds in the same contract."
+      ],
+      "readme_tasks": ["3", "5", "9"]
+    },
+    {
+      "rule_id": "pool_interactions",
+      "task_id": "4",
+      "legacy_finding_code": 4,
+      "title": "Pool Supply Operations",
+      "task_group": "StateAndMutation",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Review mint or burn style flows for missing access control and accounting assumptions.",
+      "rationale": "Mint and burn change supply; external entrypoints without access control or unclear conditions can desynchronize pool accounting (README Tasks 2 and 4).",
+      "detection_logic": "Flag external mint/burn functions lacking only* style modifiers; emit conditions and zero-address burns in mint/burn bodies for review; normalized path flags external mint/burn without permissions.",
+      "false_positive_patterns": [
+        "Intentionally public mint with upstream factory gate.",
+        "Burn-to-dead-address patterns that are documented and guarded elsewhere."
+      ],
+      "readme_tasks": ["2", "4"]
+    },
+    {
+      "rule_id": "local_points",
+      "task_id": "5",
+      "legacy_finding_code": 5,
+      "title": "Local Incentive Accounting",
+      "task_group": "ComputationAndEconomics",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Confirm that earning and spending paths validate the tracked balance or allowance state.",
+      "rationale": "Point or token economies need consistent earn vs spend checks; spending without proving prior earning breaks incentive logic (README Tasks 2, 5, 9).",
+      "detection_logic": "Functions whose names suggest receive/take/burn/point flows but lack require lines referencing allowance, balance, or point state when those names exist on the contract.",
+      "false_positive_patterns": [
+        "Off-chain credited systems with different naming.",
+        "Internal functions that inherit checks from callers."
+      ],
+      "readme_tasks": ["2", "5", "9"]
+    },
+    {
+      "rule_id": "exceptions",
+      "task_id": "6",
+      "legacy_finding_code": 6,
+      "title": "Error Path Consistency",
+      "task_group": "FlowAndOrdering",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Inspect try/catch handlers and ensure the error path preserves valid state transitions.",
+      "rationale": "Incorrect try/catch recovery can leave state inconsistent or replayable after external failures (README Task 6).",
+      "detection_logic": "Parse try/catch blocks for empty catches, missing reverts, or assert misuse that may swallow faults.",
+      "false_positive_patterns": [
+        "Deliberate no-op catches with documented compensating actions elsewhere.",
+        "Test-only fixtures with simplified error handling."
+      ],
+      "readme_tasks": ["6"]
+    },
+    {
+      "rule_id": "complicated_calculations",
+      "task_id": "7",
+      "legacy_finding_code": 7,
+      "title": "Complicated Calculations",
+      "task_group": "ComputationAndEconomics",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Review arithmetic-heavy expressions and simplify or guard the most complex branches.",
+      "rationale": "Dense math expands the attack surface for rounding, overflow, and branch-specific manipulation (README Task 7).",
+      "detection_logic": "Flag statements combining mul/div (SafeMath style or operators), bare division, math.* helpers, or nested parentheses with arithmetic ops in normalized computation spans.",
+      "false_positive_patterns": [
+        "Fixed-precision libraries with audited rounding.",
+        "Comments or strings that mention .div without executable code."
+      ],
+      "readme_tasks": ["7"]
+    },
+    {
+      "rule_id": "check_order",
+      "task_id": "8",
+      "legacy_finding_code": 8,
+      "title": "Sensitive Call Ordering",
+      "task_group": "FlowAndOrdering",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Check whether fetch, price, or preparation logic happens immediately before transfer-like effects.",
+      "rationale": "Oracle or price reads must stay adjacent to transfers; stale reads enable manipulation (README Tasks 8 and 9).",
+      "detection_logic": "When functions mention transfer/withdraw/unstake, require earlier statements in the same body that reference rebase/fetch style preparation markers before the effect.",
+      "false_positive_patterns": [
+        "Internal helpers that already synchronized price and state.",
+        "Patterns using separate modifiers for ordering guarantees."
+      ],
+      "readme_tasks": ["8", "9"]
+    },
+    {
+      "rule_id": "withdraw_check",
+      "task_id": "9",
+      "legacy_finding_code": 9,
+      "title": "Withdraw Preconditions",
+      "task_group": "FlowAndOrdering",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Ensure withdraw-style operations are preceded by guards, conditions, or validated system checks.",
+      "rationale": "Withdrawals without pre-checks can violate entitlement invariants, especially when value entered via staking or deposits (README Tasks 3, 5, 8, 9).",
+      "detection_logic": "For withdraw/unstake/transfer callees, flag statement slices lacking require coverage while skipping systematic helper names (transfers, approvals, fee managers, verify helpers).",
+      "false_positive_patterns": [
+        "Withdrawals gated by modifiers instead of inline require.",
+        "Routed calls where validation happens in nested internal functions."
+      ],
+      "readme_tasks": ["3", "5", "8", "9"]
+    },
+    {
+      "rule_id": "similar_names",
+      "task_id": "10",
+      "legacy_finding_code": 11,
+      "title": "Similar Names",
+      "task_group": "NamingAndConsistency",
+      "portability": "portable",
+      "confidence": "medium",
+      "remediation_hint": "Rename near-duplicate identifiers when they can confuse reviewers or callers.",
+      "rationale": "Near-duplicate names invite mistaken wiring and hard-to-spot substitutions in review or exploit paths (README Task 10).",
+      "detection_logic": "Similarity heuristics across function and variable identifiers within a contract to surface likely collisions.",
+      "false_positive_patterns": [
+        "Intentional paired names in upgrade hooks with clear documentation.",
+        "Generated getters that must mirror EIP interfaces."
+      ],
+      "readme_tasks": ["10"]
+    },
+    {
+      "rule_id": "outer_calls",
+      "task_id": "11",
+      "legacy_finding_code": 12,
+      "title": "Outer Calls",
+      "task_group": "StateAndMutation",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Review public entrypoints that consume inputs and mutate state without stronger constraints.",
+      "rationale": "Fully public functions that accept inputs and mutate inventory or state need extra scrutiny for access and validation (README Task 11).",
+      "detection_logic": "External entrypoints with parameters used in mutations but without require, permission modifiers, or early returns; skips high centrality helpers already reviewed intra-contract.",
+      "false_positive_patterns": [
+        "Trusted forwarder or meta-tx entry with upstream authorization.",
+        "Router contracts designed as permissionless aggregators."
+      ],
+      "readme_tasks": ["11"]
+    },
+    {
+      "rule_id": "min_slippage_bounds",
+      "task_id": "14",
+      "legacy_finding_code": 14,
+      "title": "Minimum Bounds On Swap And Liquidity Calls",
+      "task_group": "ComputationAndEconomics",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Replace zero literals for min-amount, min-shares, and deadline parameters with user-supplied or quote-derived bounds.",
+      "rationale": "DEX and pool integrations should not pass zero or false bounds where callers expect slippage or deadline protection; missing bounds enable sandwiching and unfavorable execution.",
+      "detection_logic": "On function_to_function edges, flag literal 0 or false for formal parameters whose names hint min-out, max-in, deadline, or sqrt price limits on swap or liquidity callees.",
+      "false_positive_patterns": [
+        "Internal test doubles or mocks with deliberate zero bounds.",
+        "Custom routers that rename parameters outside the substring heuristics."
+      ],
+      "readme_tasks": []
+    }
+  ]
+}

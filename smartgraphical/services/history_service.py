@@ -11,6 +11,10 @@ import os
 import subprocess
 from datetime import datetime, timezone
 
+from smartgraphical.upload_limits import (
+    MAX_MULTIPART_SOURCE_FILES,
+    MAX_UPLOAD_BYTES_PER_FILE,
+)
 from smartgraphical.services import web_api
 from smartgraphical.services.web_api import WebApiError
 
@@ -18,8 +22,6 @@ from smartgraphical.services.web_api import WebApiError
 ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs")
 
 BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
-MAX_BUNDLE_FILES = 32
-MAX_UPLOAD_BYTES_PER_FILE = 2 * 1024 * 1024
 MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024
 MAX_BUNDLE_REL_PATH_LEN = 512
 MAX_BUNDLE_REL_PARTS = 64
@@ -224,14 +226,18 @@ class HistoryService:
         collisions get numeric suffixes). When True, ``path_hint`` is a POSIX
         relative path (may contain ``/``); normalized paths must be unique.
 
+        Files whose extensions are not in ``ALLOWED_EXTENSIONS`` are skipped
+        (folders may include README, lockfiles, etc.). Invalid paths in tree mode
+        still abort the ingest.
+
         Manifest: ``version`` 1 (flat) or 2 (``layout: tree``).
         """
         if not members:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
-        if len(members) > MAX_BUNDLE_FILES:
+        if len(members) > MAX_MULTIPART_SOURCE_FILES:
             raise HistoryError(
                 ERROR_INVALID_PAYLOAD,
-                f"bundle exceeds {MAX_BUNDLE_FILES} files",
+                f"bundle exceeds {MAX_MULTIPART_SOURCE_FILES} files",
             )
         total_size = 0
         languages = []
@@ -252,10 +258,7 @@ class HistoryService:
                 rel_norm = _normalize_bundle_rel_path(raw_rel)
                 extension = _extract_extension(os.path.basename(rel_norm))
                 if extension not in ALLOWED_EXTENSIONS:
-                    raise HistoryError(
-                        ERROR_UNSUPPORTED_FILE,
-                        f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
-                    )
+                    continue
                 if extension == ".sol":
                     language = "solidity"
                 elif extension == ".rs":
@@ -265,6 +268,11 @@ class HistoryService:
                 languages.append(language)
                 total_size += len(data)
                 normalized_rows.append((bytes(data), rel_norm, language))
+            if not normalized_rows:
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "no bundle files remain after skipping unsupported extensions",
+                )
             if len(set(languages)) != 1:
                 raise HistoryError(
                     ERROR_INVALID_PAYLOAD,
@@ -299,10 +307,7 @@ class HistoryService:
                 clean_name = _sanitize_filename(filename)
                 extension = _extract_extension(clean_name)
                 if extension not in ALLOWED_EXTENSIONS:
-                    raise HistoryError(
-                        ERROR_UNSUPPORTED_FILE,
-                        f"unsupported extension {extension or '(none)'}; expected one of {ALLOWED_EXTENSIONS}",
-                    )
+                    continue
                 if extension == ".sol":
                     language = "solidity"
                 elif extension == ".rs":
@@ -312,6 +317,11 @@ class HistoryService:
                 languages.append(language)
                 total_size += len(data)
                 normalized_flat.append((bytes(data), clean_name, language))
+            if not normalized_flat:
+                raise HistoryError(
+                    ERROR_INVALID_PAYLOAD,
+                    "no bundle files remain after skipping unsupported extensions",
+                )
             if len(set(languages)) != 1:
                 raise HistoryError(
                     ERROR_INVALID_PAYLOAD,
