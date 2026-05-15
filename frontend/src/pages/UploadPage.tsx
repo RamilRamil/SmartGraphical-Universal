@@ -22,7 +22,8 @@ import {
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024;
-const MAX_BATCH_FILES = 32;
+/** Must match backend `smartgraphical/upload_limits.MAX_MULTIPART_SOURCE_FILES`. */
+const MAX_BATCH_FILES = 1024;
 
 type PendingEntry = {
   file: File;
@@ -53,6 +54,11 @@ function formatApiError(err: unknown): string {
 function displayPathForEntry(entry: PendingEntry): string {
   if (entry.treePath) return entry.treePath.replace(/\\/g, "/");
   return entry.file.name;
+}
+
+/** Drop files whose extension is not in ALLOWED_EXTENSIONS (no error for whole batch). */
+function filterEntriesByAllowedExtensions(entries: PendingEntry[]): PendingEntry[] {
+  return entries.filter((e) => isAllowedFileName(entryLeafFileName(e)));
 }
 
 function validatePendingEntries(
@@ -112,13 +118,6 @@ function validatePendingEntries(
     }
     if (e.file.size > MAX_UPLOAD_BYTES) {
       return { ok: false, error: `${displayPathForEntry(e)} exceeds ${formatSize(MAX_UPLOAD_BYTES)}.` };
-    }
-    const leaf = entryLeafFileName(e);
-    if (!isAllowedFileName(leaf)) {
-      return {
-        ok: false,
-        error: `${displayPathForEntry(e)}: unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`,
-      };
     }
   }
 
@@ -194,6 +193,7 @@ export function UploadPage() {
   }, [searchParams]);
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [extensionSkipNotice, setExtensionSkipNotice] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchUploadResponse | null>(null);
   const [bundleArtifact, setBundleArtifact] = useState<Artifact | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -217,20 +217,40 @@ export function UploadPage() {
 
   function applyPendingEntries(entries: PendingEntry[]) {
     setClientError(null);
+    setExtensionSkipNotice(null);
     setBatchResult(null);
     setBundleArtifact(null);
-    const result = validatePendingEntries(entries, uploadLayout);
+    const allowedEntries = filterEntriesByAllowedExtensions(entries);
+    const skippedExtensions = entries.length - allowedEntries.length;
+    if (allowedEntries.length === 0) {
+      setPendingEntries([]);
+      if (entries.length === 0) {
+        setClientError("No files selected.");
+      } else {
+        setClientError(
+          `No supported source files (${ALLOWED_EXTENSIONS.join(", ")}). Skipped ${skippedExtensions} other file(s).`,
+        );
+      }
+      return;
+    }
+    const result = validatePendingEntries(allowedEntries, uploadLayout);
     if (!result.ok) {
       setClientError(result.error);
       setPendingEntries([]);
       return;
     }
     setPendingEntries(result.entries);
+    if (skippedExtensions > 0) {
+      setExtensionSkipNotice(
+        `Skipped ${skippedExtensions} file(s): extension not among ${ALLOWED_EXTENSIONS.join(", ")}.`,
+      );
+    }
   }
 
   function handleLayoutChange(next: "separate" | "combined") {
     setUploadLayout(next);
     setClientError(null);
+    setExtensionSkipNotice(null);
     setBatchResult(null);
     setBundleArtifact(null);
     batchMutation.reset();
@@ -269,6 +289,7 @@ export function UploadPage() {
     event.preventDefault();
     setIsDragOver(false);
     setClientError(null);
+    setExtensionSkipNotice(null);
     setBatchResult(null);
     setBundleArtifact(null);
 
@@ -364,6 +385,7 @@ export function UploadPage() {
     setBundleArtifact(null);
     setPendingEntries([]);
     setClientError(null);
+    setExtensionSkipNotice(null);
     batchMutation.reset();
     bundleMutation.reset();
   }
@@ -417,7 +439,6 @@ export function UploadPage() {
                 Select files
                 <input
                   type="file"
-                  accept=".sol,.c,.h,.rs"
                   multiple
                   onChange={handleFlatFileInput}
                   aria-label="Source files"
@@ -429,7 +450,6 @@ export function UploadPage() {
                   Select folder
                   <input
                     type="file"
-                    accept=".sol,.c,.h,.rs"
                     multiple
                     {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
                     onChange={handleFolderFileInput}
@@ -441,12 +461,16 @@ export function UploadPage() {
             </div>
             <p className="sg-form__hint">
               Max {MAX_BATCH_FILES} files; {formatSize(MAX_UPLOAD_BYTES)} per file
-              {uploadLayout === "combined" ? `; bundle total ${formatSize(MAX_BUNDLE_BYTES_TOTAL)}.` : "."} Allowed:{" "}
-              {ALLOWED_EXTENSIONS.join(", ")}.
+              {uploadLayout === "combined" ? `; bundle total ${formatSize(MAX_BUNDLE_BYTES_TOTAL)}.` : "."} Only{" "}
+              {ALLOWED_EXTENSIONS.join(", ")} are kept; other files are ignored.
             </p>
           </div>
 
           {clientError && <p className="sg-banner sg-banner--error">{clientError}</p>}
+
+          {extensionSkipNotice && (
+            <p className="sg-banner sg-banner--info">{extensionSkipNotice}</p>
+          )}
 
           {pendingEntries.length > 0 && (
             <div className="sg-preview">

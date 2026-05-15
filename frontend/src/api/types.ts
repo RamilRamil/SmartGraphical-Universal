@@ -96,6 +96,8 @@ export type GraphNode = {
     | "modifier_ring";
   parent?: string;
   kind?: string;
+  /** Solidity: abstract | interface | library (omit for concrete contract). */
+  solidity_kind?: "abstract" | "interface" | "library";
   type_name?: string;
   modifier_color?: string;
   visibility?: string;

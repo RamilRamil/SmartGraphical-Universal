@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, {
   type Core,
+  type EdgeSingular,
   type ElementDefinition,
   type EventObject,
   type NodeSingular,
@@ -11,6 +12,177 @@ import cytoscape, {
 import coseBilkent from "cytoscape-cose-bilkent";
 
 import type { GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
+import { buildFocusNodeSet, buildFocusSecondaryEdgeIds } from "../graph/focusNeighborhood";
+import { toInterContractOverviewGraph } from "../graph/interContractOverview";
+
+/** Bundled cytoscape typings omit eles.show/hide (present at runtime). */
+type CyElements = ReturnType<Core["elements"]>;
+type CyElementsVisibility = CyElements & {
+  show(): CyElements;
+  hide(): CyElements;
+};
+
+type LegendNodeBucket =
+  | "type_tile"
+  | "abstract"
+  | "interface"
+  | "library"
+  | "function"
+  | "modifier"
+  | "modifier_ring"
+  | "state_workspace"
+  | "event"
+  | "external";
+
+type LegendEdgeBucket =
+  | "edge_state"
+  | "edge_emit"
+  | "edge_ext_contract"
+  | "edge_system"
+  | "edge_internal"
+  | "edge_cross_type"
+  | "edge_include_c"
+  | "edge_struct_ws";
+
+type HiddenLegend = Partial<Record<LegendNodeBucket | LegendEdgeBucket, true>>;
+
+function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
+  const g = node.data("group") as GraphNode["group"] | undefined;
+  if (!g) return null;
+  if (g === "tile") return "type_tile";
+  if (g === "type") {
+    const sk = node.data("solidity_kind") as GraphNode["solidity_kind"] | undefined;
+    if (sk === "abstract") return "abstract";
+    if (sk === "interface") return "interface";
+    if (sk === "library") return "library";
+    return "type_tile";
+  }
+  if (g === "function") return "function";
+  if (g === "modifier_ring") return "modifier_ring";
+  if (g === "modifier") return "modifier";
+  if (g === "state" || g === "workspace") return "state_workspace";
+  if (g === "event") return "event";
+  if (g === "external" || g === "external_import") return "external";
+  return null;
+}
+
+function bucketForEdgeKind(kind: string): LegendEdgeBucket | null {
+  switch (kind) {
+    case "state_to_function":
+      return "edge_state";
+    case "function_to_event":
+      return "edge_emit";
+    case "function_to_object":
+    case "cross_contract_call":
+      return "edge_ext_contract";
+    case "function_to_system":
+      return "edge_system";
+    case "function_to_function":
+      return "edge_internal";
+    case "cross_type_call":
+    case "cross_type_state":
+      return "edge_cross_type";
+    case "function_to_include_template":
+      return "edge_include_c";
+    case "function_to_workspace":
+      return "edge_struct_ws";
+    default:
+      return null;
+  }
+}
+
+function isLegendHidden(hidden: HiddenLegend, key: string | null): boolean {
+  if (!key) return false;
+  return hidden[key as keyof HiddenLegend] === true;
+}
+
+type GraphVisibilityOpts = {
+  hiddenLegend: HiddenLegend;
+  showImports: boolean;
+  showCrossContractCalls: boolean;
+  focusNodeIds: Set<string> | null;
+};
+
+function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
+  const { hiddenLegend, showImports, showCrossContractCalls, focusNodeIds } = opts;
+
+  const nodeBaseVisible = (node: NodeSingular): boolean => {
+    const g = node.data("group") as string | undefined;
+    const bucket = bucketForNode(node);
+    let ok = !isLegendHidden(hiddenLegend, bucket);
+    if (g === "modifier_ring" && isLegendHidden(hiddenLegend, "function")) ok = false;
+    if (g === "external_import" && !showImports) ok = false;
+    return ok;
+  };
+
+  const nodeVisible = (node: NodeSingular): boolean => {
+    const id = node.id();
+    if (focusNodeIds?.has(id)) {
+      if (node.data("group") === "external_import" && !showImports) return false;
+      return true;
+    }
+    return nodeBaseVisible(node);
+  };
+
+  core.nodes().forEach((ele) => {
+    const node = ele as NodeSingular;
+    const cy = node as unknown as CyElementsVisibility;
+    if (nodeVisible(node)) cy.show();
+    else cy.hide();
+  });
+
+  core.edges().forEach((ele) => {
+    const edge = ele as EdgeSingular;
+    const kind = String(edge.data("kind") ?? "");
+    const eBucket = bucketForEdgeKind(kind);
+    let ok = !isLegendHidden(hiddenLegend, eBucket);
+
+    if (kind === "import_dependency" && !showImports) ok = false;
+    if (kind === "cross_contract_call" && !showCrossContractCalls) ok = false;
+
+    const src = edge.source();
+    const tgt = edge.target();
+    if (!nodeVisible(src as NodeSingular) || !nodeVisible(tgt as NodeSingular)) ok = false;
+
+    const cy = edge as unknown as CyElementsVisibility;
+    if (ok) cy.show();
+    else cy.hide();
+  });
+}
+
+function graphFullscreenResize(core: Core | null): void {
+  if (!core) return;
+  requestAnimationFrame(() => {
+    core.resize();
+    core.fit(undefined, 36);
+  });
+}
+
+function requestGraphFullscreen(el: HTMLElement): Promise<void> {
+  const req = el.requestFullscreen?.bind(el);
+  if (typeof req === "function") return req();
+  const legacy = (el as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen;
+  if (typeof legacy === "function") {
+    legacy.call(el);
+    return Promise.resolve();
+  }
+  return Promise.reject(new Error("fullscreen unavailable"));
+}
+
+function exitGraphFullscreen(): Promise<void> {
+  if (document.fullscreenElement && document.exitFullscreen) {
+    return document.exitFullscreen();
+  }
+  const doc = document as Document & { webkitExitFullscreen?: () => Promise<void> };
+  if (doc.webkitExitFullscreen) return doc.webkitExitFullscreen();
+  return Promise.resolve();
+}
+
+function isGraphShellFullscreen(shell: HTMLElement): boolean {
+  if (document.fullscreenElement === shell) return true;
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  return doc.webkitFullscreenElement === shell;
+}
 
 let pluginRegistered = false;
 function ensurePluginRegistered() {
@@ -84,6 +256,7 @@ function buildElements(graph: GraphData): ElementDefinition[] {
           modifier_details: node.modifier_details,
           modifier_ring_details: node.modifier_ring_details,
           modifier_color: node.modifier_color,
+          solidity_kind: node.solidity_kind,
           calls_internal: node.calls_internal,
           calls_contract: node.calls_contract,
           calls_system: node.calls_system,
@@ -113,6 +286,7 @@ function buildElements(graph: GraphData): ElementDefinition[] {
         modifier_details: node.modifier_details,
         modifier_ring_details: node.modifier_ring_details,
         modifier_color: node.modifier_color,
+        solidity_kind: node.solidity_kind,
         calls_internal: node.calls_internal,
         calls_contract: node.calls_contract,
         calls_system: node.calls_system,
@@ -179,6 +353,7 @@ function readSelectedNode(node: NodeSingular): GraphNode {
     parent: node.data("parent"),
     kind: node.data("kind"),
     type_name: node.data("type_name"),
+    solidity_kind: node.data("solidity_kind") as GraphNode["solidity_kind"],
     visibility: node.data("visibility"),
     is_entrypoint: node.data("is_entrypoint"),
     source_body: node.data("source_body"),
@@ -225,49 +400,128 @@ type GraphViewProps = {
 export function GraphView({ graph }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const toolbarWrapRef = useRef<HTMLDivElement | null>(null);
   const coreRef = useRef<Core | null>(null);
+  const fullscreenShellRef = useRef<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [highlightStateWrites, setHighlightStateWrites] = useState(false);
   const [highlightEntrypointWrites, setHighlightEntrypointWrites] = useState(false);
   const [showImports, setShowImports] = useState(false);
   const [showCrossContractCalls, setShowCrossContractCalls] = useState(false);
+  const [interContractOnly, setInterContractOnly] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
+  const [isResizingToolbar, setIsResizingToolbar] = useState(false);
+  /** Cap for toolbar+legend scroll area; content can be shorter. */
+  const [toolbarPanelHeight, setToolbarPanelHeight] = useState(280);
+  const [isGraphFullscreen, setIsGraphFullscreen] = useState(false);
+  const [hiddenLegend, setHiddenLegend] = useState<HiddenLegend>(() => ({}));
+  const [focusSelectionEnabled, setFocusSelectionEnabled] = useState(false);
+  const [graphCanvasOnly, setGraphCanvasOnly] = useState(false);
 
-  const elements = useMemo(() => buildElements(graph), [graph]);
+  useEffect(() => {
+    setHiddenLegend({});
+    setFocusSelectionEnabled(false);
+    setGraphCanvasOnly(false);
+  }, [graph]);
+
+  const toggleLegend = (key: LegendNodeBucket | LegendEdgeBucket) => {
+    setHiddenLegend((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = true;
+      return next;
+    });
+  };
+
+  const displayGraph = useMemo(
+    () => (interContractOnly ? toInterContractOverviewGraph(graph) : graph),
+    [graph, interContractOnly],
+  );
+
+  const elements = useMemo(() => buildElements(displayGraph), [displayGraph]);
   const stateWritersCount = useMemo(
     () =>
-      graph.nodes.filter(
+      displayGraph.nodes.filter(
         (node) =>
           node.group === "function" &&
           Array.isArray(node.state_writes) &&
           node.state_writes.length > 0,
       ).length,
-    [graph.nodes],
+    [displayGraph.nodes],
   );
   const entrypointWritersCount = useMemo(
     () =>
-      graph.nodes.filter(
+      displayGraph.nodes.filter(
         (node) =>
           node.group === "function" &&
           Boolean(node.is_entrypoint) &&
           Array.isArray(node.state_writes) &&
           node.state_writes.length > 0,
       ).length,
-    [graph.nodes],
+    [displayGraph.nodes],
   );
   const nodeLabelById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const node of graph.nodes) {
+    for (const node of displayGraph.nodes) {
       map.set(node.id, node.label);
     }
     return map;
-  }, [graph.nodes]);
+  }, [displayGraph.nodes]);
+
+  const focusEligible =
+    selected !== null && (selected.group === "type" || selected.group === "tile");
+
+  const focusNodeIds = useMemo(
+    () =>
+      buildFocusNodeSet(
+        displayGraph,
+        selected?.id ?? null,
+        focusSelectionEnabled && focusEligible,
+      ),
+    [displayGraph, selected?.id, focusSelectionEnabled, focusEligible],
+  );
+
+  const focusSecondaryEdgeIds = useMemo(() => {
+    if (!focusNodeIds || !selected?.id) return null;
+    return buildFocusSecondaryEdgeIds(displayGraph, selected.id, focusNodeIds);
+  }, [displayGraph, focusNodeIds, selected?.id]);
+
+  useEffect(() => {
+    if (!focusSelectionEnabled) return;
+    if (!selected || (selected.group !== "type" && selected.group !== "tile")) {
+      setFocusSelectionEnabled(false);
+    }
+  }, [selected, focusSelectionEnabled]);
 
   useEffect(() => {
     ensurePluginRegistered();
     if (!containerRef.current) return;
+
+    const overviewLayout = interContractOnly;
+
+    const layoutOptions = overviewLayout
+      ? {
+          name: "cose-bilkent" as const,
+          animate: false,
+          nodeDimensionsIncludeLabels: true,
+          randomize: true,
+          idealEdgeLength: 170,
+          nodeRepulsion: 22000,
+          gravity: 0.4,
+          nestingFactor: 0.04,
+          tile: true,
+        }
+      : {
+          name: "cose-bilkent" as const,
+          animate: false,
+          nodeDimensionsIncludeLabels: true,
+          randomize: true,
+          idealEdgeLength: 80,
+          nodeRepulsion: 5000,
+          tile: true,
+        };
 
     const core = cytoscape({
       container: containerRef.current,
@@ -331,6 +585,27 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: 'node[group = "type"][solidity_kind = "abstract"]',
+          style: {
+            "border-color": "#c084fc",
+            "border-width": 3,
+          },
+        },
+        {
+          selector: 'node[group = "type"][solidity_kind = "interface"]',
+          style: {
+            "border-color": "#22d3ee",
+            "border-width": 3,
+          },
+        },
+        {
+          selector: 'node[group = "type"][solidity_kind = "library"]',
+          style: {
+            "border-color": "#fbbf24",
+            "border-width": 3,
+          },
+        },
+        {
           selector: 'node[group = "external"]',
           style: {
             shape: "diamond",
@@ -378,8 +653,8 @@ export function GraphView({ graph }: GraphViewProps) {
         {
           selector: "node:selected",
           style: {
-            "border-color": "#22d3ee",
-            "border-width": 3,
+            "border-color": "#818cf8",
+            "border-width": 4,
           },
         },
         {
@@ -486,6 +761,12 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: "edge.sg-focus-edge-2",
+          style: {
+            opacity: 0.42,
+          },
+        },
+        {
           selector: "edge.sg-highlighted",
           style: {
             "line-color": "#22d3ee",
@@ -493,6 +774,7 @@ export function GraphView({ graph }: GraphViewProps) {
             width: 2.5,
             "z-index": 999,
             "line-style": "solid",
+            opacity: 1,
           },
         },
         {
@@ -502,23 +784,18 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
       ],
-      layout: {
-        name: "cose-bilkent",
-        // @ts-expect-error cose-bilkent options are not in core typings
-        animate: false,
-        nodeDimensionsIncludeLabels: true,
-        randomize: true,
-        idealEdgeLength: 80,
-        nodeRepulsion: 5000,
-        tile: true,
-      },
+      layout: layoutOptions,
     });
 
     coreRef.current = core;
 
-    core.elements('edge[kind = "import_dependency"]').hide();
-    core.elements('node[group = "external_import"]').hide();
-    core.elements('edge[kind = "cross_contract_call"]').hide();
+    const fitPadding = overviewLayout ? 56 : 36;
+    const applyFit = () => {
+      core.resize();
+      core.fit(undefined, fitPadding);
+    };
+    applyFit();
+    requestAnimationFrame(applyFit);
 
     core.on("tap", "node", (event: EventObject) => {
       const node = event.target;
@@ -540,7 +817,7 @@ export function GraphView({ graph }: GraphViewProps) {
     });
 
     core.on("tap", "edge", (event: EventObject) => {
-      const edge = event.target as cytoscape.EdgeSingular;
+      const edge = event.target as EdgeSingular;
       core.edges().removeClass("sg-highlighted");
       edge.addClass("sg-highlighted");
       setSelected(null);
@@ -559,7 +836,7 @@ export function GraphView({ graph }: GraphViewProps) {
       core.destroy();
       coreRef.current = null;
     };
-  }, [elements]);
+  }, [elements, interContractOnly]);
 
   useEffect(() => {
     const core = coreRef.current;
@@ -596,32 +873,45 @@ export function GraphView({ graph }: GraphViewProps) {
         edge.removeClass("sg-dimmed");
       }
     });
-  }, [graph, highlightStateWrites, highlightEntrypointWrites]);
+  }, [displayGraph, highlightStateWrites, highlightEntrypointWrites, hiddenLegend, focusNodeIds]);
 
   useEffect(() => {
     const core = coreRef.current;
     if (!core) return;
-    const edges = core.elements('edge[kind = "import_dependency"]');
-    const importNodes = core.elements('node[group = "external_import"]');
-    if (showImports) {
-      edges.show();
-      importNodes.show();
-    } else {
-      edges.hide();
-      importNodes.hide();
-    }
-  }, [showImports]);
+    applyGraphVisibility(core, {
+      hiddenLegend,
+      showImports,
+      showCrossContractCalls,
+      focusNodeIds,
+    });
+    setSelected((sel) => {
+      if (!sel) return sel;
+      const n = core.getElementById(sel.id);
+      if (n.empty() || !n.visible()) return null;
+      return sel;
+    });
+    setSelectedEdge((edge) => {
+      if (!edge) return edge;
+      const e = core.getElementById(edge.id);
+      if (e.empty() || !e.visible()) return null;
+      return edge;
+    });
+  }, [hiddenLegend, showImports, showCrossContractCalls, elements, focusNodeIds]);
 
   useEffect(() => {
     const core = coreRef.current;
     if (!core) return;
-    const edges = core.elements('edge[kind = "cross_contract_call"]');
-    if (showCrossContractCalls) {
-      edges.show();
-    } else {
-      edges.hide();
+    core.edges().removeClass("sg-focus-edge-2");
+    if (!focusSecondaryEdgeIds) return;
+    for (const edgeId of focusSecondaryEdgeIds) {
+      const el = core.getElementById(edgeId);
+      if (!el.empty()) el.addClass("sg-focus-edge-2");
     }
-  }, [showCrossContractCalls]);
+  }, [elements, focusSecondaryEdgeIds]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => graphFullscreenResize(coreRef.current));
+  }, [graphCanvasOnly]);
 
   const handleExportPng = () => {
     const core = coreRef.current;
@@ -636,7 +926,8 @@ export function GraphView({ graph }: GraphViewProps) {
   const handleExportJson = () => {
     const payload = {
       exported_at: new Date().toISOString(),
-      graph,
+      graph: displayGraph,
+      view: interContractOnly ? "inter_contract" : "full",
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -665,6 +956,7 @@ export function GraphView({ graph }: GraphViewProps) {
       const next = bounds.right - event.clientX;
       const clamped = Math.max(minPanelWidth, Math.min(maxPanelWidth, next));
       setSidePanelWidth(clamped);
+      graphFullscreenResize(coreRef.current);
     };
     const onMouseUp = () => setIsResizing(false);
     window.addEventListener("mousemove", onMouseMove);
@@ -675,12 +967,73 @@ export function GraphView({ graph }: GraphViewProps) {
     };
   }, [isResizing]);
 
+  useEffect(() => {
+    if (!isResizingToolbar) return;
+    const onMouseMove = (event: MouseEvent) => {
+      if (window.innerWidth <= 1200) return;
+      const wrap = toolbarWrapRef.current;
+      const shell = fullscreenShellRef.current;
+      if (!wrap || !shell) return;
+      const top = wrap.getBoundingClientRect().top;
+      const next = event.clientY - top;
+      const shellH = shell.getBoundingClientRect().height;
+      const minToolbar = 120;
+      const reserveWorkspace = 200;
+      const maxToolbar = Math.max(minToolbar + 40, shellH - reserveWorkspace);
+      setToolbarPanelHeight(Math.max(minToolbar, Math.min(maxToolbar, next)));
+      graphFullscreenResize(coreRef.current);
+    };
+    const onMouseUp = () => setIsResizingToolbar(false);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isResizingToolbar]);
+
+  useEffect(() => {
+    const shell = fullscreenShellRef.current;
+    if (!shell || displayGraph.nodes.length === 0) return;
+    const onChange = () => {
+      setIsGraphFullscreen(isGraphShellFullscreen(shell));
+      graphFullscreenResize(coreRef.current);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    setIsGraphFullscreen(isGraphShellFullscreen(shell));
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
+  }, [displayGraph.nodes.length]);
+
+  const handleToggleGraphFullscreen = () => {
+    const shell = fullscreenShellRef.current;
+    if (!shell) return;
+    if (isGraphShellFullscreen(shell)) {
+      void exitGraphFullscreen();
+    } else {
+      void requestGraphFullscreen(shell).catch(() => {});
+    }
+  };
+
   if (graph.nodes.length === 0) {
     return (
       <div className="sg-graph">
         <p className="sg-page__hint">
           Graph data is empty. Re-run the scan with task &quot;all&quot; to populate
           the graph, or this artifact may not contain any parseable structures.
+        </p>
+      </div>
+    );
+  }
+
+  if (displayGraph.nodes.length === 0) {
+    return (
+      <div className="sg-graph">
+        <p className="sg-page__hint">
+          No nodes in the current view.
         </p>
       </div>
     );
@@ -697,11 +1050,12 @@ export function GraphView({ graph }: GraphViewProps) {
   }
 
   const explorationHints =
-    "exploration_hints" in graph ? graph.exploration_hints : undefined;
+    "exploration_hints" in displayGraph ? displayGraph.exploration_hints : undefined;
 
   return (
     <div className="sg-graph">
-      {explorationHints && (
+      <div ref={fullscreenShellRef} className="sg-graph__fullscreen-shell">
+      {!graphCanvasOnly && explorationHints && (
         <p className="sg-page__hint" style={{ margin: "0 16px 8px" }}>
           C graph (heuristic): {explorationHints.call_edge_count} edge(s); nodes{" "}
           {explorationHints.node_count ?? "?"}, edges {explorationHints.edge_count ?? "?"}.{" "}
@@ -711,109 +1065,347 @@ export function GraphView({ graph }: GraphViewProps) {
           {explorationHints.note ?? ""}
         </p>
       )}
+      {!graphCanvasOnly && (
+      <div
+        ref={toolbarWrapRef}
+        className="sg-graph__toolbar-wrap"
+        style={{ maxHeight: `${toolbarPanelHeight}px` }}
+      >
       <div className="sg-graph__toolbar">
-        <span className="sg-graph__stat">
-          {graph.nodes.length} nodes / {graph.edges.length} edges
-        </span>
-        <span className="sg-graph__stat">
-          state-writers: {stateWritersCount}
-        </span>
-        <span className="sg-graph__stat">
-          entrypoint-writers: {entrypointWritersCount}
-        </span>
-        <div className="sg-graph__legend-wrap">
-          <div className="sg-graph__legend">
-            <span className="sg-graph__chip sg-graph__chip--type">type / tile</span>
-            <span className="sg-graph__chip sg-graph__chip--function">function</span>
-            <span className="sg-graph__chip sg-graph__chip--modifier-node">modifier</span>
-            <span className="sg-graph__chip sg-graph__chip--modifier">modifier ring</span>
-            <span className="sg-graph__chip sg-graph__chip--state">state / workspace</span>
-            <span className="sg-graph__chip sg-graph__chip--event">event</span>
-            <span className="sg-graph__chip sg-graph__chip--external">external</span>
+        <div className="sg-graph__toolbar-top">
+          <div className="sg-graph__metrics" aria-label="Graph summary">
+            <span className="sg-graph__stat">
+              {displayGraph.nodes.length} nodes / {displayGraph.edges.length} edges
+              {interContractOnly ? " (inter-contract)" : ""}
+            </span>
+            <span className="sg-graph__stat">state-writers: {stateWritersCount}</span>
+            <span className="sg-graph__stat">
+              entrypoint-writers: {entrypointWritersCount}
+            </span>
           </div>
-          <div className="sg-graph__edge-legend" aria-hidden>
-            <span className="sg-graph__edge-key sg-graph__edge-key--state">state</span>
-            <span className="sg-graph__edge-key sg-graph__edge-key--emit">emit</span>
-            <span className="sg-graph__edge-key sg-graph__edge-key--contract">ext contract</span>
-            <span className="sg-graph__edge-key sg-graph__edge-key--system">system</span>
-            <span className="sg-graph__edge-key sg-graph__edge-key--call">internal</span>
-            <span className="sg-graph__edge-key sg-graph__edge-key--cross">cross-type</span>
-            <span className="sg-graph__edge-key" style={{ color: "#2dd4bf" }}>
-              inc .c
-            </span>
-            <span className="sg-graph__edge-key" style={{ color: "#fb923c" }}>
-              struct/workspace
-            </span>
+          <div className="sg-graph__actions">
+            <div className="sg-graph__action-group" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => {
+                  setInterContractOnly((v) => !v);
+                  setHighlightStateWrites(false);
+                  setHighlightEntrypointWrites(false);
+                  setFocusSelectionEnabled(false);
+                }}
+              >
+                {interContractOnly ? "Full graph" : "Inter-contract"}
+              </button>
+              <button type="button" className="sg-button sg-button--ghost" onClick={handleFit}>
+                Fit
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={handleToggleGraphFullscreen}
+                title={
+                  isGraphFullscreen
+                    ? "Exit fullscreen (Esc)"
+                    : "Fullscreen: graph, toolbar, legend, and details panel"
+                }
+              >
+                {isGraphFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => setGraphCanvasOnly(true)}
+                title="Hide toolbar, legend, and details; show only the graph"
+              >
+                Graph only
+              </button>
+            </div>
+            <div className="sg-graph__action-group" role="group" aria-label="Export">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={handleExportPng}
+              >
+                Export PNG
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={handleExportJson}
+              >
+                Export JSON
+              </button>
+            </div>
+            <div className="sg-graph__action-group" role="group" aria-label="Highlights">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                disabled={interContractOnly}
+                onClick={() => {
+                  setHighlightStateWrites((value) => !value);
+                  setHighlightEntrypointWrites(false);
+                }}
+              >
+                {highlightStateWrites ? "Show all nodes" : "Highlight state writes"}
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                disabled={interContractOnly}
+                onClick={() => {
+                  setHighlightEntrypointWrites((value) => !value);
+                  if (!highlightEntrypointWrites) {
+                    setHighlightStateWrites(false);
+                  }
+                }}
+              >
+                {highlightEntrypointWrites
+                  ? "Show all nodes"
+                  : "Only entrypoints writing state"}
+              </button>
+            </div>
+            <div className="sg-graph__action-group" role="group" aria-label="Focus neighborhood">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                disabled={interContractOnly || !focusEligible}
+                aria-pressed={focusSelectionEnabled}
+                title={
+                  interContractOnly
+                    ? "Not available in inter-contract view"
+                    : !focusEligible
+                      ? "Select a contract (type or tile node) first"
+                      : "Temporarily show hidden nodes up to 2 hops away (shared hubs and peer contracts)"
+                }
+                onClick={() => setFocusSelectionEnabled((v) => !v)}
+              >
+                {focusSelectionEnabled ? "Clear focus" : "Focus selection"}
+              </button>
+            </div>
+            <div className="sg-graph__action-group" role="group" aria-label="Extra edges">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => setShowImports((v) => !v)}
+              >
+                {showImports ? "Hide imports" : "Show imports"}
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => setShowCrossContractCalls((v) => !v)}
+              >
+                {showCrossContractCalls
+                  ? "Hide cross-contract calls"
+                  : "Show cross-contract calls"}
+              </button>
+            </div>
           </div>
         </div>
-        <div className="sg-graph__actions">
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={handleFit}
-          >
-            Fit
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={handleExportPng}
-          >
-            Export PNG
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={handleExportJson}
-          >
-            Export JSON
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={() => {
-              setHighlightStateWrites((value) => !value);
-              setHighlightEntrypointWrites(false);
-            }}
-          >
-            {highlightStateWrites ? "Show all nodes" : "Highlight state writes"}
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={() => {
-              setHighlightEntrypointWrites((value) => !value);
-              if (!highlightEntrypointWrites) {
-                setHighlightStateWrites(false);
-              }
-            }}
-          >
-            {highlightEntrypointWrites
-              ? "Show all nodes"
-              : "Only entrypoints writing state"}
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={() => setShowImports((v) => !v)}
-          >
-            {showImports ? "Hide imports" : "Show imports"}
-          </button>
-          <button
-            type="button"
-            className="sg-button sg-button--ghost"
-            onClick={() => setShowCrossContractCalls((v) => !v)}
-          >
-            {showCrossContractCalls ? "Hide cross-contract calls" : "Show cross-contract calls"}
-          </button>
+        <div className="sg-graph__toolbar-legends">
+          <div className="sg-graph__legend-block">
+            <span
+              className="sg-graph__legend-heading"
+              title="Click a label to hide or show that kind on the graph. Click again to restore."
+            >
+              Nodes
+            </span>
+            <div className="sg-graph__legend" role="group" aria-label="Node types visibility">
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--type${hiddenLegend.type_tile ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.type_tile)}
+                onClick={() => toggleLegend("type_tile")}
+              >
+                type / tile
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--abstract-contract${hiddenLegend.abstract ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.abstract)}
+                onClick={() => toggleLegend("abstract")}
+              >
+                abstract
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--interface-unit${hiddenLegend.interface ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.interface)}
+                onClick={() => toggleLegend("interface")}
+              >
+                interface
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--library-unit${hiddenLegend.library ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.library)}
+                onClick={() => toggleLegend("library")}
+              >
+                library
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--function${hiddenLegend.function ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.function)}
+                onClick={() => toggleLegend("function")}
+              >
+                function
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--modifier-node${hiddenLegend.modifier ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.modifier)}
+                onClick={() => toggleLegend("modifier")}
+              >
+                modifier
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--modifier${hiddenLegend.modifier_ring ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.modifier_ring)}
+                onClick={() => toggleLegend("modifier_ring")}
+              >
+                modifier ring
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--state${hiddenLegend.state_workspace ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.state_workspace)}
+                onClick={() => toggleLegend("state_workspace")}
+              >
+                state / workspace
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--event${hiddenLegend.event ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.event)}
+                onClick={() => toggleLegend("event")}
+              >
+                event
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__chip sg-graph__chip--external${hiddenLegend.external ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.external)}
+                onClick={() => toggleLegend("external")}
+              >
+                external
+              </button>
+            </div>
+          </div>
+          <div className="sg-graph__legend-block">
+            <span
+              className="sg-graph__legend-heading"
+              title="Click a label to hide or show that edge kind on the graph."
+            >
+              Edges
+            </span>
+            <div className="sg-graph__edge-legend" role="group" aria-label="Edge kinds visibility">
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--state${hiddenLegend.edge_state ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_state)}
+                onClick={() => toggleLegend("edge_state")}
+              >
+                state
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--emit${hiddenLegend.edge_emit ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_emit)}
+                onClick={() => toggleLegend("edge_emit")}
+              >
+                emit
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--contract${hiddenLegend.edge_ext_contract ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_ext_contract)}
+                onClick={() => toggleLegend("edge_ext_contract")}
+              >
+                ext contract
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--system${hiddenLegend.edge_system ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_system)}
+                onClick={() => toggleLegend("edge_system")}
+              >
+                system
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--call${hiddenLegend.edge_internal ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_internal)}
+                onClick={() => toggleLegend("edge_internal")}
+              >
+                internal
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key sg-graph__edge-key--cross${hiddenLegend.edge_cross_type ? " sg-graph__edge-key--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.edge_cross_type)}
+                onClick={() => toggleLegend("edge_cross_type")}
+              >
+                cross-type
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key${hiddenLegend.edge_include_c ? " sg-graph__edge-key--suppressed" : ""}`}
+                style={{ color: "#2dd4bf" }}
+                aria-pressed={Boolean(hiddenLegend.edge_include_c)}
+                onClick={() => toggleLegend("edge_include_c")}
+              >
+                inc .c
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key${hiddenLegend.edge_struct_ws ? " sg-graph__edge-key--suppressed" : ""}`}
+                style={{ color: "#fb923c" }}
+                aria-pressed={Boolean(hiddenLegend.edge_struct_ws)}
+                onClick={() => toggleLegend("edge_struct_ws")}
+              >
+                struct/workspace
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+      </div>
+      )}
+      {!graphCanvasOnly && (
       <div
-        className="sg-graph__workspace"
+        className={`sg-graph__splitter sg-graph__splitter--row${isResizingToolbar ? " sg-graph__splitter--active" : ""}`}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize maximum height of toolbar and legend panel"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          setIsResizingToolbar(true);
+        }}
+      />
+      )}
+      <div
+        className={`sg-graph__workspace${graphCanvasOnly ? " sg-graph__workspace--graph-only" : ""}`}
         ref={workspaceRef}
         style={{ ["--sg-side-width" as string]: `${sidePanelWidth}px` }}
       >
-        <div className="sg-graph__canvas" ref={containerRef} />
+        <div className="sg-graph__canvas-shell">
+          {graphCanvasOnly ? (
+            <button
+              type="button"
+              className="sg-button sg-button--ghost sg-graph__graph-only-exit"
+              onClick={() => setGraphCanvasOnly(false)}
+              title="Restore toolbar, legend, and details panel"
+            >
+              Show panels
+            </button>
+          ) : null}
+          <div className="sg-graph__canvas" ref={containerRef} />
+        </div>
+        {!graphCanvasOnly ? (
+          <>
         <div
           className={`sg-graph__splitter${isResizing ? " sg-graph__splitter--active" : ""}`}
           role="separator"
@@ -833,6 +1425,16 @@ export function GraphView({ graph }: GraphViewProps) {
                   <>
                     <dt>Type</dt>
                     <dd>{selected.type_name}</dd>
+                  </>
+                )}
+                {selected.solidity_kind && (
+                  <>
+                    <dt>Solidity unit</dt>
+                    <dd>
+                      {selected.solidity_kind === "abstract"
+                        ? "abstract contract"
+                        : selected.solidity_kind}
+                    </dd>
                   </>
                 )}
                 {selected.visibility && (
@@ -1046,6 +1648,9 @@ export function GraphView({ graph }: GraphViewProps) {
             </div>
           )}
         </div>
+          </>
+        ) : null}
+      </div>
       </div>
     </div>
   );

@@ -3,3 +3,6 @@ dist/
 .vite/
 .eslintcache
 *.log
+playwright-report/
+test-results/
+playwright/.cache/

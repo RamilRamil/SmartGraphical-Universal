@@ -455,12 +455,18 @@ def model_graph_to_dict(model):
 
     for type_entry in types:
         type_name = getattr(type_entry, "name", "") or "_"
-        add_node({
+        type_node = {
             "id": _type_id(type_name),
             "label": type_name,
             "group": "type",
             "kind": getattr(type_entry, "kind", "") or "",
-        })
+        }
+        sk = getattr(type_entry, "solidity_unit_kind", None) or (
+            "abstract" if bool(getattr(type_entry, "is_abstract", False)) else "concrete"
+        )
+        if sk and sk != "concrete":
+            type_node["solidity_kind"] = sk
+        add_node(type_node)
         declared_modifier_names = set()
         used_modifier_names = set()
         type_functions = getattr(type_entry, "functions", []) or []

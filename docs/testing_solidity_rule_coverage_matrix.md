@@ -4,6 +4,8 @@ C counterpart (tasks `101`..`120`): `docs/testing_c_rule_coverage_matrix.md`.
 
 Registry: `smartgraphical/adapters/solidity/adapter.py` (`build_rule_registry`).
 
+Human-readable rule catalog (EN): `docs/solidity_rules_catalog.json`. RU summaries: `docs/rules_ru_solidity.md`.
+
 | task_id | rule_id | Unit test module (synthetic model / legacy `rets`) |
 |--------|---------|-----------------------------------------------------|
 | 1 | contract_version | `tests/unit/test_rules_solidity_normalized_coverage.py` |

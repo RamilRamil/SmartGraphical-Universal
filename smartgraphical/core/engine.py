@@ -29,13 +29,21 @@ def _source_lines_for_model(model):
     return lines
 
 
+def _collapse_ws(text):
+    return " ".join((text or "").split())
+
+
 def _infer_line_numbers(model, statement):
     text = (statement or "").strip()
     if not text:
         return []
+    collapsed = _collapse_ws(text)
     matches = []
     for index, line in enumerate(_source_lines_for_model(model), start=1):
         if text in line:
+            matches.append(index)
+            continue
+        if collapsed and len(collapsed) >= 8 and collapsed in _collapse_ws(line):
             matches.append(index)
     return matches
 

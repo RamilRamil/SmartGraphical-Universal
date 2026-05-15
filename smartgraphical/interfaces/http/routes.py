@@ -9,6 +9,10 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
+from smartgraphical.upload_limits import (
+    MAX_MULTIPART_SOURCE_FILES,
+    MAX_UPLOAD_BYTES_PER_FILE,
+)
 from smartgraphical.services import web_api
 from smartgraphical.services.history_service import (
     ERROR_INVALID_PAYLOAD,
@@ -18,10 +22,6 @@ from smartgraphical.services.history_service import (
 )
 
 from .schemas import RunScanRequest
-
-
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024
-MAX_BATCH_ARTIFACT_FILES = 32
 
 
 def get_history_service(request: Request) -> HistoryService:
@@ -50,10 +50,10 @@ def build_router() -> APIRouter:
         data = await file.read()
         if len(data) == 0:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
-        if len(data) > MAX_UPLOAD_BYTES:
+        if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
             raise HistoryError(
                 ERROR_UNSUPPORTED_FILE,
-                f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
             )
         return service.ingest_upload(data, file.filename or "source")
 
@@ -70,10 +70,10 @@ def build_router() -> APIRouter:
         """
         if not files:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in batch")
-        if len(files) > MAX_BATCH_ARTIFACT_FILES:
+        if len(files) > MAX_MULTIPART_SOURCE_FILES:
             raise HistoryError(
                 ERROR_INVALID_PAYLOAD,
-                f"batch exceeds {MAX_BATCH_ARTIFACT_FILES} files",
+                f"batch exceeds {MAX_MULTIPART_SOURCE_FILES} files",
             )
         items = []
         ok_count = 0
@@ -83,10 +83,10 @@ def build_router() -> APIRouter:
                 data = await upload.read()
                 if len(data) == 0:
                     raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
-                if len(data) > MAX_UPLOAD_BYTES:
+                if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
                     raise HistoryError(
                         ERROR_UNSUPPORTED_FILE,
-                        f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                        f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
                     )
                 artifact = service.ingest_upload(data, name)
                 items.append({"ok": True, "artifact": artifact})
@@ -113,7 +113,7 @@ def build_router() -> APIRouter:
             description=(
                 "Multipart parts named 'files' (repeat per file). Creates one artifact; "
                 "all parts must be the same language: .sol only, .rs only, or .c/.h mix. "
-                "Limits: empty batch rejected; at most 32 files; each part at most 2 MiB; "
+                f"Limits: empty batch rejected; at most {MAX_MULTIPART_SOURCE_FILES} files; each part at most 2 MiB; "
                 "total bundle at most 64 MiB (enforced on ingest)."
             ),
         ),
@@ -141,10 +141,10 @@ def build_router() -> APIRouter:
         """
         if not files:
             raise HistoryError(ERROR_INVALID_PAYLOAD, "no files in bundle")
-        if len(files) > MAX_BATCH_ARTIFACT_FILES:
+        if len(files) > MAX_MULTIPART_SOURCE_FILES:
             raise HistoryError(
                 ERROR_INVALID_PAYLOAD,
-                f"batch exceeds {MAX_BATCH_ARTIFACT_FILES} files",
+                f"batch exceeds {MAX_MULTIPART_SOURCE_FILES} files",
             )
         tree_mode = False
         path_hints: list[str] = []
@@ -180,10 +180,10 @@ def build_router() -> APIRouter:
             data = await upload.read()
             if len(data) == 0:
                 raise HistoryError(ERROR_INVALID_PAYLOAD, "uploaded file is empty")
-            if len(data) > MAX_UPLOAD_BYTES:
+            if len(data) > MAX_UPLOAD_BYTES_PER_FILE:
                 raise HistoryError(
                     ERROR_UNSUPPORTED_FILE,
-                    f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                    f"upload exceeds {MAX_UPLOAD_BYTES_PER_FILE} bytes",
                 )
             hint = path_hints[idx] if tree_mode else (upload.filename or "source")
             parts.append((data, hint))

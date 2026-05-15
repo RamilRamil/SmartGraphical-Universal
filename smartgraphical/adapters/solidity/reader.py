@@ -46,22 +46,117 @@ class ContractReader:
         all_code = remove_extra_spaces(all_code)
         return all_code
 
-    def extract_func(self, inp):
+    def _skip_ws_and_line_sep(self, inp, k):
+        while k < len(inp):
+            if inp[k].isspace():
+                k += 1
+                continue
+            sep = self.line_sep
+            if sep and inp.startswith(sep, k):
+                k += len(sep)
+                continue
+            break
+        return k
+
+    def _closing_paren_index(self, inp, open_idx):
+        depth = 0
+        for i in range(open_idx, len(inp)):
+            if inp[i] == "(":
+                depth += 1
+            elif inp[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+        return None
+
+    def _end_index_balanced_brace(self, inp, open_brace_idx):
         brack_iter = 0
-        e_ind = None
-        if '{' in inp:
-            s_ind = inp.index('{')
-            for i in range(s_ind + 1, len(inp)):
-                if inp[i] == "{":
-                    brack_iter += 1
-                if inp[i] == "}":
-                    brack_iter -= 1
+        for i in range(open_brace_idx + 1, len(inp)):
+            if inp[i] == "{":
+                brack_iter += 1
+            elif inp[i] == "}":
+                brack_iter -= 1
                 if brack_iter == -1:
-                    e_ind = i
-                    break
+                    return i
+        return None
+
+    def extract_func(self, inp):
+        """
+        Slice one function/modifier declaration or definition from inp.
+
+        Declarations without a body end with ';' before any '{'. Using the first
+        '{' in inp is wrong when the next top-level function starts with '{'.
+        """
+        k0 = self._skip_ws_and_line_sep(inp, 0)
+        sub = inp[k0:]
+        m = re.match(r"(function|modifier)\s+([A-Za-z_]\w*)\s*\(", sub)
+        if m:
+            open_idx = k0 + m.end() - 1
         else:
-            e_ind = inp.index(';')
-        return inp[:e_ind + 1]
+            try:
+                open_idx = inp.index("(", k0)
+            except ValueError:
+                brack_iter = 0
+                if "{" in inp:
+                    s_ind = inp.index("{")
+                    for i in range(s_ind + 1, len(inp)):
+                        if inp[i] == "{":
+                            brack_iter += 1
+                        if inp[i] == "}":
+                            brack_iter -= 1
+                        if brack_iter == -1:
+                            return inp[: i + 1]
+                return inp[: inp.index(";") + 1]
+
+        param_close = self._closing_paren_index(inp, open_idx)
+        if param_close is None:
+            if "{" in inp:
+                s_ind = inp.index("{")
+                e_ind = self._end_index_balanced_brace(inp, s_ind)
+                if e_ind is not None:
+                    return inp[: e_ind + 1]
+            return inp[: inp.index(";") + 1]
+
+        k = param_close + 1
+        paren_level = 0
+        while k < len(inp):
+            k = self._skip_ws_and_line_sep(inp, k)
+            if k >= len(inp):
+                break
+            c = inp[k]
+            if paren_level == 0 and c == ";":
+                return inp[: k + 1]
+            if paren_level == 0 and c == "{":
+                e_ind = self._end_index_balanced_brace(inp, k)
+                if e_ind is not None:
+                    return inp[: e_ind + 1]
+                break
+            if c == "(":
+                paren_level += 1
+                k += 1
+                continue
+            if c == ")":
+                paren_level -= 1
+                k += 1
+                continue
+            if c.isalpha() or c == "_":
+                k += 1
+                while k < len(inp) and (inp[k].isalnum() or inp[k] == "_"):
+                    k += 1
+                continue
+            if c.isdigit():
+                k += 1
+                while k < len(inp) and (inp[k].isalnum() or inp[k] in "._xX"):
+                    k += 1
+                continue
+            k += 1
+
+        if "{" in inp:
+            s_ind = inp.index("{")
+            e_ind = self._end_index_balanced_brace(inp, s_ind)
+            if e_ind is not None:
+                return inp[: e_ind + 1]
+        return inp[: inp.index(";") + 1]
 
     def extract_tuple(self, inp):
         s_ind = inp.index('(')
@@ -125,7 +220,11 @@ class ContractReader:
         return inp, ret_str
 
     def extract_contract(self, inp):
-        pattern = re.escape(self.line_sep) + r'(?:contract|library)\s+'
+        # Support "abstract contract" (optional abstract); line_sep prefixes merged lines.
+        pattern = (
+            re.escape(self.line_sep)
+            + r'\s*(?:abstract\s+)?(?:contract|library)\s+'
+        )
         var_inds = [m.start() for m in re.finditer(pattern, inp)]
         contracts = []
         for j in range(len(var_inds)):
@@ -151,11 +250,11 @@ class ContractReader:
         return contracts
 
     def extract_contract_name(self, inp):
-        match = re.search(r'\b(contract|library)\s+', inp)
+        match = re.search(r'\b(?:abstract\s+)?(contract|library)\s+', inp)
         if not match:
             return '', []
-        ind = match.start()
         kind = match.group(1)
+        ind = match.start(1)
         brack_ind = inp.index('{')
         cont_inp = inp[ind:brack_ind]
         cont_inp = cont_inp.replace(kind, '').strip()
@@ -474,15 +573,17 @@ class ContractReader:
 
     def __call__(self, all_code):
         analyzed_contracts = []
-        contracts = self.extract_contract(all_code)
+        base_contracts = self.extract_contract(all_code)
         interfaces = self.extract_interface(all_code)
         interf = [i.replace('interface', 'contract') for i in interfaces]
-        contracts.extend(interf)
+        contracts = base_contracts + interf
+        base_n = len(base_contracts)
         ret = []
         hierarchy = {}
-        for i in range(len(contracts)):
+        unit_kinds: dict = {}
+        for ci in range(len(contracts)):
             funcs = []
-            cont_code = contracts[i]
+            cont_code = contracts[ci]
             using = self.extract_using(cont_code)
             structs = self.extract_structs(cont_code)
             func_inds = [m.start() for m in re.finditer('function ', cont_code)]
@@ -490,16 +591,26 @@ class ContractReader:
             modifier_ind_set = set(modif_inds)
             func_inds.extend(modif_inds)
             res_code = deepcopy(cont_code)
-            for i in range(len(func_inds)):
-                f = self.extract_func(cont_code[func_inds[i]:])
+            for fi in range(len(func_inds)):
+                f = self.extract_func(cont_code[func_inds[fi]:])
                 res_code = res_code.replace(f, ' ')
                 name, input_details, ext_params = self.extract_fparams(f)
-                if func_inds[i] in modifier_ind_set:
+                if func_inds[fi] in modifier_ind_set:
                     ext_params = list(ext_params)
                     ext_params.append('__declared_modifier__')
                 body, ret_str = self.extract_body(f)
                 funcs.append([name, input_details, ext_params, body])
             contract_name, parents = self.extract_contract_name(cont_code)
+            flat_head = cont_code.replace(self.line_sep, ' ')
+            head_window = flat_head[:1400]
+            if ci >= base_n:
+                unit_kinds[contract_name] = 'interface'
+            elif re.search(r'\blibrary\s+[A-Za-z_][A-Za-z0-9_]*\b', head_window):
+                unit_kinds[contract_name] = 'library'
+            elif re.search(r'\babstract\s+contract\b', head_window):
+                unit_kinds[contract_name] = 'abstract'
+            else:
+                unit_kinds[contract_name] = 'concrete'
             hierarchy[contract_name] = parents
             self.contracts_mem[contract_name] = {}
             self.contracts_mem[contract_name]['funcs'] = deepcopy(funcs)
@@ -593,4 +704,4 @@ class ContractReader:
                         'func_func_mapping': func_func_mapping,
                     }
                     high_connections.append(conn)
-        return ret, hierarchy, high_connections
+        return ret, hierarchy, high_connections, unit_kinds

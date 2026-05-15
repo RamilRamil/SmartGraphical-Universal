@@ -10,6 +10,7 @@ from smartgraphical.adapters.solidity.helpers import (
     remove_extra_spaces,
     similar_string,
 )
+from smartgraphical.adapters.solidity.reader import ContractReader
 
 
 class CommentRemoverTests(unittest.TestCase):
@@ -101,6 +102,37 @@ class IntraContractConnectionTests(unittest.TestCase):
 
     def test_returns_false_on_empty_connections(self):
         self.assertFalse(intra_contract_connection([], "bid"))
+
+
+class ContractReaderExtractFuncTests(unittest.TestCase):
+
+    def test_virtual_declaration_does_not_absorb_next_function_brace(self):
+        r = ContractReader()
+        chunk = (
+            "function _registerValidators(ValidatorUtils.ValidatorDeposit[] memory deposits) "
+            "internal virtual; function _isValidatorsManager(bytes calldata v) { return false; }"
+        )
+        first = r.extract_func(chunk)
+        self.assertTrue(first.strip().endswith("virtual;"), first)
+        self.assertNotIn("_isValidatorsManager", first)
+
+    def test_virtual_decl_with_line_sep_before_semicolon(self):
+        r = ContractReader()
+        chunk = (
+            "function f(uint x) internal virtual"
+            f"{r.line_sep}; function g() {{ uint y = 1; }}"
+        )
+        first = r.extract_func(chunk)
+        self.assertIn("virtual", first)
+        self.assertNotIn("function g", first)
+
+    def test_function_with_body_still_balances_braces(self):
+        r = ContractReader()
+        chunk = "function a() internal { if (true) { return; } } function b() external {}"
+        first = r.extract_func(chunk)
+        self.assertIn("function a", first)
+        self.assertIn("}", first)
+        self.assertNotIn("function b", first)
 
 
 if __name__ == "__main__":
