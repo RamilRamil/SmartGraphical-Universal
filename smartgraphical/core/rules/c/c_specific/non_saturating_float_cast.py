@@ -1,4 +1,4 @@
-"""Rule C01 (task 101): non_saturating_float_cast.
+"""Rule C01 (task 1): non_saturating_float_cast.
 
 Flags direct C casts from floating-point expressions to unsigned integer
 types without a saturating wrapper, where operand text suggests float/double
@@ -133,7 +133,7 @@ def _detect(context):
                     continue
                 qstmt = stmt[:200].replace("'", "")
                 alerts.append({
-                    'code': 101,
+                    'code': 1,
                     'message': (
                         f"Heuristic: suspected float-to-unsigned cast vs Rust parity in "
                         f"{type_entry.name}.{function.name}: '{qstmt}'"
@@ -143,8 +143,8 @@ def _detect(context):
 
 
 _META = dict(
-    task_id='101',
-    legacy_code=101,
+    task_id='1',
+    legacy_code=1,
     slug='non_saturating_float_cast',
     title='C float-to-unsigned cast (Rust parity heuristic)',
     category='consensus_failure',

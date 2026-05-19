@@ -55,9 +55,11 @@ export function RunScanForm({
 
   useEffect(() => {
     if (task || tasks.length === 0) return;
-    const allTask = tasks.find((descriptor) => descriptor.id === "all");
+    const allTask = tasks.find(
+      (descriptor) => descriptor.id === "0" || descriptor.id === "all",
+    );
     if (allTask) {
-      setTask("all");
+      setTask(allTask.id);
       return;
     }
     setTask(tasks[0]?.id ?? "");
@@ -108,7 +110,7 @@ export function RunScanForm({
           </option>
           {tasks.map((descriptor) => (
             <option key={descriptor.id} value={descriptor.id}>
-              {descriptor.id === "all"
+              {descriptor.id === "0" || descriptor.id === "all"
                 ? descriptor.title
                 : `${descriptor.id} - ${descriptor.title || descriptor.id}`}
             </option>

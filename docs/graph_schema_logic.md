@@ -6,6 +6,7 @@ the `Scan detail -> Graph` tab.
 ## 0. Scope and related docs
 
 - Scope: implemented graph behavior for the current production serializer and UI.
+- Solidity scans: meta-task **`0`** (alias **`all`**) runs every `RuleSpec` from `build_rule_registry()` (tasks `1`..`15`), then serializes the graph when the pipeline requests it.
 - C/Node target profile and best-practice contract: `docs/graph_schema_logic_c.md`.
 - Rust/Soroban target profile and serializer alignment notes: `docs/graph_schema_logic_rust.md`; rule catalog scaffold: `docs/rust_stellar/soroban_rules_catalog.json`.
 - This file is the source of truth for currently implemented graph semantics.
@@ -209,7 +210,7 @@ Edges are styled by `kind` (color and line style), for example:
 
 ## 5. Availability and persistence
 
-- Graph tab is enabled for scans run with `task = all`.
+- Graph tab is enabled for scans run with `task = 0` or legacy `all` (HTTP meta id `0`; CLI run-all uses `0` / `all` and renders the graph; graph-only CLI id is `99`).
 - Graph JSON is persisted per scan under `workspace/scans/.../graph.json`.
 - Older scans may not contain full node/edge payload and should be re-run.
 
@@ -228,3 +229,4 @@ To keep docs consistent:
 2. `graph_schema_logic_c.md` tracks C/Node target schema and migration guidance.
 3. `graph_schema_logic_rust.md` tracks Rust/Soroban target schema and how it maps onto the shared graph payload contract.
 4. When payload fields or `kind` semantics change, update the base doc and any affected target doc (`graph_schema_logic_c.md` or `graph_schema_logic_rust.md`) in the same PR.
+5. New Solidity rule tasks (`RuleSpec` in `build_rule_registry()`) should land with updates to `docs/solidity_rules_catalog.json`, `tests/fixtures/solidity_task_coverage.json`, and `docs/rules_ru_solidity.md`; adjust Section 5 here if CLI/HTTP `all` behavior description changes.

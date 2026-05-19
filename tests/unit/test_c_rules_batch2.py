@@ -69,7 +69,7 @@ class BitwiseFlagRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['h |= (account->writable & 1)'])
         findings = run_bitwise(ctx)
-        self.assertEqual(findings[0].task_id, '107')
+        self.assertEqual(findings[0].task_id, '7')
         self.assertEqual(findings[0].rule_id, 'bitwise_flag_normalization_mismatch')
 
 
@@ -114,7 +114,7 @@ class QuicFrameLimitRuleTests(unittest.TestCase):
         ])
         findings = run_frame(ctx)
         if findings:
-            self.assertEqual(findings[0].task_id, '108')
+            self.assertEqual(findings[0].task_id, '8')
             self.assertEqual(findings[0].rule_id, 'quic_invisible_frame_limit')
 
 
@@ -153,7 +153,7 @@ class QuicHandshakeEvictionTests(unittest.TestCase):
         ])
         findings = run_hs(ctx)
         if findings:
-            self.assertEqual(findings[0].task_id, '109')
+            self.assertEqual(findings[0].task_id, '9')
             self.assertEqual(findings[0].rule_id, 'quic_handshake_eviction_missing')
 
 

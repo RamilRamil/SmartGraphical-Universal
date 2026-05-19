@@ -93,9 +93,14 @@ export type GraphNode = {
     | "modifier"
     | "external"
     | "external_import"
-    | "modifier_ring";
+    | "modifier_ring"
+    | "custom_error";
   parent?: string;
   kind?: string;
+  /** Solidity state variable / object instance type from declaration tokens. */
+  variable_type?: string;
+  /** Solidity: constant, immutable, etc. */
+  storage_attributes?: string[];
   /** Solidity: abstract | interface | library (omit for concrete contract). */
   solidity_kind?: "abstract" | "interface" | "library";
   type_name?: string;
@@ -110,6 +115,7 @@ export type GraphNode = {
   calls_contract?: boolean;
   calls_system?: boolean;
   calls_event?: boolean;
+  calls_custom_error?: boolean;
   calls_include_template?: boolean;
   heuristic_callees_ordered?: string[];
   state_reads?: string[];
@@ -117,6 +123,8 @@ export type GraphNode = {
   guards?: string[];
   write_paths?: Array<{ path: string; confidence: string }>;
   source_file?: string;
+  import_path?: string;
+  resolution?: string;
 };
 
 export type GraphEdge = {
@@ -128,6 +136,9 @@ export type GraphEdge = {
   callsite?: string;
   args_map?: Array<{ param: string; value: string; source_kind?: string }>;
   line_numbers?: number[];
+  import_symbol?: string;
+  import_path?: string;
+  resolution?: string;
 };
 
 export type GraphExplorationHints = {

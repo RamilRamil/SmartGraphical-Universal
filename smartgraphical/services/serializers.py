@@ -12,6 +12,7 @@ from smartgraphical.adapters.c_base.adapter import _TU_INCLUDE_EDGE_SOURCE
 
 
 _VIS_ONLY = frozenset({"public", "external", "internal", "private"})
+_SOLIDITY_STORAGE_ATTRS = frozenset({"constant", "immutable"})
 _DECLARED_MODIFIER_MARKER = "__declared_modifier__"
 _GRAPH_SCHEMA_VERSION = "1.0"
 
@@ -82,6 +83,28 @@ def _graph_modifier_fields(modifiers):
     return [{"name": m, "color": _modifier_hex(m)} for m in raw]
 
 
+def _state_entity_graph_extra(entity):
+    """Parse Solidity state declaration tokens into graph node fields."""
+    kind = (getattr(entity, "kind", "") or "").strip()
+    raw = (getattr(entity, "raw_signature", "") or "").strip()
+    name = (getattr(entity, "name", "") or "").strip()
+    if kind not in ("state_variable", "object_instance") or not raw or not name:
+        return {}
+    tokens = raw.split()
+    extra = {}
+    visibility = next((t for t in tokens if t in _VIS_ONLY), None)
+    if visibility:
+        extra["visibility"] = visibility
+    attrs = [t for t in tokens if t in _SOLIDITY_STORAGE_ATTRS]
+    if attrs:
+        extra["storage_attributes"] = attrs
+    skip = {name} | _VIS_ONLY | _SOLIDITY_STORAGE_ATTRS
+    type_tokens = [t for t in tokens if t not in skip]
+    if type_tokens:
+        extra["variable_type"] = " ".join(type_tokens)
+    return extra
+
+
 def evidence_to_dict(evidence):
     if evidence is None:
         return None
@@ -140,6 +163,10 @@ def _external_id(target_name):
 
 def _event_id(type_name, event_name):
     return f"event:{type_name or '_'}.{event_name}"
+
+
+def _custom_error_id(type_name, error_name):
+    return f"custom_error:{type_name or '_'}.{error_name}"
 
 
 def _modifier_id(type_name, modifier_name):
@@ -419,12 +446,13 @@ def model_graph_to_dict(model):
     - function nodes are children of their type (group = "function").
     - state-entity nodes (group = "state") are children of their type.
     - event nodes (group = "event") for Solidity events.
+    - custom_error nodes (group = "custom_error") for Solidity user-defined errors.
     - external/system call targets become free-standing nodes
       (group = "external") so edges always resolve.
     Function nodes may include modifier_details (name + color), and
     modifier_ring_details (declared modifiers applied to function) for
     nested compound ring rendering in the frontend, plus booleans
-    calls_contract / calls_system / calls_event / calls_internal derived
+    calls_contract / calls_system / calls_event / calls_custom_error / calls_internal derived
     from outgoing edge kinds.
     Edges preserve call_edge kind and label and always reference
     existing node ids.
@@ -451,6 +479,7 @@ def model_graph_to_dict(model):
     function_lookup = {}
     state_lookup = {}
     event_short_to_ids = {}
+    custom_error_short_to_ids = {}
     modifier_short_to_ids = {}
 
     for type_entry in types:
@@ -568,7 +597,7 @@ def model_graph_to_dict(model):
             if not entity_name:
                 continue
             node_id = _state_id(type_name, entity_name)
-            add_node({
+            state_node = {
                 "id": node_id,
                 "label": entity_name,
                 "group": "state",
@@ -576,7 +605,9 @@ def model_graph_to_dict(model):
                 "type_name": type_name,
                 "kind": getattr(entity, "kind", "") or "",
                 "source_body": getattr(entity, "raw_signature", "") or "",
-            })
+            }
+            state_node.update(_state_entity_graph_extra(entity))
+            add_node(state_node)
             state_lookup.setdefault(entity_name, node_id)
         for ev in getattr(type_entry, "events", []) or []:
             event_name = getattr(ev, "name", "") or ""
@@ -591,12 +622,25 @@ def model_graph_to_dict(model):
                 "type_name": type_name,
             })
             event_short_to_ids.setdefault(event_name, []).append(eid)
+        for cerr in getattr(type_entry, "custom_errors", []) or []:
+            err_name = getattr(cerr, "name", "") or ""
+            if not err_name:
+                continue
+            cid = _custom_error_id(type_name, err_name)
+            add_node({
+                "id": cid,
+                "label": err_name,
+                "group": "custom_error",
+                "parent": _type_id(type_name),
+                "type_name": type_name,
+            })
+            custom_error_short_to_ids.setdefault(err_name, []).append(cid)
 
     def resolve_endpoint(type_name, target_name, edge_kind=""):
         if edge_kind == "import_dependency":
-            type_id = _type_id(type_name)
-            if type_id in node_ids:
-                return type_id
+            imported_type = _type_id(target_name)
+            if imported_type in node_ids:
+                return imported_type
             ext_id = f"external:import:{target_name}"
             if ext_id not in node_ids:
                 add_node({
@@ -623,6 +667,9 @@ def model_graph_to_dict(model):
             candidate = _event_id(type_name, target_name)
             if candidate in node_ids:
                 return candidate
+            candidate = _custom_error_id(type_name, target_name)
+            if candidate in node_ids:
+                return candidate
             candidate = _modifier_id(type_name, target_name)
             if candidate in node_ids:
                 return candidate
@@ -641,6 +688,15 @@ def model_graph_to_dict(model):
                 return qualified
         if ev_ids:
             return ev_ids[0]
+        cerr_ids = custom_error_short_to_ids.get(target_name) or []
+        if len(cerr_ids) == 1:
+            return cerr_ids[0]
+        if len(cerr_ids) > 1 and type_name:
+            qualified = _custom_error_id(type_name, target_name)
+            if qualified in node_ids:
+                return qualified
+        if cerr_ids:
+            return cerr_ids[0]
         mod_ids = modifier_short_to_ids.get(target_name) or []
         if len(mod_ids) == 1:
             return mod_ids[0]
@@ -669,9 +725,9 @@ def model_graph_to_dict(model):
         if not source_name or not target_name:
             continue
         edge_kind = getattr(edge, "edge_kind", "") or ""
-        source_id = resolve_endpoint(source_type, source_name, edge_kind=edge_kind)
+        source_id = resolve_endpoint(source_type, source_name)
         target_id = resolve_endpoint(target_type, target_name, edge_kind=edge_kind)
-        edges.append({
+        edge_payload = {
             "id": f"edge:{index}",
             "source": source_id,
             "target": target_id,
@@ -680,7 +736,11 @@ def model_graph_to_dict(model):
             "callsite": getattr(edge, "callsite", "") or "",
             "args_map": getattr(edge, "args_map", []) or [],
             "line_numbers": getattr(edge, "line_numbers", []) or [],
-        })
+        }
+        import_symbol = getattr(edge, "import_symbol", "") or ""
+        if import_symbol:
+            edge_payload["import_symbol"] = import_symbol
+        edges.append(edge_payload)
 
     if is_c_profile:
         _stable_c_node_ids(nodes, edges, model)
@@ -721,6 +781,7 @@ def model_graph_to_dict(model):
         node["calls_contract"] = "function_to_object" in kinds or "cross_contract_call" in kinds
         node["calls_system"] = "function_to_system" in kinds
         node["calls_event"] = "function_to_event" in kinds
+        node["calls_custom_error"] = "function_to_custom_error" in kinds
         if is_c_profile:
             anc = _ancestor_tile_id(str(node.get("id", "")))
             node["calls_include_template"] = bool(anc) and anc in tile_ids_with_inc

@@ -75,12 +75,12 @@ class SolidityTaskCoverageContractTests(unittest.TestCase):
         self.assertEqual(set(documented), ALLOWED_PRIMARY)
 
     def test_web_api_tasks_list_aligns_with_registry(self):
-        """list_tasks exposes the same ids as RuleEngine registry plus trailing meta."""
+        """list_tasks exposes meta id 0 first, then the same ids as the registry."""
         registry = build_rule_registry()
         payload = list_tasks("solidity")
         ids = [t["id"] for t in payload["tasks"]]
-        self.assertEqual(ids[-1], "all")
-        self.assertEqual(set(ids[:-1]), set(registry.keys()))
+        self.assertEqual(ids[0], "0")
+        self.assertEqual(set(ids[1:]), set(registry.keys()))
 
 
 if __name__ == "__main__":

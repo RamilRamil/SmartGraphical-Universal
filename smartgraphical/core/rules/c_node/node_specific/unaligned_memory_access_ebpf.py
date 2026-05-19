@@ -1,4 +1,4 @@
-"""Rule C20 (task 120): unaligned_memory_access_ebpf.
+"""Rule C20 (task 20): unaligned_memory_access_ebpf.
 
 Detects pointer-cast VM memory accesses without explicit alignment checks in
 the surrounding statements.
@@ -18,8 +18,8 @@ _ALIGNMENT_GUARD_TOKENS = (
 )
 
 _META = dict(
-    task_id='120',
-    legacy_code=120,
+    task_id='20',
+    legacy_code=20,
     slug='unaligned_memory_access_ebpf',
     title='Unaligned Memory Access in Flamenco VM',
     category='control_flow_integrity',
@@ -51,7 +51,7 @@ def _detect(context):
                 if has_guard:
                     continue
                 alerts.append({
-                    'code': 120,
+                    'code': 20,
                     'message': (
                         f"VM memory cast access without alignment guard in "
                         f"{type_entry.name}.{function.name}: {stmt[:120]}"

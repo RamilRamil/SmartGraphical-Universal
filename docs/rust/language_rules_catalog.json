@@ -1,6 +1,6 @@
 {
   "catalog_id": "rust_language_rules_catalog",
-  "description": "Rust language ergonomics/safety helpers (tasks 209-216) and Base Azul-oriented review heuristics (217-223) on the shared .rs adapter.",
+  "description": "Rust language ergonomics/safety helpers (tasks 9-16) and Base Azul-oriented review heuristics (17-23) on the shared .rs adapter.",
   "controlled_vocab": {
     "scope": [
       "rust"
@@ -21,7 +21,7 @@
       "block": "critical_safety_concurrency",
       "risk_category": "safety",
       "severity": "high",
-      "task_id": "209",
+      "task_id": "9",
       "summary": "Require // SAFETY: before unsafe blocks and #[unsafe(...)] uses (skip cfg(test)).",
       "graph_hint": "function node flagged has_unsafe:true"
     },
@@ -32,7 +32,7 @@
       "block": "critical_safety_concurrency",
       "risk_category": "safety",
       "severity": "critical",
-      "task_id": "210",
+      "task_id": "10",
       "summary": "Flag references to identifiers declared via static mut.",
       "graph_hint": "edge from function to state static_mut"
     },
@@ -43,7 +43,7 @@
       "block": "critical_safety_concurrency",
       "risk_category": "concurrency",
       "severity": "high",
-      "task_id": "211",
+      "task_id": "11",
       "summary": "Heuristic coupling of RefCell/Cell types with threading entrypoints.",
       "graph_hint": "compound type lacks Sync trait binding"
     },
@@ -54,7 +54,7 @@
       "block": "quality_errors",
       "risk_category": "quality",
       "severity": "medium",
-      "task_id": "212",
+      "task_id": "12",
       "summary": "Prefer Result over traps in externally visible functions (skips cfg(test) attrs).",
       "graph_hint": "function flagged has_panic"
     },
@@ -65,7 +65,7 @@
       "block": "quality_errors",
       "risk_category": "performance",
       "severity": "low",
-      "task_id": "213",
+      "task_id": "13",
       "summary": "Cheap positional heuristic for clones following for/while headers.",
       "graph_hint": "clone call inside cyclic region"
     },
@@ -76,7 +76,7 @@
       "block": "quality_errors",
       "risk_category": "async",
       "severity": "info",
-      "task_id": "214",
+      "task_id": "14",
       "summary": "Suggests migration toward AsyncFn* when Fn+Future footprints appear.",
       "graph_hint": "function taking async closure futures"
     },
@@ -87,7 +87,7 @@
       "block": "quality_errors",
       "risk_category": "quality",
       "severity": "medium",
-      "task_id": "215",
+      "task_id": "15",
       "summary": "Greps let bindings that borrow unnamed temporaries outright.",
       "graph_hint": "function with complex temporaries metadata"
     },
@@ -98,7 +98,7 @@
       "block": "no_std_wasm",
       "risk_category": "determinism",
       "severity": "high",
-      "task_id": "216",
+      "task_id": "16",
       "summary": "Blocks std references when#![no_std] is declared (respects cfg-gated helpers).",
       "graph_hint": "external node std facade"
     },
@@ -109,7 +109,7 @@
       "block": "base_azul_determinism",
       "risk_category": "determinism",
       "severity": "high",
-      "task_id": "217",
+      "task_id": "17",
       "summary": "HashMap/HashSet iteration order can fork Merkle/state derivations; prefer BTreeMap or sorted serialization.",
       "trigger": "HashMap or HashSet from std appears alongside state-root/Merkle/commitment-style logic.",
       "rationale": "Any iteration-order nondeterminism breaks cross-node state hashes in EL stacks derived from Reth-style execution.",
@@ -123,7 +123,7 @@
       "block": "base_azul_concurrency",
       "risk_category": "concurrency",
       "severity": "high",
-      "task_id": "218",
+      "task_id": "18",
       "summary": "unwrap/expect/panic! near tokio/task spawn risks isolated task failure and partial EL/batcher state.",
       "trigger": "tokio::spawn or task::spawn shares a region with unwrap/expect/panic!.",
       "rationale": "Detached tasks may panic without tearing down the whole node, leaving half-committed pipeline state.",
@@ -137,7 +137,7 @@
       "block": "base_azul_serialization",
       "risk_category": "binary_codecs",
       "severity": "critical",
-      "task_id": "219",
+      "task_id": "19",
       "summary": "serde(flatten) or unchecked derive layouts can diverge across base-consensus vs base-reth-node crates.",
       "trigger": "#[serde(flatten)] plus Serialize/Deserialize on commitment-facing structs.",
       "rationale": "Binary interpretation mismatch breaks block/proposal verification between CL and EL.",
@@ -151,7 +151,7 @@
       "block": "base_azul_consensus",
       "risk_category": "consensus",
       "severity": "critical",
-      "task_id": "220",
+      "task_id": "20",
       "summary": "EL safety vs CL confirmation thresholds must match (distance/finality constants).",
       "trigger": "Fork-choice structs/helpers appear without evidence of shared constant modules.",
       "rationale": "Earlier EL safety than CL risks building on heads CL later reorgs.",
@@ -165,7 +165,7 @@
       "block": "base_azul_execution",
       "risk_category": "execution",
       "severity": "high",
-      "task_id": "221",
+      "task_id": "21",
       "summary": "Different Env/basefee/gas caps between batcher simulation and Reth executor halt the chain.",
       "trigger": "gas_limit tuning appears alongside batcher-style paths without shared Env helpers.",
       "rationale": "Accepted txs that EL rejects stall derivation or sequencing.",
@@ -179,7 +179,7 @@
       "block": "base_azul_network",
       "risk_category": "logic",
       "severity": "high",
-      "task_id": "222",
+      "task_id": "22",
       "summary": "Huge proposal ranges can DoS nodes loading state or proofs.",
       "trigger": "Proposal-like u64 start/end fields without checked span validation.",
       "rationale": "Attackers can force OOM or excessive IO during range replay.",
@@ -193,7 +193,7 @@
       "block": "base_azul_tee",
       "risk_category": "safety",
       "severity": "high",
-      "task_id": "223",
+      "task_id": "23",
       "summary": "Mixing panic_with_error-style macros with plain panic! may leak timing/inference signals.",
       "trigger": "panic_with_error and panic! both appear (Rust-side signing helpers).",
       "rationale": "Different error paths can enable observable side channels against signing secrecy goals.",

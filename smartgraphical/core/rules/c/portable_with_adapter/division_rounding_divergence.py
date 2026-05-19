@@ -1,4 +1,4 @@
-"""Rule C19 (task 119): division_rounding_divergence.
+"""Rule C19 (task 19): division_rounding_divergence.
 
 Detects signed division/modulo in consensus-sensitive math without explicit
 protocol rounding helper usage.
@@ -13,8 +13,8 @@ _SAFE_TOKENS = ('div_euclidean', 'fd_long_div_euclidean', 'fd_div_floor')
 _CONSENSUS_TOKENS = ('reward', 'rent', 'runtime', 'lamport', 'stake', 'balance')
 
 _META = dict(
-    task_id='119',
-    legacy_code=119,
+    task_id='19',
+    legacy_code=19,
     slug='division_rounding_divergence',
     title='Signed Division/Modulo Rounding Mismatch',
     category='consensus_failure',
@@ -43,7 +43,7 @@ def _detect(context):
                 if not any(token in stmt_lower for token in _CONSENSUS_TOKENS):
                     continue
                 alerts.append({
-                    'code': 119,
+                    'code': 19,
                     'message': (
                         f"Signed division/modulo without explicit rounding helper in "
                         f"{type_entry.name}.{function.name}: {stmt[:120]}"

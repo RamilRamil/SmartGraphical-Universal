@@ -1,4 +1,4 @@
-"""Rule C15 (task 115): unsupported_program_id_divergence.
+"""Rule C15 (task 15): unsupported_program_id_divergence.
 
 Detects unknown-program guard paths that return a generic error code instead of
 ERR_UNSUPPORTED_PROGRAM_ID, which can diverge from Agave error priority.
@@ -20,8 +20,8 @@ _BAD_ERROR_CODES = frozenset({
 _GOOD_ERROR_CODE = 'ERR_UNSUPPORTED_PROGRAM_ID'
 
 _META = dict(
-    task_id='115',
-    legacy_code=115,
+    task_id='15',
+    legacy_code=15,
     slug='unsupported_program_id_divergence',
     title='Semantic Mismatch on UnsupportedProgramId Error',
     category='consensus_failure',
@@ -59,7 +59,7 @@ def _detect(context):
                         continue
                     if code in _BAD_ERROR_CODES:
                         alerts.append({
-                            'code': 115,
+                            'code': 15,
                             'message': (
                                 f"Unknown program path returns '{code}' instead of "
                                 f"'{_GOOD_ERROR_CODE}' in {function_key}: "

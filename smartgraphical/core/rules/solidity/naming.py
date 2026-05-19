@@ -1,4 +1,4 @@
-"""Task 1: contract version comments. Task 11: similar names."""
+"""Task 1: contract version comments. Task 10: similar names."""
 import difflib
 
 from smartgraphical.adapters.solidity.helpers import extract_comment_lines
@@ -22,13 +22,13 @@ def contract_version(ln, line_sep):
 
 
 def similar_names(rets):
-    """Task 11 - detect suspiciously similar function/variable names."""
+    """Task 10 - detect suspiciously similar function/variable names."""
     from copy import deepcopy
     alerts = []
     for i in range(len(rets)):
         all_funcs = []
         all_vars = []
-        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, objs, using = rets[i]
+        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, _custom_errors, objs, using = rets[i]
         dfuncs = deepcopy(funcs)
         x = [item.insert(0, contract_name) for item in dfuncs]
         all_funcs.extend(dfuncs)
@@ -44,7 +44,7 @@ def similar_names(rets):
                 if ratio > 0.9:
                     if (len(name) - len(name2)) / max(len(name), len(name2)) < 0.2:
                         alerts.append({
-                            'code': 11,
+                            'code': 10,
                             'message': f"Alert: similar function names, function '{name}' in contract '{func1[0]}' and function '{name2}' in contract '{func2[0]}'"
                         })
 
@@ -56,7 +56,7 @@ def similar_names(rets):
                 if ratio > 0.9:
                     if (len(name) - len(name2)) / max(len(name), len(name2)) < 0.2:
                         alerts.append({
-                            'code': 11,
+                            'code': 10,
                             'message': f"Alert: similar variable names, variable '{name}' in contract '{var1[0]}' and variable '{name2}' in contract '{var2[0]}'"
                         })
     return alerts
@@ -74,7 +74,7 @@ _META_CONTRACT_VERSION = dict(
 )
 
 _META_SIMILAR_NAMES = dict(
-    task_id='10', legacy_code=11, slug='similar_names',
+    task_id='10', legacy_code=10, slug='similar_names',
     title='Similar Names', category='NamingAndConsistency',
     portability='portable', confidence='medium',
     remediation_hint='Rename near-duplicate identifiers when they can confuse reviewers or callers.',

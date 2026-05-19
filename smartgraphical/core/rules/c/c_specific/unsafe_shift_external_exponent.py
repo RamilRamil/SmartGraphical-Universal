@@ -1,4 +1,4 @@
-"""Rule C02 (task 102): unsafe_shift_external_exponent.
+"""Rule C02 (task 2): unsafe_shift_external_exponent.
 
 Detects bitwise shift operations whose exponent appears to originate from
 an external source (network packet, QUIC frame, peer header) without a
@@ -28,8 +28,8 @@ _SAFE_PATTERNS = [
 ]
 
 _META = dict(
-    task_id='102',
-    legacy_code=102,
+    task_id='2',
+    legacy_code=2,
     slug='unsafe_shift_external_exponent',
     title='Undefined Behavior in Shift Operations from External Input',
     category='denial_of_service',
@@ -61,7 +61,7 @@ def _detect(context):
                 if any(pat in s for pat in _SAFE_PATTERNS for s in window):
                     continue
                 alerts.append({
-                    'code': 102,
+                    'code': 2,
                     'message': (
                         f"Shift with externally-sourced exponent and no "
                         f"prior bound check in "

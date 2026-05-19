@@ -24,6 +24,15 @@ class NormalizedEvent:
 
 
 @dataclass
+class NormalizedCustomError:
+    """Solidity user-defined error (not an exception type)."""
+
+    name: str
+    owner: str
+    inputs: list = field(default_factory=list)
+
+
+@dataclass
 class NormalizedObjectUse:
     object_name: str
     contract_name: str
@@ -87,6 +96,7 @@ class NormalizedType:
     functions: list = field(default_factory=list)
     state_entities: list = field(default_factory=list)
     events: list = field(default_factory=list)
+    custom_errors: list = field(default_factory=list)
     objects: list = field(default_factory=list)
     is_abstract: bool = False
     solidity_unit_kind: str = "concrete"
@@ -103,6 +113,7 @@ class NormalizedCallEdge:
     callsite: str = ""
     args_map: list = field(default_factory=list)
     line_numbers: list = field(default_factory=list)
+    import_symbol: str = ""
 
 
 @dataclass

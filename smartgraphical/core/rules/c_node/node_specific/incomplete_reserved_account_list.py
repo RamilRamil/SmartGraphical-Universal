@@ -1,4 +1,4 @@
-"""Rule C05 (task 105): incomplete_reserved_account_list.
+"""Rule C05 (task 5): incomplete_reserved_account_list.
 
 Checks whether a Firedancer source file that defines the fd_pack unwritable
 account registry is missing any of the canonical Solana sysvar / reserved
@@ -53,8 +53,8 @@ _REGISTRY_MARKER = re.compile(
 _QUOTED_KEY = re.compile(r'"([A-HJ-NP-Za-km-z1-9]{32,44})"')
 
 _META = dict(
-    task_id='105',
-    legacy_code=105,
+    task_id='5',
+    legacy_code=5,
     slug='incomplete_reserved_account_list',
     title='Missing Reserved Account in Unwritable List',
     category='consensus_failure',
@@ -80,7 +80,7 @@ def _detect(context):
     alerts = []
     for key in sorted(missing):
         alerts.append({
-            'code': 105,
+            'code': 5,
             'message': (
                 f"Required reserved account not found in unwritable registry: "
                 f"'{key}' -- verify against pinned Agave SDK release."

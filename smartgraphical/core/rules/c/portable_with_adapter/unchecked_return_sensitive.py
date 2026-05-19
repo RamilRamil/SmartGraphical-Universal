@@ -1,4 +1,4 @@
-"""Rule C03 (task 103): unchecked_return_sensitive.
+"""Rule C03 (task 3): unchecked_return_sensitive.
 
 Detects calls to security-critical APIs (cryptographic hashes, workspace
 allocators, QUIC connection operations) whose return value is neither
@@ -40,8 +40,8 @@ _HAS_ASSIGNMENT = re.compile(r'=\s*\w+\s*\(')
 _GUARDED_PREFIXES = ('if', 'return', 'FD_TEST', 'FD_LIKELY', 'FD_UNLIKELY', 'assert')
 
 _META = dict(
-    task_id='103',
-    legacy_code=103,
+    task_id='3',
+    legacy_code=3,
     slug='unchecked_return_sensitive',
     title='Unchecked Return Value in Security Critical Calls',
     category='improper_error_handling',
@@ -75,7 +75,7 @@ def _detect(context):
                 called = m.group(1)
                 if any(api in called for api in _SECURITY_CRITICAL_PREFIXES):
                     alerts.append({
-                        'code': 103,
+                        'code': 3,
                         'message': (
                             f"Unchecked return from security-critical call "
                             f"'{called}' in "

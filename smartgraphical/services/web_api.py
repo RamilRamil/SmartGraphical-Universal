@@ -34,6 +34,15 @@ from smartgraphical.services.serializers import (
 
 BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
 
+# Catalog id for the synthetic "run all rules" task (not in RuleEngine registry).
+META_TASK_ALL_ID = "0"
+
+
+def is_run_all_task(task_id) -> bool:
+    if task_id is None:
+        return False
+    return str(task_id).strip().lower() in frozenset({META_TASK_ALL_ID, "all"})
+
 _RE_C_BUNDLE_INC_QUOTED = re.compile(r'#include\s+"([^"]+)"')
 _RE_C_BUNDLE_INC_ANGLE = re.compile(r'#include\s+<([^>\n]+)>')
 _RE_SOL_IMPORT = re.compile(r"\bimport\s+(.+?);", re.DOTALL)
@@ -354,6 +363,173 @@ def _solidity_clause_to_paths(clause: str) -> list:
     return paths
 
 
+_RE_SOL_CONTRACT_IS = re.compile(
+    r'\b(?:abstract\s+)?contract\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([^{;]+)',
+    re.MULTILINE,
+)
+
+
+def _solidity_contract_inheritance_pairs(source_text: str) -> list:
+    buf = _strip_solidity_block_comments(source_text)
+    out = []
+    for match in _RE_SOL_CONTRACT_IS.finditer(buf):
+        child = match.group(1).strip()
+        parents = [p.strip() for p in match.group(2).split(',') if p.strip()]
+        if child and parents:
+            out.append((child, parents))
+    return out
+
+
+def _function_node_ids_by_type(
+    nodes: list,
+    type_label: str,
+    func_label: str,
+    source_file: str | None = None,
+) -> list:
+    ids = []
+    for node in nodes:
+        if str(node.get("group", "")) != "function":
+            continue
+        if str(node.get("type_name", "")) != type_label:
+            continue
+        if str(node.get("label", "")) != func_label:
+            continue
+        if source_file is not None and str(node.get("source_file", "")) != source_file:
+            continue
+        node_id = str(node.get("id", ""))
+        if node_id:
+            ids.append(node_id)
+    return ids
+
+
+def _line_numbers_for_pattern(file_lines: list, pattern: str) -> list:
+    nums = []
+    for num, line in enumerate(file_lines, start=1):
+        if re.search(pattern, line):
+            nums.append(num)
+    return nums
+
+
+def _type_node_ids_by_label(nodes: list, label: str, source_file: str | None = None) -> list:
+    ids = []
+    for node in nodes:
+        if str(node.get("group", "")) != "type":
+            continue
+        if str(node.get("label", "")) != label:
+            continue
+        if source_file is not None and str(node.get("source_file", "")) != source_file:
+            continue
+        node_id = str(node.get("id", ""))
+        if node_id:
+            ids.append(node_id)
+    return ids
+
+
+def _consolidate_solidity_bundle_graph(model_summary: dict) -> None:
+    """Merge duplicate external stubs; wire imports to in-bundle type nodes."""
+    graph = model_summary.get("graph") or {}
+    nodes = list(graph.get("nodes") or [])
+    edges = list(graph.get("edges") or [])
+
+    type_by_label = {}
+    for node in nodes:
+        if str(node.get("group", "")) != "type":
+            continue
+        label = str(node.get("label", ""))
+        if label and label not in type_by_label:
+            type_by_label[label] = str(node.get("id", ""))
+
+    id_remap = {}
+    symbol_canonical = {}
+    path_canonical = {}
+
+    def _register_canonical(old_id: str, new_id: str) -> None:
+        if not old_id or not new_id or old_id == new_id:
+            return
+        root_old = id_remap.get(old_id, old_id)
+        root_new = id_remap.get(new_id, new_id)
+        if root_old == root_new:
+            return
+        id_remap[root_old] = root_new
+        id_remap[old_id] = root_new
+
+    kept = []
+    for node in nodes:
+        nid = str(node.get("id", ""))
+        if not nid:
+            continue
+        group = str(node.get("group", ""))
+        label = str(node.get("label", ""))
+
+        if group in ("external", "external_import") and label in type_by_label:
+            _register_canonical(nid, type_by_label[label])
+            continue
+
+        if group == "external_import":
+            path = str(node.get("import_path") or "").strip()
+            if path:
+                if path in path_canonical:
+                    _register_canonical(nid, path_canonical[path])
+                    continue
+                path_canonical[path] = nid
+            if label:
+                if label in symbol_canonical:
+                    _register_canonical(nid, symbol_canonical[label])
+                    continue
+                symbol_canonical[label] = nid
+
+        kept.append(node)
+
+    def _resolve_id(node_id: str) -> str:
+        seen = set()
+        cur = node_id
+        while cur in id_remap and cur not in seen:
+            seen.add(cur)
+            cur = id_remap[cur]
+        return cur
+
+    unique_nodes = {}
+    for node in kept:
+        node["id"] = _resolve_id(str(node.get("id", "")))
+        nid = str(node.get("id", ""))
+        if nid and nid not in unique_nodes:
+            unique_nodes[nid] = node
+    kept = list(unique_nodes.values())
+
+    new_edges = []
+    edge_seen = set()
+    for edge in edges:
+        src = _resolve_id(str(edge.get("source", "")))
+        tgt = _resolve_id(str(edge.get("target", "")))
+        if not src or not tgt or src == tgt:
+            continue
+        kind = str(edge.get("kind", ""))
+        key = (src, tgt, kind, str(edge.get("label", "")))
+        if key in edge_seen:
+            continue
+        edge_seen.add(key)
+        edge["source"] = src
+        edge["target"] = tgt
+        new_edges.append(edge)
+
+    kept_ids = {str(n.get("id", "")) for n in kept if n.get("id")}
+    kept = [n for n in kept if str(n.get("id", "")) in kept_ids]
+
+    graph["nodes"] = kept
+    graph["edges"] = new_edges
+    _revalidate_bundle_graph(model_summary, False)
+
+
+def _inheritance_target_ids(nodes: list, node_ids: set, parent_name: str) -> list:
+    targets = _type_node_ids_by_label(nodes, parent_name)
+    if targets:
+        return targets
+    legacy = f"external:import:{parent_name}"
+    if legacy in node_ids:
+        return [legacy]
+    return []
+
+
 def _solidity_file_import_paths(source_text: str) -> list:
     lines = []
     for line in source_text.splitlines():
@@ -378,6 +554,33 @@ def _first_type_anchor_id(nodes: list, source_tag: str) -> str:
         return ""
     cands.sort(key=lambda x: x[0])
     return cands[0][1]
+
+
+def _external_import_path_node_id(import_path: str) -> str:
+    digest = hashlib.sha256((import_path or "").encode("utf-8")).hexdigest()[:16]
+    return f"external:importpath:{digest}"
+
+
+def _ensure_external_import_path_node(nodes: list, node_ids: set, import_path: str) -> str:
+    path = (import_path or "").strip()
+    if not path:
+        return ""
+    node_id = _external_import_path_node_id(path)
+    if node_id in node_ids:
+        return node_id
+    base = path.rsplit("/", 1)[-1] if "/" in path else path
+    label = base.rsplit(".", 1)[0] if base.lower().endswith(".sol") else base
+    if not label:
+        label = path
+    nodes.append({
+        "id": node_id,
+        "label": label,
+        "group": "external_import",
+        "import_path": path,
+        "resolution": "missing_in_bundle",
+    })
+    node_ids.add(node_id)
+    return node_id
 
 
 def _bundle_import_dedupe(edges: list, label: str) -> set:
@@ -427,6 +630,8 @@ def _attach_solidity_bundle_import_edges(
     sol_remaps = _normalize_manifest_solidity_remappings(manifest.get("solidity_remappings"))
 
     dedupe = _bundle_import_dedupe(edges, "solidity_import")
+    import_dep_dedupe: set = set()
+    node_ids = {str(n.get("id", "")) for n in nodes if n.get("id")}
     new_edges = []
     for entry in manifest.get("members") or []:
         rel = entry.get("path") or ""
@@ -462,11 +667,34 @@ def _attach_solidity_bundle_import_edges(
                             bundle_stats,
                             "skipped_solidity_ambiguous_basename",
                         )
-                    else:
+                    elif not provider_rel:
                         _touch_bundle_stat(
                             bundle_stats,
                             "skipped_solidity_unresolved_import",
                         )
+                if provider_rel:
+                    continue
+                target_id = _ensure_external_import_path_node(
+                    nodes, node_ids, raw_path,
+                )
+                if not target_id:
+                    continue
+                pair = (source_id, target_id)
+                if pair in import_dep_dedupe:
+                    continue
+                import_dep_dedupe.add(pair)
+                digest = hashlib.sha256(
+                    f"{source_id}\0{target_id}\0{raw_path}\0unresolved".encode("utf-8"),
+                ).hexdigest()[:12]
+                new_edges.append({
+                    "id": f"bundle_sol_unresolved:{digest}",
+                    "source": source_id,
+                    "target": target_id,
+                    "kind": "import_dependency",
+                    "label": raw_path,
+                    "import_path": raw_path,
+                    "resolution": "missing_in_bundle",
+                })
                 continue
             if provider_rel in seen_provider:
                 continue
@@ -490,6 +718,97 @@ def _attach_solidity_bundle_import_edges(
                 "import_path": raw_path,
             })
 
+    if not new_edges:
+        return
+    graph["nodes"] = nodes
+    edges.extend(new_edges)
+    graph["edges"] = edges
+    _revalidate_bundle_graph(model_summary, False)
+
+
+def _attach_solidity_bundle_inheritance_edges(
+    bundle_root: str,
+    model_summary: dict,
+) -> None:
+    """Link contract inheritance across bundle members (``cross_type_call``)."""
+    graph = model_summary.get("graph") or {}
+    nodes = graph.get("nodes") or []
+    edges = list(graph.get("edges") or [])
+    manifest_path = os.path.join(bundle_root, BUNDLE_MANIFEST_BASENAME)
+    if not os.path.isfile(manifest_path):
+        return
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    node_ids = {str(n.get("id", "")) for n in nodes if n.get("id")}
+    dedupe = set()
+    new_edges = []
+    for entry in manifest.get("members") or []:
+        rel = entry.get("path") or ""
+        if not rel.lower().endswith(".sol"):
+            continue
+        abs_path = os.path.join(bundle_root, rel)
+        if not os.path.isfile(abs_path):
+            continue
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+        for child_name, parents in _solidity_contract_inheritance_pairs(text):
+            source_ids = _type_node_ids_by_label(nodes, child_name, rel)
+            if not source_ids:
+                continue
+            source_id = source_ids[0]
+            for parent in parents:
+                for target_id in _inheritance_target_ids(nodes, node_ids, parent):
+                    if target_id == source_id:
+                        continue
+                    pair = (source_id, target_id)
+                    if pair in dedupe:
+                        continue
+                    dedupe.add(pair)
+                    digest = hashlib.sha256(
+                        f"{source_id}\0{target_id}\0extends\0{parent}".encode("utf-8"),
+                    ).hexdigest()[:12]
+                    new_edges.append({
+                        "id": f"bundle_sol_extends:{digest}",
+                        "source": source_id,
+                        "target": target_id,
+                        "kind": "cross_type_call",
+                        "label": f"extends {parent}",
+                    })
+                child_ctor_ids = _function_node_ids_by_type(
+                    nodes, child_name, "constructor", rel,
+                )
+                parent_ctor_ids = _function_node_ids_by_type(
+                    nodes, parent, "constructor",
+                )
+                if not child_ctor_ids or not parent_ctor_ids:
+                    continue
+                if not re.search(rf"\b{re.escape(parent)}\s*\(", text):
+                    continue
+                ctor_source = child_ctor_ids[0]
+                ctor_target = parent_ctor_ids[0]
+                ctor_pair = (ctor_source, ctor_target)
+                if ctor_pair in dedupe:
+                    continue
+                dedupe.add(ctor_pair)
+                line_nums = _line_numbers_for_pattern(
+                    text.splitlines(),
+                    rf"\b{re.escape(parent)}\s*\(",
+                )
+                digest = hashlib.sha256(
+                    f"{ctor_source}\0{ctor_target}\0ctor\0{parent}".encode("utf-8"),
+                ).hexdigest()[:12]
+                callsite = ""
+                if line_nums and 0 < line_nums[0] <= len(text.splitlines()):
+                    callsite = text.splitlines()[line_nums[0] - 1].strip()
+                new_edges.append({
+                    "id": f"bundle_sol_ctor:{digest}",
+                    "source": ctor_source,
+                    "target": ctor_target,
+                    "kind": "cross_type_call",
+                    "label": f"{parent}()",
+                    "callsite": callsite,
+                    "line_numbers": line_nums[:6],
+                })
     if not new_edges:
         return
     edges.extend(new_edges)
@@ -861,10 +1180,8 @@ def health():
 def list_tasks(language):
     """Return the ordered list of task descriptors for the given language.
 
-    The list always ends with a synthetic "all" task that represents
-    `analyze_all`. Each concrete task is backed by a RuleSpec from the
-    adapter's rule registry, so the UI can render titles and metadata
-    without duplicating the catalog.
+    The list starts with a synthetic meta task (id ``0``) for `analyze_all`,
+    then every RuleSpec from the adapter registry in numeric order.
     """
     if not language or not isinstance(language, str):
         raise WebApiError(ERROR_INVALID_LANGUAGE, "language must be a non-empty string")
@@ -872,7 +1189,14 @@ def list_tasks(language):
     service = _build_service_safe(normalized_language)
     registry = service.rule_engine.rule_registry
     ordered_ids = sorted(registry.keys(), key=int)
-    tasks = []
+    tasks = [{
+        "id": META_TASK_ALL_ID,
+        "title": "Run all rules",
+        "category": "",
+        "portability": "",
+        "confidence": "",
+        "kind": "meta",
+    }]
     for task_id in ordered_ids:
         spec = registry[task_id]
         tasks.append({
@@ -883,14 +1207,6 @@ def list_tasks(language):
             "confidence": getattr(spec, "confidence", "") or "",
             "kind": "rule",
         })
-    tasks.append({
-        "id": "all",
-        "title": "Run all rules",
-        "category": "",
-        "portability": "",
-        "confidence": "",
-        "kind": "meta",
-    })
     return {
         "language": normalized_language,
         "tasks": tasks,
@@ -968,7 +1284,7 @@ def analyze_all(path, language=None, mode="auditor"):
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     report = _base_report(path, resolved_language, mode)
     report.update({
-        "task": "all",
+        "task": META_TASK_ALL_ID,
         "rules_run": sorted(service.rule_engine.rule_registry.keys(), key=int),
         "findings": all_findings,
         "findings_count": len(all_findings),
@@ -1024,6 +1340,8 @@ def graph(path, language=None):
         _attach_c_bundle_include_edges(path, merged, bundle_stats)
     elif resolved_language == "solidity":
         _attach_solidity_bundle_import_edges(path, merged, bundle_stats)
+        _attach_solidity_bundle_inheritance_edges(path, merged)
+        _consolidate_solidity_bundle_graph(merged)
     elif resolved_language == "rust":
         _attach_rust_bundle_module_edges(path, merged, bundle_stats)
     _apply_bundle_edge_hints(merged.get("graph") or {}, bundle_stats)

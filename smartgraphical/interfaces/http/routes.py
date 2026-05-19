@@ -209,7 +209,7 @@ def build_router() -> APIRouter:
         payload: RunScanRequest,
         service: HistoryService = Depends(get_history_service),
     ):
-        if payload.task == "all":
+        if web_api.is_run_all_task(payload.task):
             return service.run_all(artifact_id, mode=payload.mode)
         return service.run_analysis(artifact_id, task_id=payload.task, mode=payload.mode)
 

@@ -16,16 +16,16 @@ class WebApiRustFixtureTests(unittest.TestCase):
             self.skipTest(f"missing fixture: {RUST_FIXTURE}")
 
     def test_analyze_rust_task_auto_ext(self):
-        report = web_api.analyze(RUST_FIXTURE, "201", mode="auditor")
+        report = web_api.analyze(RUST_FIXTURE, "1", mode="auditor")
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["language"], "rust")
 
-    def test_list_tasks_contains_201(self):
+    def test_list_tasks_meta_zero_and_contains_rule_1(self):
         payload = web_api.list_tasks("rust")
         self.assertEqual(payload["language"], "rust")
         ids = [t["id"] for t in payload["tasks"]]
-        self.assertIn("201", ids)
-        self.assertEqual(ids[-1], "all")
+        self.assertIn("1", ids)
+        self.assertEqual(ids[0], "0")
 
     def test_graph_shape(self):
         report = web_api.graph(RUST_FIXTURE, language="rust")

@@ -10,7 +10,7 @@ def outer_calls(rets, reader, high_connections):
     alerts = []
     all_maps = {}
     for i in range(len(rets)):
-        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, objs, using = rets[i]
+        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, _custom_errors, objs, using = rets[i]
         all_maps[contract_name] = func_func_mapping
 
     for k, v in all_maps.items():
@@ -52,7 +52,7 @@ def outer_calls(rets, reader, high_connections):
                                         if ('return' in temp) or ('if' in temp) or ('require' in temp) or ('emit' in temp):
                                             continue
                                         alerts.append({
-                                            'code': 12,
+                                            'code': 11,
                                             'message': f"Outer manipulation in function {kk}, line: {temp}"
                                         })
     return alerts
@@ -80,7 +80,7 @@ def _outer_calls_from_normalized(context):
                 continue
             first_mutation = function.mutations[0]
             alerts.append({
-                'code': 12,
+                'code': 11,
                 'message': (
                     f"Outer manipulation in function {type_entry.name}.{function.name}, "
                     f"line: {first_mutation}"
@@ -94,7 +94,7 @@ def _outer_calls_from_normalized(context):
 # ---------------------------------------------------------------------------
 
 _META = dict(
-    task_id='11', legacy_code=12, slug='outer_calls',
+    task_id='11', legacy_code=11, slug='outer_calls',
     title='Outer Calls', category='StateAndMutation',
     portability='portable_with_adapter', confidence='medium',
     remediation_hint='Review public entrypoints that consume inputs and mutate state without stronger constraints.',

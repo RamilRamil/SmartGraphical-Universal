@@ -7,7 +7,7 @@ import re
 
 from smartgraphical.core.engine import make_findings
 
-_LEGACY = 14
+_LEGACY = 12
 
 # Callee names (substring match, lowercased) for DEX / pool style operations.
 _RISK_CALLEE_MARKERS = frozenset(
@@ -138,7 +138,7 @@ def _detect(context):
 
 
 _META = dict(
-    task_id="14",
+    task_id="12",
     legacy_code=_LEGACY,
     slug="min_slippage_bounds",
     title="Minimum Bounds On Swap And Liquidity Calls",

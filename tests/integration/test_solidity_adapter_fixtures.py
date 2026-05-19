@@ -29,6 +29,17 @@ class SolidityAdapterFixtureTests(unittest.TestCase):
     def setUp(self):
         self.adapter = SolidityAdapterV0()
 
+    def test_rule_groups_match_task_groups(self):
+        path = _fixture("MinimalGuard.sol")
+        ctx = self.adapter.parse_source(path)
+        expected_groups = {
+            "NamingAndConsistency", "StateAndMutation",
+            "FlowAndOrdering", "ComputationAndEconomics",
+            "AdvancedReentrancy",
+            "VisualizationOnly",
+        }
+        self.assertEqual(set(ctx.normalized_model.rule_groups.keys()), expected_groups)
+
     def test_minimal_guard_extracts_require(self):
         path = _fixture("MinimalGuard.sol")
         ctx = self.adapter.parse_source(path)

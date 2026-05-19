@@ -1,6 +1,6 @@
-"""Rust 1.x / Edition-agnostic heuristic rules (tasks 209-223).
+"""Rust 1.x / Edition-agnostic heuristic rules (tasks 9-23 on the shared adapter).
 
-Includes Base Azul review helpers (217-223): shallow grep-grade signals only.
+Includes Base Azul review helpers (17-23): shallow grep-grade signals only.
 
 Requires adapter-filled AnalysisContext(unified_code, lines) and NormalizedAuditModel.functions.
 Heavy semantic rules (borrowck, MIR) intentionally stay shallow.
@@ -85,8 +85,8 @@ def run_undocumented_unsafe_block(context):
     raw_lines = unified.splitlines()
     alerts = []
     meta = dict(
-        task_id='209',
-        legacy_code=209,
+        task_id='9',
+        legacy_code=9,
         slug='undocumented_unsafe_block',
         title='Unsafe Block or Attribute Without SAFETY Commentary',
         category='memory_safety',
@@ -102,7 +102,7 @@ def run_undocumented_unsafe_block(context):
             continue
         if _lines_near_cfg_test(raw_lines, i):
             continue
-        alerts.append({'code': 209, 'message': f'Undocumented unsafe near line {i + 1}: {raw.strip()[:120]}'})
+        alerts.append({'code': 9, 'message': f'Undocumented unsafe near line {i + 1}: {raw.strip()[:120]}'})
     return make_findings(alerts, model, **meta)
 
 
@@ -111,8 +111,8 @@ def run_static_mut_ref_access(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='210',
-        legacy_code=210,
+        task_id='10',
+        legacy_code=10,
         slug='static_mut_ref_access',
         title='Borrow of static mut Variable',
         category='memory_safety',
@@ -125,7 +125,7 @@ def run_static_mut_ref_access(context):
         needle = rf'&(mut\s+)?{re.escape(name)}\b'
         if re.search(needle, unified):
             alerts.append(
-                {'code': 210, 'message': f'Possible reference to static mut `{name}` in source.'},
+                {'code': 10, 'message': f'Possible reference to static mut `{name}` in source.'},
             )
     return make_findings(alerts, model, **meta)
 
@@ -135,8 +135,8 @@ def run_interior_mutability_sync_violation(context):
     unified = getattr(context, 'unified_code', '').replace('\n', ' ')
     alerts = []
     meta = dict(
-        task_id='211',
-        legacy_code=211,
+        task_id='11',
+        legacy_code=11,
         slug='interior_mutability_sync_violation',
         title='Interior Mutability Type Near Thread-Spawning Constructs',
         category='concurrency',
@@ -150,7 +150,7 @@ def run_interior_mutability_sync_violation(context):
         return make_findings([], model, **meta)
     alerts.append(
         {
-            'code': 211,
+            'code': 11,
             'message': (
                 'File mixes RefCell/Cell/UnsafeCell with thread spawn or Rayon-style APIs '
                 '(heuristic; audit Send/Sync).'
@@ -165,8 +165,8 @@ def run_unprotected_panic_in_public_api(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='212',
-        legacy_code=212,
+        task_id='12',
+        legacy_code=12,
         slug='unprotected_panic_in_public_api',
         title='panic!, unwrap(), or expect() on Public Callable',
         category='robustness',
@@ -184,7 +184,7 @@ def run_unprotected_panic_in_public_api(context):
             if not _PUB_PANICKY.search(body):
                 continue
             alerts.append({
-                'code': 212,
+                'code': 12,
                 'message': (
                     f"Public `{t.name}.{fn.name}` contains unwrap/expect/panic! without cfg(test) guard."
                 ),
@@ -196,8 +196,8 @@ def run_redundant_arc_clone_in_loop(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='213',
-        legacy_code=213,
+        task_id='13',
+        legacy_code=13,
         slug='redundant_arc_clone_in_loop',
         title='Potential Arc/Rc Clone Inside Simple Loop Pattern',
         category='performance',
@@ -228,7 +228,7 @@ def run_redundant_arc_clone_in_loop(context):
             if clone_pos >= 0:
                 alerts.append(
                     {
-                        'code': 213,
+                        'code': 13,
                         'message': f'`{t.name}.{fn.name}` clones Arc/Rc after loop head (positional heuristic).',
                     },
                 )
@@ -240,8 +240,8 @@ def run_missing_async_fn_trait_bound(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='214',
-        legacy_code=214,
+        task_id='14',
+        legacy_code=14,
         slug='missing_async_fn_trait_bound',
         title='Async Closure Pattern May Prefer AsyncFn* Traits',
         category='maintainability',
@@ -255,7 +255,7 @@ def run_missing_async_fn_trait_bound(context):
     if 'AsyncFn' in unified.replace(' ', ''):
         return make_findings([], model, **meta)
     if _OLD_ASYNC_FN_SHAPE.search(unified):
-        alerts.append({'code': 214, 'message': 'Async-friendly Fn-returning Future pattern spotted; review AsyncFn migration.'})
+        alerts.append({'code': 14, 'message': 'Async-friendly Fn-returning Future pattern spotted; review AsyncFn migration.'})
     return make_findings(alerts, model, **meta)
 
 
@@ -264,8 +264,8 @@ def run_temporary_lifetime_extension_confusion(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='215',
-        legacy_code=215,
+        task_id='15',
+        legacy_code=15,
         slug='temporary_lifetime_extension_confusion',
         title='Suspect Borrow of Temporary Returned Value',
         category='lifetime',
@@ -280,7 +280,7 @@ def run_temporary_lifetime_extension_confusion(context):
         if 'panic' in text:
             continue
         alerts.append(
-            {'code': 215, 'message': f'Possible borrowed temporary pattern: `{text.strip()[:100]}`'},
+            {'code': 15, 'message': f'Possible borrowed temporary pattern: `{text.strip()[:100]}`'},
         )
     return make_findings(alerts[:6], model, **meta)
 
@@ -290,8 +290,8 @@ def run_forbidden_std_usage(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='216',
-        legacy_code=216,
+        task_id='16',
+        legacy_code=16,
         slug='forbidden_std_usage',
         title='std:: Usage Under Crate no_std Banner',
         category='determinism',
@@ -314,7 +314,7 @@ def run_forbidden_std_usage(context):
             continue
         if stmt.strip().startswith('#['):
             continue
-        alerts.append({'code': 216, 'message': f'Line {line_no}: `{stmt.strip()[:120]}` touches std while crate is no_std.'})
+        alerts.append({'code': 16, 'message': f'Line {line_no}: `{stmt.strip()[:120]}` touches std while crate is no_std.'})
     # cap noise when many deps re-export std
     return make_findings(alerts[:30], model, **meta)
 
@@ -324,8 +324,8 @@ def run_non_deterministic_state_root(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='217',
-        legacy_code=217,
+        task_id='17',
+        legacy_code=17,
         slug='non_deterministic_state_root',
         title='Non-deterministic Collections Near State Derivation',
         category='determinism',
@@ -336,7 +336,7 @@ def run_non_deterministic_state_root(context):
     if _STATE_DERIV_HINT.search(unified) and _HASH_COLL_STD.search(unified):
         alerts.append(
             {
-                'code': 217,
+                'code': 17,
                 'message': 'HashMap/HashSet near state-root/commitment hints; verify deterministic iteration.',
             },
         )
@@ -349,8 +349,8 @@ def run_async_boundary_panic_leak(context):
     raw_lines = unified.splitlines()
     alerts = []
     meta = dict(
-        task_id='218',
-        legacy_code=218,
+        task_id='18',
+        legacy_code=18,
         slug='async_boundary_panic_leak',
         title='Panic/unwrap Near Async Spawn Boundary',
         category='concurrency',
@@ -368,7 +368,7 @@ def run_async_boundary_panic_leak(context):
         if _PANIC_OPS_NEAR_SPAWN.search(window_stmt):
             alerts.append(
                 {
-                    'code': 218,
+                    'code': 18,
                     'message': f'Spawn site near line {i + 1} shares scope with unwrap/expect/panic! (review async boundaries).',
                 },
             )
@@ -382,8 +382,8 @@ def run_serde_binary_codec_mismatch(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='219',
-        legacy_code=219,
+        task_id='19',
+        legacy_code=19,
         slug='serde_binary_codec_mismatch',
         title='serde(flatten) With Serialize/Deserialize Present',
         category='serialization',
@@ -394,7 +394,7 @@ def run_serde_binary_codec_mismatch(context):
     if _SERDE_FLATTEN.search(unified) and _SERDE_TRAIT_USE.search(unified):
         alerts.append(
             {
-                'code': 219,
+                'code': 19,
                 'message': 'serde(flatten) detected with Serialize/Deserialize; audit CL vs EL binary layouts.',
             },
         )
@@ -406,8 +406,8 @@ def run_divergent_fork_choice_assumptions(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='220',
-        legacy_code=220,
+        task_id='20',
+        legacy_code=20,
         slug='divergent_fork_choice_assumptions',
         title='Fork-choice Logic Present',
         category='consensus',
@@ -418,7 +418,7 @@ def run_divergent_fork_choice_assumptions(context):
     if _FORK_CHOICE_TOKEN.search(unified):
         alerts.append(
             {
-                'code': 220,
+                'code': 20,
                 'message': 'Fork-choice symbols detected; manually verify EL/CL finality distance constants stay aligned.',
             },
         )
@@ -430,8 +430,8 @@ def run_gas_limit_cl_el_mismatch(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='221',
-        legacy_code=221,
+        task_id='21',
+        legacy_code=21,
         slug='gas_limit_cl_el_mismatch',
         title='Gas Limit Near Batching Context',
         category='execution',
@@ -442,7 +442,7 @@ def run_gas_limit_cl_el_mismatch(context):
     if _GAS_LIMIT.search(unified) and _BATCH_HINT.search(unified):
         alerts.append(
             {
-                'code': 221,
+                'code': 21,
                 'message': 'gas_limit co-located with batch/batcher hints; verify EL parity on limits.',
             },
         )
@@ -454,8 +454,8 @@ def run_unbounded_proposal_range(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='222',
-        legacy_code=222,
+        task_id='22',
+        legacy_code=22,
         slug='unbounded_proposal_range',
         title='Proposal u64 Range Without Obvious Guards',
         category='logic',
@@ -471,7 +471,7 @@ def run_unbounded_proposal_range(context):
         return make_findings([], model, **meta)
     alerts.append(
         {
-            'code': 222,
+            'code': 22,
             'message': 'Proposal-like u64 window without checked_sub/ensure-style guards spotted.',
         },
     )
@@ -483,8 +483,8 @@ def run_tee_side_channel_via_panic(context):
     unified = getattr(context, 'unified_code', '') or ''
     alerts = []
     meta = dict(
-        task_id='223',
-        legacy_code=223,
+        task_id='23',
+        legacy_code=23,
         slug='tee_side_channel_via_panic',
         title='Mixed panic_with_error! and panic! Paths',
         category='side_channels',
@@ -496,7 +496,7 @@ def run_tee_side_channel_via_panic(context):
     if _PANIC_WITH_ERROR.search(probe) and _PLAIN_PANIC.search(probe):
         alerts.append(
             {
-                'code': 223,
+                'code': 23,
                 'message': 'Both panic_with_error! and panic! appear; review constant-time/uniform error handling.',
             },
         )

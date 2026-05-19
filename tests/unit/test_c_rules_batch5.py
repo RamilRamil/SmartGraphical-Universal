@@ -1,4 +1,4 @@
-"""Unit tests for C rules 116-120."""
+"""Unit tests for C rules 16-20."""
 import unittest
 
 from smartgraphical.adapters.c_base.adapter import build_c_rule_registry
@@ -55,7 +55,7 @@ class SignedOverflowRuleTests(unittest.TestCase):
         ctx = _context(['long new_balance = old_balance + reward_in_runtime'])
         findings = run_signed_overflow(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '116')
+        self.assertEqual(findings[0].task_id, '16')
 
     def test_builtin_overflow_guard_is_silent(self):
         ctx = _context(['__builtin_add_overflow( old_balance, reward, &new_balance )'])
@@ -68,7 +68,7 @@ class UnspecifiedEvalOrderRuleTests(unittest.TestCase):
         ctx = _context(['process_tx( update_hash(a), update_hash(b) )'])
         findings = run_unspecified_order(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '117')
+        self.assertEqual(findings[0].task_id, '17')
 
     def test_precomputed_args_are_silent(self):
         ctx = _context(['process_tx( h1, h2 )'])
@@ -86,7 +86,7 @@ class StructPaddingRuleTests(unittest.TestCase):
         ])
         findings = run_struct_padding(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '118')
+        self.assertEqual(findings[0].task_id, '18')
 
     def test_packed_struct_is_silent(self):
         ctx = _context([
@@ -104,7 +104,7 @@ class DivisionRoundingRuleTests(unittest.TestCase):
         ctx = _context(['long daily_rate = total_debt / days_remaining_for_reward_balance'])
         findings = run_division_rounding(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '119')
+        self.assertEqual(findings[0].task_id, '19')
 
     def test_euclidean_helper_is_silent(self):
         ctx = _context(['long daily_rate = fd_long_div_euclidean( total_debt, days_remaining )'])
@@ -117,7 +117,7 @@ class UnalignedAccessRuleTests(unittest.TestCase):
         ctx = _context(['*(ulong *)(vm->mem + addr) = val'])
         findings = run_unaligned_access(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '120')
+        self.assertEqual(findings[0].task_id, '20')
 
     def test_alignment_guard_suppresses_alert(self):
         ctx = _context([
@@ -129,9 +129,9 @@ class UnalignedAccessRuleTests(unittest.TestCase):
 
 class CRuleRegistryBatch5Tests(unittest.TestCase):
 
-    def test_registry_contains_116_to_120(self):
+    def test_registry_contains_16_to_20(self):
         registry = build_c_rule_registry()
-        for task_id in ('116', '117', '118', '119', '120'):
+        for task_id in ('16', '17', '18', '19', '20'):
             self.assertIn(task_id, registry)
 
 

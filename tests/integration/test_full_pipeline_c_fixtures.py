@@ -56,10 +56,10 @@ class CFullPipelineFloatCastTests(unittest.TestCase):
     def test_pipeline_findings_invariants(self):
         assert_pipeline_findings(self, self.findings, EXPECTED_C_RULE_IDS)
 
-    def test_float_cast_triggers_task_101(self):
+    def test_float_cast_triggers_task_1(self):
         self.assertTrue(
             any(f.rule_id == "non_saturating_float_cast" for f in self.findings),
-            msg="expected rule 101 to fire on (uint64_t)(v * 1.0) pattern",
+            msg="expected task 1 (non_saturating_float_cast) to fire on (uint64_t)(v * 1.0) pattern",
         )
 
 

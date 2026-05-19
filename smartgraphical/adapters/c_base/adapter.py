@@ -663,13 +663,13 @@ def build_normalized_model(source_path, source_text):
 
 # ---------------------------------------------------------------------------
 # Rule registry for C / Solana node PoC
-# Task IDs start at 101 to avoid collision with Solidity registry (1-11).
+# Meta task 0 is run-all (see web_api.list_tasks). Rule tasks are 1-20.
 # ---------------------------------------------------------------------------
 
 def build_c_rule_registry():
     return {
-        '101': RuleSpec(
-            '101', 101, 'non_saturating_float_cast',
+        '1': RuleSpec(
+            '1', 1, 'non_saturating_float_cast',
             'C float-to-unsigned cast (Rust parity heuristic)',
             'consensus_failure', 'c_specific', 'medium',
             (
@@ -678,134 +678,134 @@ def build_c_rule_registry():
             ),
             run_non_saturating_float_cast,
         ),
-        '102': RuleSpec(
-            '102', 102, 'unsafe_shift_external_exponent',
+        '2': RuleSpec(
+            '2', 2, 'unsafe_shift_external_exponent',
             'Undefined Behavior in Shift Operations from External Input',
             'denial_of_service', 'c_specific', 'high',
             'Validate shift exponent is strictly less than 64 before the shift.',
             run_unsafe_shift,
         ),
-        '103': RuleSpec(
-            '103', 103, 'unchecked_return_sensitive',
+        '3': RuleSpec(
+            '3', 3, 'unchecked_return_sensitive',
             'Unchecked Return Value in Security Critical Calls',
             'improper_error_handling', 'portable_with_adapter', 'high',
             'Always check return codes from security-critical APIs using FD_TEST or conditional checks.',
             run_unchecked_return,
         ),
-        '104': RuleSpec(
-            '104', 104, 'shared_mem_uaf_pool',
+        '4': RuleSpec(
+            '4', 4, 'shared_mem_uaf_pool',
             'Use-After-Free in Shared Memory Pools',
             'memory_safety', 'c_specific', 'medium',
             'Nullify the pointer immediately after release and validate ownership before further access.',
             run_uaf_pool,
         ),
-        '105': RuleSpec(
-            '105', 105, 'incomplete_reserved_account_list',
+        '5': RuleSpec(
+            '5', 5, 'incomplete_reserved_account_list',
             'Missing Reserved Account in Unwritable List',
             'consensus_failure', 'node_specific', 'medium',
             'Synchronize the local unwritable account list with the pinned Agave reserved_account_keys registry.',
             run_reserved_accounts,
         ),
-        '106': RuleSpec(
-            '106', 106, 'sysvar_decode_callback_type_mismatch',
+        '6': RuleSpec(
+            '6', 6, 'sysvar_decode_callback_type_mismatch',
             'Function Type Mismatch in Sysvar Decode Callbacks',
             'control_flow_integrity', 'node_specific', 'high',
             'Ensure decode callback signature exactly matches the typedef in fd_sysvar_cache.h.',
             run_sysvar_mismatch,
         ),
-        '107': RuleSpec(
-            '107', 107, 'bitwise_flag_normalization_mismatch',
+        '7': RuleSpec(
+            '7', 7, 'bitwise_flag_normalization_mismatch',
             'Bitwise AND for Flag Normalization in Consensus Hashes',
             'consensus_failure', 'portable_with_adapter', 'high',
             'Replace field & 1 with !!field or (bool) cast to match Agave boolean normalization.',
             run_bitwise_flag,
         ),
-        '108': RuleSpec(
-            '108', 108, 'quic_invisible_frame_limit',
+        '8': RuleSpec(
+            '8', 8, 'quic_invisible_frame_limit',
             'Missing Limit on Invisible QUIC Protocol Frames',
             'denial_of_service', 'node_specific', 'high',
             'Implement a per-packet frame counter cap, for example frame_count < MAX_FRAMES.',
             run_quic_frame_limit,
         ),
-        '109': RuleSpec(
-            '109', 109, 'quic_handshake_eviction_missing',
+        '9': RuleSpec(
+            '9', 9, 'quic_handshake_eviction_missing',
             'Missing Handshake Eviction Strategy',
             'denial_of_service', 'node_specific', 'high',
             'Implement LIFO or oldest-incomplete eviction for the handshake pool before rejecting new connections.',
             run_quic_hs_eviction,
         ),
-        '110': RuleSpec(
-            '110', 110, 'bank_lifecycle_refcount_concurrency',
+        '10': RuleSpec(
+            '10', 10, 'bank_lifecycle_refcount_concurrency',
             'Unsafe Bank Reference Counting in Shared Memory',
             'memory_safety', 'c_specific', 'medium',
             'Use __atomic_fetch_add or fd_bank_ref_inc for refcount operations in shared workspaces.',
             run_bank_refcount,
         ),
-        '111': RuleSpec(
-            '111', 111, 'io_uring_submission_race_funk',
+        '11': RuleSpec(
+            '11', 11, 'io_uring_submission_race_funk',
             'Race Condition in Funk Database io_uring Submissions',
             'data_integrity', 'c_specific', 'low',
             'Use per-tile io_uring instances or explicit synchronization around shared ring submission.',
             run_io_uring_race,
         ),
-        '112': RuleSpec(
-            '112', 112, 'alt_resolution_window_mismatch',
+        '12': RuleSpec(
+            '12', 12, 'alt_resolution_window_mismatch',
             'Incorrect ALT Resolution Slot Window',
             'correctness', 'node_specific', 'high',
             'Use exactly 512 as the slot lookback window in ALT resolution to match Agave semantics.',
             run_alt_window,
         ),
-        '113': RuleSpec(
-            '113', 113, 'keyswitch_atomicity_violation',
+        '13': RuleSpec(
+            '13', 13, 'keyswitch_atomicity_violation',
             'Non-Atomic Identity Switch Coordination',
             'liveness', 'node_specific', 'medium',
             'Enforce HALT -> FLUSH -> UPDATE -> RESUME ordering in keyswitch path.',
             run_keyswitch_atomicity,
         ),
-        '114': RuleSpec(
-            '114', 114, 'bls_aggregate_rogue_key_check',
+        '14': RuleSpec(
+            '14', 14, 'bls_aggregate_rogue_key_check',
             'Missing Rogue Key Protection in Alpenglow Aggregation',
             'cryptographic_safety', 'node_specific', 'low',
             'Implement proof-of-possession checks for all validator public keys before aggregation.',
             run_bls_rogue,
         ),
-        '115': RuleSpec(
-            '115', 115, 'unsupported_program_id_divergence',
+        '15': RuleSpec(
+            '15', 15, 'unsupported_program_id_divergence',
             'Semantic Mismatch on UnsupportedProgramId Error',
             'consensus_failure', 'portable_with_adapter', 'high',
             'Return ERR_UNSUPPORTED_PROGRAM_ID on unknown program paths to match Agave error priority.',
             run_unsupported_program_id,
         ),
-        '116': RuleSpec(
-            '116', 116, 'signed_integer_overflow_consensus',
+        '16': RuleSpec(
+            '16', 16, 'signed_integer_overflow_consensus',
             'Unchecked Signed Integer Overflow in Consensus Logic',
             'consensus_failure', 'c_specific', 'high',
             'Use overflow-safe helpers or built-ins and enforce protocol-aligned overflow handling.',
             run_signed_overflow_consensus,
         ),
-        '117': RuleSpec(
-            '117', 117, 'unspecified_evaluation_order_side_effects',
+        '17': RuleSpec(
+            '17', 17, 'unspecified_evaluation_order_side_effects',
             'Unspecified Order of Evaluation with Side Effects',
             'correctness', 'c_specific', 'medium',
             'Materialize side-effect calls into locals to enforce deterministic ordering.',
             run_unspecified_eval_order,
         ),
-        '118': RuleSpec(
-            '118', 118, 'protocol_struct_padding_mismatch',
+        '18': RuleSpec(
+            '18', 18, 'protocol_struct_padding_mismatch',
             'Implicit Padding in Protocol-Mapped Structures',
             'data_integrity', 'node_specific', 'high',
             'Use explicit packed/aligned/static_assert layout guards for protocol structs.',
             run_protocol_struct_padding,
         ),
-        '119': RuleSpec(
-            '119', 119, 'division_rounding_divergence',
+        '19': RuleSpec(
+            '19', 19, 'division_rounding_divergence',
             'Signed Division/Modulo Rounding Mismatch',
             'consensus_failure', 'portable_with_adapter', 'medium',
             'Use explicit division helpers encoding protocol rounding semantics.',
             run_division_rounding_divergence,
         ),
-        '120': RuleSpec(
-            '120', 120, 'unaligned_memory_access_ebpf',
+        '20': RuleSpec(
+            '20', 20, 'unaligned_memory_access_ebpf',
             'Unaligned Memory Access in Flamenco VM',
             'control_flow_integrity', 'node_specific', 'high',
             'Add explicit alignment checks before VM pointer-cast memory access.',

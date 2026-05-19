@@ -69,7 +69,7 @@ class BankRefcountRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['bank->ref_cnt++'])
         findings = run_bank(ctx)
-        self.assertEqual(findings[0].task_id, '110')
+        self.assertEqual(findings[0].task_id, '10')
         self.assertEqual(findings[0].rule_id, 'bank_lifecycle_refcount_concurrency')
 
 
@@ -103,7 +103,7 @@ class AltWindowRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['if( cur - alt->deactivation_slot > 64 ) drop()'])
         findings = run_alt(ctx)
-        self.assertEqual(findings[0].task_id, '112')
+        self.assertEqual(findings[0].task_id, '12')
         self.assertEqual(findings[0].rule_id, 'alt_resolution_window_mismatch')
 
 
@@ -142,7 +142,7 @@ class BlsRogueKeyRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['agg = bls12_aggregate( keys, n )'])
         findings = run_bls(ctx)
-        self.assertEqual(findings[0].task_id, '114')
+        self.assertEqual(findings[0].task_id, '14')
         self.assertEqual(findings[0].rule_id, 'bls_aggregate_rogue_key_check')
 
 

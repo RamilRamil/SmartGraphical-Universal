@@ -1,4 +1,4 @@
-"""Unit tests for min_slippage_bounds (task 14) on synthetic call_edges."""
+"""Unit tests for min_slippage_bounds (task 12) on synthetic call_edges."""
 import unittest
 
 from smartgraphical.core.model import AnalysisContext, NormalizedArtifact, NormalizedAuditModel, NormalizedCallEdge, NormalizedType
@@ -42,7 +42,7 @@ class MinSlippageBoundsRuleTests(unittest.TestCase):
         ctx = _context_with_edges([edge])
         findings = run_min_slippage_bounds(ctx)
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].task_id, "14")
+        self.assertEqual(findings[0].task_id, "12")
         self.assertEqual(findings[0].rule_id, "min_slippage_bounds")
         self.assertIn("addLiquidity", findings[0].message)
         self.assertIn("minShares=0", findings[0].message)

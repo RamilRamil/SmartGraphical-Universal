@@ -1,4 +1,4 @@
-"""Rule C17 (task 117): unspecified_evaluation_order_side_effects.
+"""Rule C17 (task 17): unspecified_evaluation_order_side_effects.
 
 Detects call expressions with multiple nested side-effecting call arguments.
 In C the argument evaluation order is unspecified, which can cause divergent
@@ -15,8 +15,8 @@ _SIDE_EFFECT_TOKENS = (
 )
 
 _META = dict(
-    task_id='117',
-    legacy_code=117,
+    task_id='17',
+    legacy_code=17,
     slug='unspecified_evaluation_order_side_effects',
     title='Unspecified Order of Evaluation with Side Effects',
     category='correctness',
@@ -78,7 +78,7 @@ def _detect(context):
                 if len(side_effect_args) < 2:
                     continue
                 alerts.append({
-                    'code': 117,
+                    'code': 17,
                     'message': (
                         f"Multiple side-effect call arguments with unspecified "
                         f"evaluation order in {type_entry.name}.{function.name}: "

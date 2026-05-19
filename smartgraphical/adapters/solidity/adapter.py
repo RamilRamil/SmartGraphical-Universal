@@ -9,6 +9,7 @@ from smartgraphical.core.model import (
     NormalizedArtifact,
     NormalizedAuditModel,
     NormalizedCallEdge,
+    NormalizedCustomError,
     NormalizedEvent,
     NormalizedExternalCall,
     NormalizedFunction,
@@ -40,20 +41,26 @@ from smartgraphical.core.rules.solidity.outer_calls import run as run_outer_call
 from smartgraphical.core.rules.solidity.min_slippage_bounds import (
     run as run_min_slippage_bounds,
 )
+from smartgraphical.core.rules.solidity.knowdit_reentrancy import (
+    run_bridge_retry_gap,
+    run_read_only_oracle_gap,
+    run_unstake_share_order,
+)
 
 
 TASK_GROUPS = {
     'NamingAndConsistency': ['1', '10'],
     'StateAndMutation': ['2', '4', '11'],
     'FlowAndOrdering': ['6', '8', '9'],
-    'ComputationAndEconomics': ['3', '5', '7', '14'],
-    'VisualizationOnly': ['12'],
+    'ComputationAndEconomics': ['3', '5', '7', '12'],
+    'AdvancedReentrancy': ['13', '14', '15'],
+    'VisualizationOnly': [],
 }
 
 SECOND_LANGUAGE_POC = AdapterBlueprint(
     target_language='rust_or_cpp',
     required_entities=['FunctionLike', 'StateEntity', 'CallSite', 'Guard', 'Mutation'],
-    portable_rule_tasks=['3', '6', '7', '8', '9', '10', '11', '14'],
+    portable_rule_tasks=['3', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'],
     success_criteria=[
         'Extract the normalized entities for one non-trivial source file.',
         'Run at least two portable rules on the normalized model.',
@@ -74,9 +81,12 @@ def build_rule_registry():
         '7':  RuleSpec('7',  7,  'complicated_calculations','Complicated Calculations',    'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Review arithmetic-heavy expressions and simplify or guard the most complex branches.',                         run_complicated_calculations),
         '8':  RuleSpec('8',  8,  'check_order',             'Sensitive Call Ordering',     'FlowAndOrdering',         'portable_with_adapter', 'medium', 'Check whether fetch, price, or preparation logic happens immediately before transfer-like effects.',             run_check_order),
         '9':  RuleSpec('9',  9,  'withdraw_check',          'Withdraw Preconditions',      'FlowAndOrdering',         'portable_with_adapter', 'medium', 'Ensure withdraw-style operations are preceded by guards, conditions, or validated system checks.',              run_withdraw_check),
-        '10': RuleSpec('10', 11, 'similar_names',           'Similar Names',               'NamingAndConsistency',    'portable',              'medium', 'Rename near-duplicate identifiers when they can confuse reviewers or callers.',                                 run_similar_names),
-        '11': RuleSpec('11', 12, 'outer_calls',             'Outer Calls',                 'StateAndMutation',        'portable_with_adapter', 'medium', 'Review public entrypoints that consume inputs and mutate state without stronger constraints.',                  run_outer_calls),
-        '14': RuleSpec('14', 14, 'min_slippage_bounds',    'Minimum Bounds On Swap And Liquidity Calls', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Replace zero literals for min-amount, min-shares, and deadline parameters with user-supplied or quote-derived bounds.', run_min_slippage_bounds),
+        '10': RuleSpec('10', 10, 'similar_names',           'Similar Names',               'NamingAndConsistency',    'portable',              'medium', 'Rename near-duplicate identifiers when they can confuse reviewers or callers.',                                 run_similar_names),
+        '11': RuleSpec('11', 11, 'outer_calls',             'Outer Calls',                 'StateAndMutation',        'portable_with_adapter', 'medium', 'Review public entrypoints that consume inputs and mutate state without stronger constraints.',                  run_outer_calls),
+        '12': RuleSpec('12', 12, 'min_slippage_bounds',    'Minimum Bounds On Swap And Liquidity Calls', 'ComputationAndEconomics', 'portable_with_adapter', 'medium', 'Replace zero literals for min-amount, min-shares, and deadline parameters with user-supplied or quote-derived bounds.', run_min_slippage_bounds),
+        '13': RuleSpec('13', 13, 'read_only_oracle_reentrancy', 'Read-Only Reentrancy Window (Reserve Valuation)', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Finalize reserves or sync before external calls when pricing depends on reserves.', run_read_only_oracle_gap),
+        '14': RuleSpec('14', 14, 'bridge_retry_reentrancy', 'Bridge Retry Idempotency Ordering', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Consume or finalize retry/relay records before payouts or other external effects.', run_bridge_retry_gap),
+        '15': RuleSpec('15', 15, 'unstake_share_burn_order', 'Unstake Share Burn Ordering', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Reduce or burn staking shares before paying out rewards or principal.', run_unstake_share_order),
     }
 
 
@@ -201,6 +211,30 @@ def _collect_computations(body):
         if sum(1 for t in tokens if t in stmt) >= 2 and stmt not in result:
             result.append(stmt)
     return result
+
+
+_SOLIDITY_SIGNATURE_MODIFIERS = frozenset({
+    "public", "external", "internal", "private",
+    "pure", "view", "payable", "constant",
+    "virtual", "override",
+})
+
+
+def _sanitize_function_ext_params(func_name, ext_params):
+    """Drop parent constructor initializers mistaken for modifier tokens."""
+    tokens = list(ext_params or [])
+    if func_name != "constructor":
+        return tokens
+    cleaned = []
+    for token in tokens:
+        t = (token or "").strip()
+        if not t or t == "__declared_modifier__":
+            continue
+        if "(" in t or ")" in t:
+            continue
+        if t in _SOLIDITY_SIGNATURE_MODIFIERS:
+            cleaned.append(t)
+    return cleaned
 
 
 def _extract_visibility(ext_params):
@@ -438,6 +472,146 @@ def _emit_event_edges(contract_name, funcs, event_names):
     return edges
 
 
+def _emit_custom_error_edges(contract_name, funcs, error_names):
+    """Link functions that `revert ErrorName(...)` to declared custom errors."""
+
+    edges = []
+    if not error_names:
+        return edges
+    for func in funcs:
+        func_name, _inputs, _ext, body = func
+        body = body or ""
+        if not body.strip():
+            continue
+        for en in error_names:
+            if not en:
+                continue
+            esc = re.escape(en)
+            patterns = [r'\brevert\s+%s\s*\(' % esc]
+            if '.' not in en:
+                patterns.append(r'\brevert\s+[\w.]+\.%s\s*\(' % esc)
+            if any(re.search(p, body) for p in patterns):
+                edges.append(NormalizedCallEdge(
+                    contract_name, func_name, contract_name, en, 'function_to_custom_error',
+                ))
+    return edges
+
+
+def _parse_import_symbol_entries(imps):
+    entries = []
+    for imp_str in imps or []:
+        imp_name, imp_path = _extract_import_name(imp_str)
+        brace = re.search(r"\{([^}]+)\}", imp_str)
+        if brace:
+            for part in brace.group(1).split(","):
+                sym = part.strip()
+                if sym:
+                    entries.append((sym, imp_path))
+        elif imp_name:
+            entries.append((imp_name, imp_path))
+    return entries
+
+
+def _function_line_numbers_for_symbol(file_lines, full_source, symbol):
+    if not file_lines or not full_source:
+        return []
+    if not re.search(rf"\b{re.escape(symbol)}\b", full_source):
+        return []
+    matched = []
+    for num, line in enumerate(file_lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("import "):
+            continue
+        if re.search(rf"\b{re.escape(symbol)}\b", line):
+            matched.append(num)
+    return matched
+
+
+def _callsite_for_symbol_lines(file_lines, line_numbers, symbol):
+    for num in line_numbers or []:
+        if 0 < num <= len(file_lines):
+            line = file_lines[num - 1]
+            if re.search(rf"\b{re.escape(symbol)}\b", line):
+                return line.strip()
+    return ""
+
+
+def _append_import_usage_edges(model, contract_name, imps, functions, file_lines):
+    entries = _parse_import_symbol_entries(imps)
+    used_symbols = set()
+    for fn in functions:
+        full = getattr(fn, "full_source", "") or getattr(fn, "body", "") or ""
+        func_name = getattr(fn, "name", "") or ""
+        if not full or not func_name:
+            continue
+        for sym, path in entries:
+            if not re.search(rf"\b{re.escape(sym)}\b", full):
+                continue
+            line_nums = _function_line_numbers_for_symbol(file_lines, full, sym)
+            if not line_nums:
+                continue
+            used_symbols.add(sym)
+            model.call_edges.append(NormalizedCallEdge(
+                contract_name,
+                func_name,
+                sym,
+                sym,
+                "import_dependency",
+                label=path,
+                callsite=_callsite_for_symbol_lines(file_lines, line_nums, sym),
+                line_numbers=line_nums,
+                import_symbol=sym,
+            ))
+    for sym, path in entries:
+        if sym in used_symbols:
+            continue
+        model.call_edges.append(NormalizedCallEdge(
+            contract_name,
+            contract_name,
+            sym,
+            sym,
+            "import_dependency",
+            label=path,
+            import_symbol=sym,
+        ))
+
+
+def _append_constructor_parent_edges(
+    model,
+    contract_name,
+    constructor,
+    parents,
+    file_lines,
+    contracts_in_file,
+):
+    if not constructor or len(constructor) < 4 or not parents:
+        return
+    in_file = set(contracts_in_file or [])
+    cname, input_details, ext_params, body = constructor[:4]
+    full_ctor = _render_full_function_source(cname, input_details, ext_params, body)
+    for parent in parents:
+        if not parent or parent == contract_name:
+            continue
+        if parent not in in_file:
+            continue
+        if not re.search(rf"\b{re.escape(parent)}\s*\(", full_ctor):
+            continue
+        meta = _call_metadata_for_target(full_ctor, parent, [], file_lines)
+        line_nums = meta.get("line_numbers") or []
+        if not line_nums:
+            line_nums = _function_line_numbers_for_symbol(file_lines, full_ctor, parent)
+        model.call_edges.append(NormalizedCallEdge(
+            contract_name,
+            "constructor",
+            parent,
+            "constructor",
+            "cross_type_call",
+            label=f"{parent}()",
+            callsite=meta.get("callsite") or _callsite_for_symbol_lines(file_lines, line_nums, parent),
+            line_numbers=line_nums,
+        ))
+
+
 def _extract_import_name(import_str):
     """Parse a raw Solidity import string into (short_name, full_path).
 
@@ -464,10 +638,11 @@ def build_normalized_model(context):
         second_language_poc=deepcopy(SECOND_LANGUAGE_POC),
     )
     unit_kinds = getattr(context, 'solidity_unit_kinds', None) or {}
+    contracts_in_file = [row[0] for row in context.rets]
     for contract_data in context.rets:
         (contract_name, funcs, vars, structs, imps,
          var_func_mapping, func_func_mapping, sysfunc_func_mapping,
-         obj_func_mapping, func_conditionals, constructor, events, objs, using) = contract_data
+         obj_func_mapping, func_conditionals, constructor, events, custom_errors, objs, using) = contract_data
 
         sk = (unit_kinds.get(contract_name) or 'concrete').strip().lower()
         if sk not in ('concrete', 'abstract', 'interface', 'library'):
@@ -489,10 +664,14 @@ def build_normalized_model(context):
             type_entry.state_entities.append(NormalizedStateEntity(obj[-1], contract_name, 'object_instance', ' '.join(obj)))
 
         state_names = [e.name for e in type_entry.state_entities]
+        func_items = list(funcs)
+        if constructor and len(constructor) >= 4:
+            func_items.append(constructor)
         function_bodies = {}
         function_param_names = {}
-        for idx, func in enumerate(funcs):
+        for idx, func in enumerate(func_items):
             func_name, input_details, ext_params, body = func
+            ext_params = _sanitize_function_ext_params(func_name, ext_params)
             function_bodies[func_name] = body
             function_param_names[func_name] = _extract_param_names(input_details)
             conditionals = func_conditionals[idx] if idx < len(func_conditionals) else []
@@ -561,14 +740,17 @@ def build_normalized_model(context):
 
         for event in events:
             type_entry.events.append(NormalizedEvent(event[0], contract_name, event[1]))
+        for err in custom_errors:
+            type_entry.custom_errors.append(NormalizedCustomError(err[0], contract_name, err[1]))
         model.types.append(type_entry)
 
         event_name_set = {ev[0] for ev in events}
+        error_name_set = {e[0] for e in custom_errors}
         for var_name, used_by in var_func_mapping.items():
             for fn in used_by:
                 model.call_edges.append(NormalizedCallEdge(contract_name, var_name, contract_name, fn, 'state_to_function'))
         for src, targets in func_func_mapping.items():
-            if src in event_name_set:
+            if src in event_name_set or src in error_name_set:
                 continue
             for tgt in targets:
                 resolved_tgt = tgt.replace('super.', '')
@@ -592,6 +774,8 @@ def build_normalized_model(context):
                 ))
         for edge in _emit_event_edges(contract_name, funcs, list(event_name_set)):
             model.call_edges.append(edge)
+        for edge in _emit_custom_error_edges(contract_name, funcs, list(error_name_set)):
+            model.call_edges.append(edge)
         for sys_name, users in sysfunc_func_mapping.items():
             for fn in users:
                 model.call_edges.append(NormalizedCallEdge(contract_name, fn, contract_name, sys_name, 'function_to_system'))
@@ -608,15 +792,21 @@ def build_normalized_model(context):
                         label=f"{obj_name}.{m[1]}",
                     ))
 
-        for imp_str in imps:
-            imp_name, imp_path = _extract_import_name(imp_str)
-            if imp_name:
-                model.call_edges.append(NormalizedCallEdge(
-                    contract_name, contract_name,
-                    imp_name, imp_name,
-                    'import_dependency',
-                    label=imp_path,
-                ))
+        _append_import_usage_edges(
+            model,
+            contract_name,
+            imps,
+            type_entry.functions,
+            context.lines or [],
+        )
+        _append_constructor_parent_edges(
+            model,
+            contract_name,
+            constructor,
+            context.hierarchy.get(contract_name, []) or [],
+            context.lines or [],
+            contracts_in_file,
+        )
 
     for conn in context.high_connections:
         parent, child = conn['parent'], conn['child']

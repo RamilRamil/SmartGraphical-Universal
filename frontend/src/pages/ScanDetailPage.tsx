@@ -121,7 +121,7 @@ export function ScanDetailPage() {
   const isError = scan.status === "error";
   const graphAvailable =
     !isError &&
-    scan.task === "all" &&
+    (scan.task === "0" || scan.task === "all") &&
     graphQuery.data !== undefined &&
     graphQuery.data.available === true;
   const graphData =
@@ -262,9 +262,9 @@ export function ScanDetailPage() {
               title={
                 graphAvailable
                   ? "Open graph view"
-                  : scan.task === "all"
+                  : scan.task === "0" || scan.task === "all"
                     ? "Graph is being loaded or unavailable"
-                    : "Graph is only available for scans run with task 'all'"
+                    : "Graph is only available for scans run with task 0 (run all)"
               }
             >
               Graph
@@ -339,7 +339,7 @@ export function ScanDetailPage() {
                 !graphQuery.isPending && (
                   <p className="sg-page__hint">
                     Graph payload is not available for this scan. Re-run the
-                    analysis with task &quot;all&quot; on a newer tool version.
+                    analysis with task 0 (run all) on a newer tool version.
                   </p>
                 )
               )}

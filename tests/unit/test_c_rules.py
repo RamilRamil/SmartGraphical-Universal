@@ -52,7 +52,7 @@ def _context(statements, unified_code=''):
 
 
 # ---------------------------------------------------------------------------
-# Rule 101: non_saturating_float_cast
+# Task 1: non_saturating_float_cast
 # ---------------------------------------------------------------------------
 
 class FloatCastRuleTests(unittest.TestCase):
@@ -100,7 +100,7 @@ class FloatCastRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['ulong v = (ulong)d'])
         findings = run_float_cast(ctx)
-        self.assertEqual(findings[0].task_id, '101')
+        self.assertEqual(findings[0].task_id, '1')
         self.assertEqual(findings[0].rule_id, 'non_saturating_float_cast')
         self.assertEqual(findings[0].confidence, 'medium')
 
@@ -167,7 +167,7 @@ class ShiftRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['ulong v = x << pkt->exp'])
         findings = run_shift(ctx)
-        self.assertEqual(findings[0].task_id, '102')
+        self.assertEqual(findings[0].task_id, '2')
         self.assertEqual(findings[0].rule_id, 'unsafe_shift_external_exponent')
 
 
@@ -206,7 +206,7 @@ class UncheckedReturnRuleTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['fd_sha256_hash( d, n, h )'])
         findings = run_unchecked(ctx)
-        self.assertEqual(findings[0].task_id, '103')
+        self.assertEqual(findings[0].task_id, '3')
         self.assertEqual(findings[0].rule_id, 'unchecked_return_sensitive')
 
 
@@ -254,7 +254,7 @@ class UafPoolRuleTests(unittest.TestCase):
             'use(x->field)',
         ])
         findings = run_uaf(ctx)
-        self.assertEqual(findings[0].task_id, '104')
+        self.assertEqual(findings[0].task_id, '4')
         self.assertEqual(findings[0].rule_id, 'shared_mem_uaf_pool')
 
 
@@ -289,7 +289,7 @@ class ReservedAccountRuleTests(unittest.TestCase):
         ctx = _context([], unified_code=source)
         findings = run_reserved(ctx)
         if findings:
-            self.assertEqual(findings[0].task_id, '105')
+            self.assertEqual(findings[0].task_id, '5')
             self.assertEqual(findings[0].rule_id, 'incomplete_reserved_account_list')
 
 
@@ -320,7 +320,7 @@ class SysvarDecodeMismatchTests(unittest.TestCase):
     def test_finding_metadata_is_populated(self):
         ctx = _context(['sv->decode = (void *)fn'])
         findings = run_sysvar(ctx)
-        self.assertEqual(findings[0].task_id, '106')
+        self.assertEqual(findings[0].task_id, '6')
         self.assertEqual(findings[0].rule_id, 'sysvar_decode_callback_type_mismatch')
 
 

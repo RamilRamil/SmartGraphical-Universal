@@ -213,10 +213,11 @@ Key runtime contracts:
 - `NamingAndConsistency` - Tasks `1`, `10`.
 - `StateAndMutation` - Tasks `2`, `4`, `11`.
 - `FlowAndOrdering` - Tasks `6`, `8`, `9`.
-- `ComputationAndEconomics` - Tasks `3`, `5`, `7`.
-- `VisualizationOnly` - Task `12` (graph only).
+- `ComputationAndEconomics` - Tasks `3`, `5`, `7`, `12`.
+- `AdvancedReentrancy` - Tasks `13`, `14`, `15` (Knowdit-style ordering heuristics).
+- `VisualizationOnly` - empty (reserved; graph-only is CLI task `99`, not a RuleSpec).
 
-CLI task `all` (alias `13`) runs all rules `1`-`11` and then renders the graph.
+Meta task **`0`** (alias **`all`**) runs every Solidity `RuleSpec` (`1`..`15`), then the CLI also renders the graph. CLI **graph-only** visualization: task **`99`**.
 
 **C / Solana node client (`smartgraphical/adapters/c_base/`):**
 
