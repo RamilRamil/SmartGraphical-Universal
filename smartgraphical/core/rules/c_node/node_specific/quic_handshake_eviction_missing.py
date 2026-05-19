@@ -1,4 +1,4 @@
-"""Rule C09 (task 109): quic_handshake_eviction_missing.
+"""Rule C09 (task 9): quic_handshake_eviction_missing.
 
 Detects QUIC handshake pool exhaustion paths that return an error to the
 caller without first attempting to evict a stale or incomplete handshake.
@@ -34,8 +34,8 @@ _POOL_REJECTION = re.compile(
 _EVICTION_TOKENS = ['evict', 'oldest', 'lru', 'lifo', 'expire', 'reclaim', 'displace']
 
 _META = dict(
-    task_id='109',
-    legacy_code=109,
+    task_id='9',
+    legacy_code=9,
     slug='quic_handshake_eviction_missing',
     title='Missing Handshake Eviction Strategy',
     category='denial_of_service',
@@ -69,7 +69,7 @@ def _detect(context):
                 if has_eviction:
                     continue
                 alerts.append({
-                    'code': 109,
+                    'code': 9,
                     'message': (
                         f"Handshake pool exhaustion rejected without eviction "
                         f"in {type_entry.name}.{function.name}: {stmt[:120]}"

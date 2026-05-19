@@ -2,14 +2,14 @@
 
 Два машиночитаемых каталога (EN):
 
-- Общий Rust (задачи **209–223**, Base Azul и качество): `docs/rust/language_rules_catalog.json`
+- Общий Rust (задачи **9–23**, Base Azul и качество): `docs/rust/language_rules_catalog.json`
 - Soroban (Stellar), целевой профиль: `docs/rust_stellar/soroban_rules_catalog.json` (в описании каталога указано, что адаптер может быть ещё не подключён)
 
 ---
 
 ## Часть A. Язык Rust и эвристики Base Azul (`language_rules_catalog`)
 
-### 209 — `undocumented_unsafe_block`
+### 9 — `undocumented_unsafe_block`
 
 **Блок:** критичная безопасность / конкурентность. **Серьёзность:** high.
 
@@ -21,7 +21,7 @@
 
 ---
 
-### 210 — `static_mut_ref_access`
+### 10 — `static_mut_ref_access`
 
 **Серьёзность:** critical.
 
@@ -33,7 +33,7 @@
 
 ---
 
-### 211 — `interior_mutability_sync_violation`
+### 11 — `interior_mutability_sync_violation`
 
 **Серьёзность:** high.
 
@@ -45,7 +45,7 @@
 
 ---
 
-### 212 — `unprotected_panic_in_public_api`
+### 12 — `unprotected_panic_in_public_api`
 
 **Серьёзность:** medium.
 
@@ -55,7 +55,7 @@
 
 ---
 
-### 213 — `redundant_arc_clone_in_loop`
+### 13 — `redundant_arc_clone_in_loop`
 
 **Серьёзность:** low.
 
@@ -65,7 +65,7 @@
 
 ---
 
-### 214 — `missing_async_fn_trait_bound`
+### 14 — `missing_async_fn_trait_bound`
 
 **Серьёзность:** info.
 
@@ -73,7 +73,7 @@
 
 ---
 
-### 215 — `temporary_lifetime_extension_confusion`
+### 15 — `temporary_lifetime_extension_confusion`
 
 **Серьёзность:** medium.
 
@@ -81,7 +81,7 @@
 
 ---
 
-### 216 — `forbidden_std_usage`
+### 16 — `forbidden_std_usage`
 
 **Серьёзность:** high.
 
@@ -89,7 +89,7 @@
 
 ---
 
-### 217 — `non_deterministic_state_root`
+### 17 — `non_deterministic_state_root`
 
 **Блок:** детерминизм Base Azul. **Серьёзность:** high.
 
@@ -101,7 +101,7 @@
 
 ---
 
-### 218 — `async_boundary_panic_leak`
+### 18 — `async_boundary_panic_leak`
 
 **Серьёзность:** high.
 
@@ -111,7 +111,7 @@
 
 ---
 
-### 219 — `serde_binary_codec_mismatch`
+### 19 — `serde_binary_codec_mismatch`
 
 **Серьёзность:** critical.
 
@@ -121,7 +121,7 @@
 
 ---
 
-### 220 — `divergent_fork_choice_assumptions`
+### 20 — `divergent_fork_choice_assumptions`
 
 **Серьёзность:** critical.
 
@@ -131,7 +131,7 @@
 
 ---
 
-### 221 — `gas_limit_cl_el_mismatch`
+### 21 — `gas_limit_cl_el_mismatch`
 
 **Серьёзность:** high.
 
@@ -141,7 +141,7 @@
 
 ---
 
-### 222 — `unbounded_proposal_range`
+### 22 — `unbounded_proposal_range`
 
 **Серьёзность:** high.
 
@@ -151,7 +151,7 @@
 
 ---
 
-### 223 — `tee_side_channel_via_panic`
+### 23 — `tee_side_channel_via_panic`
 
 **Серьёзность:** high.
 

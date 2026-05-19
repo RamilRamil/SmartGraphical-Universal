@@ -1,4 +1,4 @@
-/* Fixture: unsafe float-to-unsigned cast pattern for rule 101 (model path). ASCII-only. */
+/* Fixture: unsafe float-to-unsigned cast pattern for task 1 (non_saturating_float_cast). ASCII-only. */
 
 #include <stdint.h>
 

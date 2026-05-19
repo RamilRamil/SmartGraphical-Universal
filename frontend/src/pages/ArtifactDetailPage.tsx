@@ -119,7 +119,7 @@ export function ArtifactDetailPage() {
   const selectedScanError = selectedScan?.status === "error";
   const selectedGraphAvailable =
     !selectedScanError &&
-    selectedScan?.task === "all" &&
+    (selectedScan?.task === "0" || selectedScan?.task === "all") &&
     selectedGraphQuery.data !== undefined &&
     selectedGraphQuery.data.available === true;
   const selectedGraphData =
@@ -314,9 +314,9 @@ export function ArtifactDetailPage() {
                       title={
                         selectedGraphAvailable
                           ? "Open graph view"
-                          : selectedScan.task === "all"
+                          : selectedScan.task === "0" || selectedScan.task === "all"
                             ? "Graph is being loaded or unavailable"
-                            : "Graph is only available for scans run with task 'all'"
+                            : "Graph is only available for scans run with task 0 (run all)"
                       }
                     >
                       Graph
@@ -380,7 +380,7 @@ export function ArtifactDetailPage() {
                         !selectedGraphQuery.isPending && (
                           <p className="sg-page__hint">
                             Graph payload is not available for this scan. Run task
-                            &quot;all&quot; to make graph available.
+                            task 0 (run all) to make graph available.
                           </p>
                         )
                       )}

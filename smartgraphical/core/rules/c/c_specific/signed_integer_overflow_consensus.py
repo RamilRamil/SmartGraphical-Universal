@@ -1,4 +1,4 @@
-"""Rule C16 (task 116): signed_integer_overflow_consensus.
+"""Rule C16 (task 16): signed_integer_overflow_consensus.
 
 Detects signed arithmetic in consensus-sensitive code paths that does not use
 overflow-safe helpers or explicit overflow checks.
@@ -22,8 +22,8 @@ _SAFE_TOKENS = (
 _CONSENSUS_TOKENS = ('runtime', 'rent', 'reward', 'balance', 'lamport', 'stake')
 
 _META = dict(
-    task_id='116',
-    legacy_code=116,
+    task_id='16',
+    legacy_code=16,
     slug='signed_integer_overflow_consensus',
     title='Unchecked Signed Integer Overflow in Consensus Logic',
     category='consensus_failure',
@@ -52,7 +52,7 @@ def _detect(context):
                 if not any(token in stmt_lower for token in _CONSENSUS_TOKENS):
                     continue
                 alerts.append({
-                    'code': 116,
+                    'code': 16,
                     'message': (
                         f"Signed arithmetic without overflow guard in "
                         f"{type_entry.name}.{function.name}: {stmt[:120]}"

@@ -1,4 +1,4 @@
-"""Rule C10 (task 110): bank_lifecycle_refcount_concurrency.
+"""Rule C10 (task 10): bank_lifecycle_refcount_concurrency.
 
 Detects non-atomic increments and decrements of bank reference counter
 fields in shared-memory regions. In the replay/banks component multiple
@@ -36,8 +36,8 @@ _ATOMIC_TOKENS = [
 ]
 
 _META = dict(
-    task_id='110',
-    legacy_code=110,
+    task_id='10',
+    legacy_code=10,
     slug='bank_lifecycle_refcount_concurrency',
     title='Unsafe Bank Reference Counting in Shared Memory',
     category='memory_safety',
@@ -63,7 +63,7 @@ def _detect(context):
                     if field not in _REFCOUNT_FIELDS:
                         continue
                     alerts.append({
-                        'code': 110,
+                        'code': 10,
                         'message': (
                             f"Non-atomic refcount operation on '{field}' "
                             f"in {type_entry.name}.{function.name}: {stmt[:120]}"

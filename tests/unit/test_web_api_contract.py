@@ -89,7 +89,7 @@ class WebApiAnalyzeAllTests(unittest.TestCase):
     def test_analyze_all_runs_every_rule(self):
         report = web_api.analyze_all(SOL_FIXTURE, language="solidity")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["task"], "all")
+        self.assertEqual(report["task"], "0")
         self.assertGreater(len(report["rules_run"]), 1)
         self.assertEqual(report["findings_count"], len(report["findings"]))
 
@@ -329,6 +329,127 @@ class WebApiSolidityBundleImportTests(unittest.TestCase):
             if e.get("kind") == "bundle_import" and e.get("label") == "solidity_import"
         ]
         self.assertEqual(len(bundle_edges), 1, msg=bundle_edges)
+
+    def test_bundle_graph_unresolved_import_creates_external_import_nodes(self):
+        import hashlib
+        import json
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        src = (
+            "pragma solidity ^0.8.0;\n"
+            'import "@openzeppelin/contracts/token/ERC20/IERC20.sol";\n'
+            "contract C { }\n"
+        )
+        path = os.path.join(tmp, "C.sol")
+        with open(path, "w", encoding="ascii") as fh:
+            fh.write(src)
+        digest = hashlib.sha256(src.encode("ascii")).hexdigest()
+        manifest = {
+            "version": 1,
+            "language": "solidity",
+            "members": [{"path": "C.sol", "sha256": digest}],
+        }
+        with open(os.path.join(tmp, "sg_bundle_manifest.json"), "w", encoding="ascii") as fh:
+            json.dump(manifest, fh)
+
+        report = web_api.graph(tmp, language="solidity")
+        graph = report["model_summary"].get("graph") or {}
+        ext = [n for n in graph.get("nodes") or [] if n.get("group") == "external_import"]
+        imp_edges = [
+            e for e in graph.get("edges") or []
+            if e.get("kind") == "import_dependency"
+            and "openzeppelin" in str(e.get("label", ""))
+        ]
+        self.assertTrue(ext, msg="expected external_import nodes for unresolved paths")
+        self.assertTrue(imp_edges, msg="expected import_dependency edges to OZ path")
+
+    def test_bundle_graph_inheritance_creates_cross_type_call(self):
+        import hashlib
+        import json
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        base_src = (
+            "pragma solidity ^0.8.0;\n"
+            "contract Base { function f() external {} }\n"
+        )
+        child_src = (
+            "pragma solidity ^0.8.0;\n"
+            'import "./Base.sol";\n'
+            "contract Child is Base { }\n"
+        )
+        base_path = os.path.join(tmp, "Base.sol")
+        child_path = os.path.join(tmp, "Child.sol")
+        with open(base_path, "w", encoding="ascii") as fh:
+            fh.write(base_src)
+        with open(child_path, "w", encoding="ascii") as fh:
+            fh.write(child_src)
+        manifest = {
+            "version": 1,
+            "language": "solidity",
+            "members": [
+                {"path": "Base.sol", "sha256": hashlib.sha256(base_src.encode()).hexdigest()},
+                {"path": "Child.sol", "sha256": hashlib.sha256(child_src.encode()).hexdigest()},
+            ],
+        }
+        with open(os.path.join(tmp, "sg_bundle_manifest.json"), "w", encoding="ascii") as fh:
+            json.dump(manifest, fh)
+
+        report = web_api.graph(tmp, language="solidity")
+        edges = (report["model_summary"].get("graph") or {}).get("edges") or []
+        extends_edges = [
+            e for e in edges
+            if e.get("kind") == "cross_type_call" and "extends" in str(e.get("label", ""))
+        ]
+        self.assertTrue(extends_edges, msg=edges)
+
+    def test_bundle_consolidates_local_import_stubs_to_type_nodes(self):
+        import hashlib
+        import json
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        base_src = (
+            "pragma solidity ^0.8.0;\n"
+            "contract Base { uint256 public x; }\n"
+        )
+        child_src = (
+            "pragma solidity ^0.8.0;\n"
+            'import "./Base.sol";\n'
+            "contract Child is Base { }\n"
+        )
+        base_path = os.path.join(tmp, "Base.sol")
+        child_path = os.path.join(tmp, "Child.sol")
+        with open(base_path, "w", encoding="ascii") as fh:
+            fh.write(base_src)
+        with open(child_path, "w", encoding="ascii") as fh:
+            fh.write(child_src)
+        manifest = {
+            "version": 1,
+            "language": "solidity",
+            "members": [
+                {"path": "Base.sol", "sha256": hashlib.sha256(base_src.encode()).hexdigest()},
+                {"path": "Child.sol", "sha256": hashlib.sha256(child_src.encode()).hexdigest()},
+            ],
+        }
+        with open(os.path.join(tmp, "sg_bundle_manifest.json"), "w", encoding="ascii") as fh:
+            json.dump(manifest, fh)
+
+        report = web_api.graph(tmp, language="solidity")
+        nodes = (report["model_summary"].get("graph") or {}).get("nodes") or []
+        bad = [
+            n for n in nodes
+            if n.get("group") in ("external", "external_import")
+            and n.get("label") == "Base"
+        ]
+        self.assertEqual(bad, [], msg="in-bundle contract must not stay as external stub")
 
 
 class WebApiRustBundleModuleTests(unittest.TestCase):
@@ -947,21 +1068,21 @@ class WebApiAnalyzeCTests(unittest.TestCase):
         _require_fixture(C_FIXTURE)
 
     def test_analyze_c_task(self):
-        report = web_api.analyze(C_FIXTURE, "101", language="c", mode="auditor")
+        report = web_api.analyze(C_FIXTURE, "1", language="c", mode="auditor")
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["language"], "c")
-        self.assertEqual(report["task"], "101")
+        self.assertEqual(report["task"], "1")
         self.assertIsInstance(report["findings"], list)
 
     def test_analyze_c_auto_detects_from_extension(self):
-        report = web_api.analyze(C_FIXTURE, "101")
+        report = web_api.analyze(C_FIXTURE, "1")
         self.assertEqual(report["language"], "c")
 
     def test_analyze_all_c(self):
         report = web_api.analyze_all(C_FIXTURE, language="c")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["task"], "all")
-        self.assertIn("101", report["rules_run"])
+        self.assertEqual(report["task"], "0")
+        self.assertIn("1", report["rules_run"])
         self.assertEqual(report["findings_count"], len(report["findings"]))
 
     def test_graph_c(self):
@@ -980,8 +1101,8 @@ class WebApiListTasksTests(unittest.TestCase):
         self.assertGreater(len(payload["tasks"]), 1)
         ids = [task["id"] for task in payload["tasks"]]
         self.assertIn("11", ids)
-        self.assertEqual(ids[-1], "all")
-        meta_task = payload["tasks"][-1]
+        self.assertEqual(ids[0], "0")
+        meta_task = payload["tasks"][0]
         self.assertEqual(meta_task["kind"], "meta")
         rule_task = next(task for task in payload["tasks"] if task["id"] == "11")
         self.assertEqual(rule_task["kind"], "rule")
@@ -991,8 +1112,8 @@ class WebApiListTasksTests(unittest.TestCase):
         payload = web_api.list_tasks("c")
         self.assertEqual(payload["language"], "c")
         ids = [task["id"] for task in payload["tasks"]]
-        self.assertIn("101", ids)
-        self.assertEqual(ids[-1], "all")
+        self.assertIn("1", ids)
+        self.assertEqual(ids[0], "0")
 
     def test_list_tasks_normalizes_case(self):
         payload = web_api.list_tasks("Solidity")

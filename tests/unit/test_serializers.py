@@ -5,11 +5,20 @@ import unittest
 from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 from smartgraphical.core.findings import Finding, FindingEvidence
 from smartgraphical.services.serializers import (
+    _state_entity_graph_extra,
     evidence_to_dict,
     finding_to_dict,
     findings_to_list,
     model_graph_to_dict,
     model_summary_to_dict,
+)
+from smartgraphical.core.model import (
+    NormalizedArtifact,
+    NormalizedAuditModel,
+    NormalizedCallEdge,
+    NormalizedFunction,
+    NormalizedStateEntity,
+    NormalizedType,
 )
 
 
@@ -117,6 +126,7 @@ class SerializerHelpersTests(unittest.TestCase):
             self.assertIn("source_body", node)
             self.assertIn("calls_internal", node)
             self.assertIn("calls_event", node)
+            self.assertIn("calls_custom_error", node)
         end_auction = next(
             n for n in function_nodes if n["label"] == "endAuction"
         )
@@ -149,6 +159,88 @@ class SerializerHelpersTests(unittest.TestCase):
             self.assertIn(edge["source"], node_ids)
             self.assertIn(edge["target"], node_ids)
             self.assertIn("kind", edge)
+
+    def test_model_graph_includes_solidity_custom_errors(self):
+        import tempfile
+        src = (
+            "pragma solidity ^0.8.0;\n"
+            "contract C {\n"
+            "    error BadThing();\n"
+            "    function f() external { revert BadThing(); }\n"
+            "}\n"
+        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".sol", delete=False, encoding="utf-8")
+        try:
+            tmp.write(src)
+            tmp.close()
+            ctx = SolidityAdapterV0().parse_source(tmp.name)
+            graph = model_graph_to_dict(ctx.normalized_model)
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+        err_nodes = [n for n in graph["nodes"] if n["group"] == "custom_error"]
+        self.assertTrue(any(n["label"] == "BadThing" for n in err_nodes))
+        rev = [e for e in graph["edges"] if e["kind"] == "function_to_custom_error"]
+        self.assertGreaterEqual(len(rev), 1)
+        fn_f = next(n for n in graph["nodes"] if n["group"] == "function" and n["label"] == "f")
+        self.assertTrue(fn_f.get("calls_custom_error"))
+
+    def test_state_entity_graph_extra_parses_solidity_declaration(self):
+        entity = NormalizedStateEntity(
+            name="amount",
+            owner="MinimalGuard",
+            kind="state_variable",
+            raw_signature="uint256 public amount",
+        )
+        extra = _state_entity_graph_extra(entity)
+        self.assertEqual(extra["variable_type"], "uint256")
+        self.assertEqual(extra["visibility"], "public")
+
+    def test_model_graph_state_variable_has_type_and_usage(self):
+        entity = NormalizedStateEntity(
+            name="amount",
+            owner="C",
+            kind="state_variable",
+            raw_signature="uint256 public amount",
+        )
+        fn = NormalizedFunction(name="setAmount", owner="C", visibility="external")
+        type_entry = NormalizedType(
+            name="C",
+            kind="contract_like",
+            functions=[fn],
+            state_entities=[entity],
+        )
+        model = NormalizedAuditModel(
+            artifact=NormalizedArtifact(
+                path="x.sol", language="solidity", adapter_name="test",
+            ),
+            types=[type_entry],
+            call_edges=[
+                NormalizedCallEdge("C", "amount", "C", "setAmount", "state_to_function"),
+            ],
+        )
+        graph = model_graph_to_dict(model)
+        amount = next(
+            n for n in graph["nodes"] if n["group"] == "state" and n["label"] == "amount"
+        )
+        self.assertEqual(amount["kind"], "state_variable")
+        self.assertEqual(amount["variable_type"], "uint256")
+        self.assertEqual(amount["visibility"], "public")
+        self.assertIn("uint256 public amount", amount["source_body"])
+        fn_ids = {
+            e["target"]
+            for e in graph["edges"]
+            if e["kind"] == "state_to_function" and e["source"] == amount["id"]
+        }
+        self.assertTrue(
+            any(
+                n["id"] in fn_ids and n["label"] == "setAmount"
+                for n in graph["nodes"]
+                if n["group"] == "function"
+            )
+        )
 
     def test_model_graph_handles_none(self):
         self.assertEqual(

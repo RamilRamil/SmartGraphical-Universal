@@ -134,6 +134,29 @@ class ContractReaderExtractFuncTests(unittest.TestCase):
         self.assertIn("}", first)
         self.assertNotIn("function b", first)
 
+    def test_fparams_balances_parens_for_mapping_in_param_list(self):
+        r = ContractReader()
+        header = (
+            "function pushSubVaultExit(mapping(address vault => DoubleEndedQueue.Bytes32Deque) "
+            "internal storage subVaultsExits, address vault, uint160 positionTicket, uint96 shares, bool front "
+            ") internal { if (true) {} }"
+        )
+        name, input_details, ext_params = r.extract_fparams(header)
+        self.assertEqual(name.strip(), "pushSubVaultExit")
+        self.assertEqual(ext_params, ["internal"])
+        self.assertEqual(len(input_details), 5)
+        joined0 = " ".join(input_details[0])
+        self.assertIn("mapping", joined0)
+        self.assertIn("subVaultsExits", joined0)
+
+    def test_extract_custom_errors_lists_declarations(self):
+        r = ContractReader()
+        src = " error InvalidShares(); error Another(uint256 x); uint y; "
+        blocks, details = r.extract_custom_errors(src)
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual([d[0] for d in details], ["InvalidShares", "Another"])
+        self.assertIn("uint256", details[1][1])
+
 
 if __name__ == "__main__":
     unittest.main()

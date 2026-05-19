@@ -975,6 +975,11 @@ button.sg-graph__chip:focus-visible {
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 }
 
+.sg-graph__chip--custom-error::before {
+  background: #ef4444;
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+}
+
 .sg-graph__chip--external::before {
   background: #6b7280;
   transform: rotate(45deg);

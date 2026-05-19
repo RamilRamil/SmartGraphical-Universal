@@ -1,9 +1,12 @@
 {
   "language": "solidity",
   "meta_tasks": {
-    "all": {
+    "0": {
       "kind": "meta",
-      "note": "run_all shortcut in API/CLI; not a RuleSpec in build_rule_registry()."
+      "aliases": [
+        "all"
+      ],
+      "note": "run_all; not a RuleSpec. Listed first in web_api.list_tasks."
     }
   },
   "registry_tasks": {
@@ -62,10 +65,25 @@
       "primary_coverage": "model_unit",
       "notes": "tests/unit/test_rules_outer_calls.py"
     },
-    "14": {
+    "12": {
       "slug": "min_slippage_bounds",
       "primary_coverage": "model_unit",
       "notes": "tests/unit/test_rules_min_slippage_bounds.py"
+    },
+    "13": {
+      "slug": "read_only_oracle_reentrancy",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_knowdit_reentrancy.py"
+    },
+    "14": {
+      "slug": "bridge_retry_reentrancy",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_knowdit_reentrancy.py"
+    },
+    "15": {
+      "slug": "unstake_share_burn_order",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_rules_knowdit_reentrancy.py"
     }
   },
   "primary_coverage_values_documented": [

@@ -12,6 +12,14 @@ from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0, build_ru
 from smartgraphical.core.engine import RuleEngine, demonstrate_findings, summarize_model
 from smartgraphical.services.analysis_service import AnalysisService
 
+# Keep in sync with smartgraphical.services.web_api.META_TASK_ALL_ID (cannot import web_api here: circular).
+CLI_META_RUN_ALL_TASK = "0"
+
+
+def _cli_is_run_all_task(task_id) -> bool:
+    if task_id is None:
+        return False
+    return str(task_id).strip().lower() in frozenset({CLI_META_RUN_ALL_TASK, "all"})
 
 HELP_TEXT = " ------------------------------------------------------------------\n \
    Help:\n \
@@ -40,7 +48,8 @@ Task 11: A smart contract's function that can be called fully publicly and witho
 "
 
 
-TASK_PROMPT = "\n 1: Old version\n \
+TASK_PROMPT = "\n 0: Run all rules (+ graph)\n \
+1: Old version\n \
 2: Unallowed manipulation\n \
 3: Stake function\n \
 4: Pool interactions\n \
@@ -51,8 +60,8 @@ TASK_PROMPT = "\n 1: Old version\n \
 9: Withdraw actions\n \
 10: Similar names\n \
 11: Outer calls\n \
-12: Graphical demonstration\n \
-13: Run all tasks\n \
+12--15: Further Solidity rules (see registry)\n \
+99: Graph only (visualization)\n \
 Enter task number:  "
 
 EXIT_OK = 0
@@ -169,10 +178,10 @@ def run_cli(source_path, selected_task=None, output_mode="legacy", output_format
     if selected_task in service.rule_engine.rule_registry:
         findings = service.run_task(context, selected_task)
         rules_run = [selected_task]
-    elif selected_task == "12":
+    elif selected_task == "99":
         service.render_graph(context)
         rendered_graph = True
-    elif selected_task == "13":
+    elif _cli_is_run_all_task(selected_task):
         findings = service.run_all(context)
         rules_run = sorted(service.rule_engine.rule_registry.keys(), key=int)
         service.render_graph(context)
@@ -180,12 +189,12 @@ def run_cli(source_path, selected_task=None, output_mode="legacy", output_format
     else:
         allowed_tasks = sorted(service.rule_engine.rule_registry.keys(), key=int)
         raise CliUserError(
-            f"Error: task must be one of [{', '.join(allowed_tasks)}], 12, or 13."
+            f"Error: task must be one of [{', '.join(allowed_tasks)}], {CLI_META_RUN_ALL_TASK}, all, or 99."
         )
 
     if findings and output_format == "text":
         demonstrate_findings(findings, output_mode)
-    elif not findings and selected_task != "12" and output_format == "text":
+    elif not findings and selected_task != "99" and output_format == "text":
         print("No findings.")
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)

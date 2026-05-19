@@ -25,28 +25,28 @@ class RustStellarFixtureRuleTests(unittest.TestCase):
         self.engine = RuleEngine(build_rust_rule_registry())
 
     def test_missing_auth_fires_on_violating_entry(self):
-        findings = self.engine.run_task(self.context, "201")
+        findings = self.engine.run_task(self.context, "1")
         slugs = {f.rule_id for f in findings}
         self.assertIn("missing_auth_check", slugs)
 
     def test_unbounded_instance_fire(self):
-        findings = self.engine.run_task(self.context, "202")
+        findings = self.engine.run_task(self.context, "2")
         slugs = {f.rule_id for f in findings}
         self.assertIn("unbounded_instance_storage_growth", slugs)
 
     def test_invoke_without_try_fire(self):
-        findings = self.engine.run_task(self.context, "203")
+        findings = self.engine.run_task(self.context, "3")
         slugs = {f.rule_id for f in findings}
         self.assertIn("unhandled_cross_contract_failure", slugs)
 
     def test_complex_params_fire(self):
-        findings = self.engine.run_task(self.context, "204")
+        findings = self.engine.run_task(self.context, "4")
         slugs = {f.rule_id for f in findings}
         self.assertIn("dangerous_raw_val_conversion", slugs)
 
     def test_missing_ttl_constructor_loop_assert(self):
-        rules = {"205": "missing_ttl_extension", "206": "improper_error_signaling",
-                 "207": "resource_limit_exhaustion_loop", "208": "constructor_reinitialization_risk"}
+        rules = {"5": "missing_ttl_extension", "6": "improper_error_signaling",
+                 "7": "resource_limit_exhaustion_loop", "8": "constructor_reinitialization_risk"}
         for tid, slug in rules.items():
             with self.subTest(task=tid):
                 findings = self.engine.run_task(self.context, tid)

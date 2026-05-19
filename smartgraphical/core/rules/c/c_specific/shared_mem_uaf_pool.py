@@ -1,4 +1,4 @@
-"""Rule C04 (task 104): shared_mem_uaf_pool.
+"""Rule C04 (task 4): shared_mem_uaf_pool.
 
 Detects use-after-free patterns in shared memory pools: a pointer passed
 to a pool release function is dereferenced in a subsequent statement
@@ -34,8 +34,8 @@ def _is_nullified(stmt, var):
     return bool(re.search(rf'\b{re.escape(var)}\s*=', stmt))
 
 _META = dict(
-    task_id='104',
-    legacy_code=104,
+    task_id='4',
+    legacy_code=4,
     slug='shared_mem_uaf_pool',
     title='Use-After-Free in Shared Memory Pools',
     category='memory_safety',
@@ -72,7 +72,7 @@ def _detect(context):
                         del released_vars[var]
                     elif _is_deref(stmt, var):
                         alerts.append({
-                            'code': 104,
+                            'code': 4,
                             'message': (
                                 f"Use-after-free: '{var}' dereferenced after "
                                 f"pool release in "

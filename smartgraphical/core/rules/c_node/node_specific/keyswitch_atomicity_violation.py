@@ -1,4 +1,4 @@
-"""Rule C13 (task 113): keyswitch_atomicity_violation.
+"""Rule C13 (task 13): keyswitch_atomicity_violation.
 
 Detects invalid ordering in identity switch flow. Expected order:
 HALT -> FLUSH -> UPDATE -> RESUME.
@@ -16,8 +16,8 @@ _UPDATE_MARKERS = (
 )
 
 _META = dict(
-    task_id='113',
-    legacy_code=113,
+    task_id='13',
+    legacy_code=13,
     slug='keyswitch_atomicity_violation',
     title='Non-Atomic Identity Switch Coordination',
     category='liveness',
@@ -54,7 +54,7 @@ def _detect(context):
             flush_idx = _first_index(call_names, _FLUSH_MARKERS)
             if halt_idx < 0 or flush_idx < 0:
                 alerts.append({
-                    'code': 113,
+                    'code': 13,
                     'message': (
                         f"Keyswitch update observed without full HALT/FLUSH sequence "
                         f"in {function_key}."
@@ -63,7 +63,7 @@ def _detect(context):
                 continue
             if update_idx < halt_idx or update_idx < flush_idx:
                 alerts.append({
-                    'code': 113,
+                    'code': 13,
                     'message': (
                         f"Keyswitch order violation (update before halt/flush) "
                         f"in {function_key}."

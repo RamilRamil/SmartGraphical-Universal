@@ -32,11 +32,13 @@ type LegendNodeBucket =
   | "modifier_ring"
   | "state_workspace"
   | "event"
+  | "custom_error"
   | "external";
 
 type LegendEdgeBucket =
   | "edge_state"
   | "edge_emit"
+  | "edge_revert_error"
   | "edge_ext_contract"
   | "edge_system"
   | "edge_internal"
@@ -45,6 +47,14 @@ type LegendEdgeBucket =
   | "edge_struct_ws";
 
 type HiddenLegend = Partial<Record<LegendNodeBucket | LegendEdgeBucket, true>>;
+
+/** Edge kinds toggled by "Show cross-contract calls". */
+const CROSS_CONTRACT_EDGE_KINDS = new Set([
+  "cross_contract_call",
+  "function_to_object",
+  "cross_type_call",
+  "cross_type_state",
+]);
 
 function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
   const g = node.data("group") as GraphNode["group"] | undefined;
@@ -62,6 +72,7 @@ function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
   if (g === "modifier") return "modifier";
   if (g === "state" || g === "workspace") return "state_workspace";
   if (g === "event") return "event";
+  if (g === "custom_error") return "custom_error";
   if (g === "external" || g === "external_import") return "external";
   return null;
 }
@@ -72,6 +83,8 @@ function bucketForEdgeKind(kind: string): LegendEdgeBucket | null {
       return "edge_state";
     case "function_to_event":
       return "edge_emit";
+    case "function_to_custom_error":
+      return "edge_revert_error";
     case "function_to_object":
     case "cross_contract_call":
       return "edge_ext_contract";
@@ -138,7 +151,7 @@ function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
     let ok = !isLegendHidden(hiddenLegend, eBucket);
 
     if (kind === "import_dependency" && !showImports) ok = false;
-    if (kind === "cross_contract_call" && !showCrossContractCalls) ok = false;
+    if (CROSS_CONTRACT_EDGE_KINDS.has(kind) && !showCrossContractCalls) ok = false;
 
     const src = edge.source();
     const tgt = edge.target();
@@ -150,11 +163,11 @@ function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
   });
 }
 
-function graphFullscreenResize(core: Core | null): void {
+/** Resize canvas to container; preserves pan/zoom (no fit). */
+function scheduleGraphResize(core: Core | null): void {
   if (!core) return;
   requestAnimationFrame(() => {
     core.resize();
-    core.fit(undefined, 36);
   });
 }
 
@@ -207,6 +220,8 @@ function nodeColor(group: GraphNode["group"]): string {
       return "#f59e0b";
     case "event":
       return "#a855f7";
+    case "custom_error":
+      return "#ef4444";
     case "modifier":
       return "#22c55e";
     case "external":
@@ -261,6 +276,7 @@ function buildElements(graph: GraphData): ElementDefinition[] {
           calls_contract: node.calls_contract,
           calls_system: node.calls_system,
           calls_event: node.calls_event,
+          calls_custom_error: node.calls_custom_error,
           calls_include_template: node.calls_include_template,
           heuristic_callees_ordered: node.heuristic_callees_ordered,
           state_reads: node.state_reads,
@@ -278,6 +294,10 @@ function buildElements(graph: GraphData): ElementDefinition[] {
         group: node.group,
         parent: node.parent,
         kind: node.kind,
+        variable_type: node.variable_type,
+        storage_attributes: node.storage_attributes,
+        import_path: node.import_path,
+        resolution: node.resolution,
         type_name: node.type_name,
         visibility: node.visibility,
         is_entrypoint: node.is_entrypoint,
@@ -291,11 +311,13 @@ function buildElements(graph: GraphData): ElementDefinition[] {
         calls_contract: node.calls_contract,
         calls_system: node.calls_system,
         calls_event: node.calls_event,
+        calls_custom_error: node.calls_custom_error,
         calls_include_template: node.calls_include_template,
         state_reads: node.state_reads,
         state_writes: node.state_writes,
         guards: node.guards,
         write_paths: node.write_paths,
+        source_file: node.source_file,
       },
     });
   }
@@ -309,6 +331,9 @@ function buildElements(graph: GraphData): ElementDefinition[] {
       callsite: edge.callsite,
       args_map: edge.args_map,
       line_numbers: edge.line_numbers,
+      import_symbol: edge.import_symbol,
+      import_path: edge.import_path ?? edge.label,
+      resolution: edge.resolution,
     },
   }));
   return [...nodes, ...edges];
@@ -352,6 +377,11 @@ function readSelectedNode(node: NodeSingular): GraphNode {
     group: node.data("group"),
     parent: node.data("parent"),
     kind: node.data("kind"),
+    variable_type: node.data("variable_type"),
+    storage_attributes: readStringArray(node.data("storage_attributes")),
+    import_path: node.data("import_path"),
+    resolution: node.data("resolution"),
+    source_file: node.data("source_file"),
     type_name: node.data("type_name"),
     solidity_kind: node.data("solidity_kind") as GraphNode["solidity_kind"],
     visibility: node.data("visibility"),
@@ -365,6 +395,7 @@ function readSelectedNode(node: NodeSingular): GraphNode {
     calls_contract: node.data("calls_contract"),
     calls_system: node.data("calls_system"),
     calls_event: node.data("calls_event"),
+    calls_custom_error: node.data("calls_custom_error"),
     calls_include_template: Boolean(node.data("calls_include_template")),
     heuristic_callees_ordered: readStringArray(node.data("heuristic_callees_ordered")),
     state_reads,
@@ -390,6 +421,9 @@ function readSelectedEdge(edge: cytoscape.EdgeSingular): GraphEdge {
     callsite: edge.data("callsite"),
     args_map,
     line_numbers,
+    import_symbol: edge.data("import_symbol"),
+    import_path: edge.data("import_path"),
+    resolution: edge.data("resolution"),
   };
 }
 
@@ -469,6 +503,62 @@ export function GraphView({ graph }: GraphViewProps) {
     }
     return map;
   }, [displayGraph.nodes]);
+
+  const selectedImportUsages = useMemo(() => {
+    if (!selected || selected.group !== "function") return [];
+    const rows: Array<{
+      symbol: string;
+      path: string;
+      lines: string;
+      callsite: string;
+      targetLabel: string;
+    }> = [];
+    for (const edge of displayGraph.edges) {
+      if (edge.kind !== "import_dependency" || edge.source !== selected.id) continue;
+      rows.push({
+        symbol: edge.import_symbol ?? edge.label,
+        path: edge.import_path ?? edge.label,
+        lines: edge.line_numbers?.length ? edge.line_numbers.join(", ") : "",
+        callsite: edge.callsite ?? "",
+        targetLabel: nodeLabelById.get(edge.target) ?? edge.target,
+      });
+    }
+    return rows;
+  }, [displayGraph.edges, selected, nodeLabelById]);
+
+  const selectedExternalImportUsages = useMemo(() => {
+    if (!selected || selected.group !== "external_import") return [];
+    const rows: Array<{
+      fromLabel: string;
+      fromId: string;
+      lines: string;
+      callsite: string;
+    }> = [];
+    for (const edge of displayGraph.edges) {
+      if (edge.kind !== "import_dependency" || edge.target !== selected.id) continue;
+      rows.push({
+        fromLabel: nodeLabelById.get(edge.source) ?? edge.source,
+        fromId: edge.source,
+        lines: edge.line_numbers?.length ? edge.line_numbers.join(", ") : "",
+        callsite: edge.callsite ?? "",
+      });
+    }
+    return rows;
+  }, [displayGraph.edges, selected, nodeLabelById]);
+
+  const stateAccessFunctionLabels = useMemo(() => {
+    if (!selected || (selected.group !== "state" && selected.group !== "workspace")) {
+      return [];
+    }
+    const labels: string[] = [];
+    for (const edge of displayGraph.edges) {
+      if (edge.kind !== "state_to_function" || edge.source !== selected.id) {
+        continue;
+      }
+      labels.push(nodeLabelById.get(edge.target) ?? edge.target);
+    }
+    return [...new Set(labels)].sort((a, b) => a.localeCompare(b));
+  }, [displayGraph.edges, selected, nodeLabelById]);
 
   const focusEligible =
     selected !== null && (selected.group === "type" || selected.group === "tile");
@@ -638,6 +728,14 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: 'node[group = "custom_error"]',
+          style: {
+            shape: "octagon",
+            width: 30,
+            height: 30,
+          },
+        },
+        {
           selector: 'node[group = "modifier"]',
           style: {
             shape: "round-rectangle",
@@ -711,6 +809,14 @@ export function GraphView({ graph }: GraphViewProps) {
           style: {
             "line-color": "#c084fc",
             "target-arrow-color": "#c084fc",
+          },
+        },
+        {
+          selector: 'edge[kind = "function_to_custom_error"]',
+          style: {
+            "line-color": "#f87171",
+            "target-arrow-color": "#f87171",
+            "line-style": "dashed",
           },
         },
         {
@@ -910,7 +1016,7 @@ export function GraphView({ graph }: GraphViewProps) {
   }, [elements, focusSecondaryEdgeIds]);
 
   useEffect(() => {
-    requestAnimationFrame(() => graphFullscreenResize(coreRef.current));
+    scheduleGraphResize(coreRef.current);
   }, [graphCanvasOnly]);
 
   const handleExportPng = () => {
@@ -956,7 +1062,7 @@ export function GraphView({ graph }: GraphViewProps) {
       const next = bounds.right - event.clientX;
       const clamped = Math.max(minPanelWidth, Math.min(maxPanelWidth, next));
       setSidePanelWidth(clamped);
-      graphFullscreenResize(coreRef.current);
+      scheduleGraphResize(coreRef.current);
     };
     const onMouseUp = () => setIsResizing(false);
     window.addEventListener("mousemove", onMouseMove);
@@ -981,7 +1087,7 @@ export function GraphView({ graph }: GraphViewProps) {
       const reserveWorkspace = 200;
       const maxToolbar = Math.max(minToolbar + 40, shellH - reserveWorkspace);
       setToolbarPanelHeight(Math.max(minToolbar, Math.min(maxToolbar, next)));
-      graphFullscreenResize(coreRef.current);
+      scheduleGraphResize(coreRef.current);
     };
     const onMouseUp = () => setIsResizingToolbar(false);
     window.addEventListener("mousemove", onMouseMove);
@@ -997,7 +1103,7 @@ export function GraphView({ graph }: GraphViewProps) {
     if (!shell || displayGraph.nodes.length === 0) return;
     const onChange = () => {
       setIsGraphFullscreen(isGraphShellFullscreen(shell));
-      graphFullscreenResize(coreRef.current);
+      scheduleGraphResize(coreRef.current);
     };
     document.addEventListener("fullscreenchange", onChange);
     document.addEventListener("webkitfullscreenchange", onChange);
@@ -1022,7 +1128,7 @@ export function GraphView({ graph }: GraphViewProps) {
     return (
       <div className="sg-graph">
         <p className="sg-page__hint">
-          Graph data is empty. Re-run the scan with task &quot;all&quot; to populate
+          Graph data is empty. Re-run the scan with task 0 (run all) to populate
           the graph, or this artifact may not contain any parseable structures.
         </p>
       </div>
@@ -1045,6 +1151,7 @@ export function GraphView({ graph }: GraphViewProps) {
     if (selected.calls_contract) outgoingLabels.push("external contract call");
     if (selected.calls_system) outgoingLabels.push("system / low-level call");
     if (selected.calls_event) outgoingLabels.push("emit event");
+    if (selected.calls_custom_error) outgoingLabels.push("revert custom error");
     if (selected.calls_include_template)
       outgoingLabels.push("TU .c include template (heuristic)");
   }
@@ -1286,6 +1393,14 @@ export function GraphView({ graph }: GraphViewProps) {
               </button>
               <button
                 type="button"
+                className={`sg-graph__chip sg-graph__chip--custom-error${hiddenLegend.custom_error ? " sg-graph__chip--suppressed" : ""}`}
+                aria-pressed={Boolean(hiddenLegend.custom_error)}
+                onClick={() => toggleLegend("custom_error")}
+              >
+                error
+              </button>
+              <button
+                type="button"
                 className={`sg-graph__chip sg-graph__chip--external${hiddenLegend.external ? " sg-graph__chip--suppressed" : ""}`}
                 aria-pressed={Boolean(hiddenLegend.external)}
                 onClick={() => toggleLegend("external")}
@@ -1317,6 +1432,15 @@ export function GraphView({ graph }: GraphViewProps) {
                 onClick={() => toggleLegend("edge_emit")}
               >
                 emit
+              </button>
+              <button
+                type="button"
+                className={`sg-graph__edge-key${hiddenLegend.edge_revert_error ? " sg-graph__edge-key--suppressed" : ""}`}
+                style={{ color: "#f87171" }}
+                aria-pressed={Boolean(hiddenLegend.edge_revert_error)}
+                onClick={() => toggleLegend("edge_revert_error")}
+              >
+                revert error
               </button>
               <button
                 type="button"
@@ -1423,8 +1547,24 @@ export function GraphView({ graph }: GraphViewProps) {
               <dl className="sg-graph__meta">
                 {selected.type_name && (
                   <>
-                    <dt>Type</dt>
+                    <dt>
+                      {selected.group === "state" || selected.group === "workspace"
+                        ? "Contract"
+                        : "Type"}
+                    </dt>
                     <dd>{selected.type_name}</dd>
+                  </>
+                )}
+                {selected.variable_type && (
+                  <>
+                    <dt>Type</dt>
+                    <dd>{selected.variable_type}</dd>
+                  </>
+                )}
+                {selected.storage_attributes && selected.storage_attributes.length > 0 && (
+                  <>
+                    <dt>Attributes</dt>
+                    <dd>{selected.storage_attributes.join(", ")}</dd>
                   </>
                 )}
                 {selected.solidity_kind && (
@@ -1447,6 +1587,48 @@ export function GraphView({ graph }: GraphViewProps) {
                   <>
                     <dt>Kind</dt>
                     <dd>{selected.kind}</dd>
+                  </>
+                )}
+                {selected.group === "external_import" && selected.import_path && (
+                  <>
+                    <dt>Import path</dt>
+                    <dd>{selected.import_path}</dd>
+                  </>
+                )}
+                {selected.group === "external_import" && selected.resolution && (
+                  <>
+                    <dt>Resolution</dt>
+                    <dd>{selected.resolution}</dd>
+                  </>
+                )}
+                {selected.group === "external_import" &&
+                  selectedExternalImportUsages.length > 0 && (
+                  <>
+                    <dt>Used from</dt>
+                    <dd>
+                      <ul className="sg-graph__modifiers">
+                        {selectedExternalImportUsages.map((row) => (
+                          <li
+                            key={`${row.fromId}-${row.lines}`}
+                            className="sg-graph__modifier-row"
+                          >
+                            <span>{row.fromLabel}</span>
+                            {row.lines ? <span>{` (lines ${row.lines})`}</span> : null}
+                            {row.callsite ? (
+                              <pre className="sg-graph__code">
+                                <code>{row.callsite}</code>
+                              </pre>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </>
+                )}
+                {selected.source_file && (
+                  <>
+                    <dt>Source file</dt>
+                    <dd>{selected.source_file}</dd>
                   </>
                 )}
                 {selected.modifier_details && selected.modifier_details.length > 0 && (
@@ -1472,6 +1654,31 @@ export function GraphView({ graph }: GraphViewProps) {
                   <>
                     <dt>Entrypoint</dt>
                     <dd>yes (public or external)</dd>
+                  </>
+                )}
+                {selected.group === "function" && selectedImportUsages.length > 0 && (
+                  <>
+                    <dt>Import usage</dt>
+                    <dd>
+                      <ul className="sg-graph__modifiers">
+                        {selectedImportUsages.map((row) => (
+                          <li
+                            key={`${row.symbol}-${row.lines}`}
+                            className="sg-graph__modifier-row"
+                          >
+                            <span>{row.symbol}</span>
+                            <span>{` -> ${row.targetLabel}`}</span>
+                            {row.lines ? <span>{` (lines ${row.lines})`}</span> : null}
+                            <span className="sg-page__hint">{row.path}</span>
+                            {row.callsite ? (
+                              <pre className="sg-graph__code">
+                                <code>{row.callsite}</code>
+                              </pre>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
                   </>
                 )}
                 {selected.group === "function" &&
@@ -1549,6 +1756,33 @@ export function GraphView({ graph }: GraphViewProps) {
                     </>
                   )}
                 {(selected.group === "state" || selected.group === "workspace") &&
+                  (selected.kind === "state_variable" || selected.kind === "object_instance") &&
+                  selected.source_body && (
+                  <>
+                    <dt>Declaration</dt>
+                    <dd>
+                      <pre className="sg-graph__code">
+                        <code>{selected.source_body}</code>
+                      </pre>
+                    </dd>
+                  </>
+                )}
+                {(selected.group === "state" || selected.group === "workspace") &&
+                  stateAccessFunctionLabels.length > 0 && (
+                  <>
+                    <dt>Used by functions</dt>
+                    <dd>
+                      <ul className="sg-graph__modifiers">
+                        {stateAccessFunctionLabels.map((name) => (
+                          <li key={name} className="sg-graph__modifier-row">
+                            <span>{name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </>
+                )}
+                {(selected.group === "state" || selected.group === "workspace") &&
                   selected.kind === "struct" &&
                   selected.source_body && (
                   <>
@@ -1592,10 +1826,23 @@ export function GraphView({ graph }: GraphViewProps) {
                 <dd>{nodeLabelById.get(selectedEdge.source) ?? selectedEdge.source}</dd>
                 <dt>To</dt>
                 <dd>{nodeLabelById.get(selectedEdge.target) ?? selectedEdge.target}</dd>
-                {selectedEdge.kind === "import_dependency" && selectedEdge.label && (
+                {selectedEdge.import_symbol && (
+                  <>
+                    <dt>Symbol</dt>
+                    <dd>{selectedEdge.import_symbol}</dd>
+                  </>
+                )}
+                {selectedEdge.kind === "import_dependency" &&
+                  (selectedEdge.import_path || selectedEdge.label) && (
                   <>
                     <dt>Import path</dt>
-                    <dd>{selectedEdge.label}</dd>
+                    <dd>{selectedEdge.import_path ?? selectedEdge.label}</dd>
+                  </>
+                )}
+                {selectedEdge.resolution && (
+                  <>
+                    <dt>Resolution</dt>
+                    <dd>{selectedEdge.resolution}</dd>
                   </>
                 )}
                 {selectedEdge.kind !== "import_dependency" && selectedEdge.label && (

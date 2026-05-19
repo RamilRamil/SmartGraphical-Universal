@@ -79,7 +79,7 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(payload["language"], "solidity")
         ids = [task["id"] for task in payload["tasks"]]
         self.assertIn("11", ids)
-        self.assertEqual(ids[-1], "all")
+        self.assertEqual(ids[0], "0")
 
     def test_tasks_for_rust(self):
         response = self.client.get("/api/languages/rust/tasks")
@@ -87,8 +87,8 @@ class HttpContractTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["language"], "rust")
         ids = [task["id"] for task in payload["tasks"]]
-        self.assertIn("216", ids)
-        self.assertEqual(ids[-1], "all")
+        self.assertIn("16", ids)
+        self.assertEqual(ids[0], "0")
 
     def test_tasks_for_unknown_language(self):
         response = self.client.get("/api/languages/go/tasks")
@@ -368,7 +368,7 @@ class HttpContractTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, msg=response.text)
         scan = response.json()
-        self.assertEqual(scan["task"], "all")
+        self.assertEqual(scan["task"], "0")
 
     def test_create_scan_rejects_invalid_task(self):
         artifact = self._upload_artifact()

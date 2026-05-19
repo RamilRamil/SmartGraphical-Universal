@@ -221,7 +221,7 @@ class HistoryServiceTests(unittest.TestCase):
         artifact = self.service.ingest_upload(self._source_bytes, FIXTURE_SOL_NAME)
         scan = self.service.run_all(artifact["id"])
         self.assertEqual(scan["status"], "ok")
-        self.assertEqual(scan["task"], "all")
+        self.assertEqual(scan["task"], "0")
         self.assertTrue(os.path.isfile(scan["graph_payload_path"]))
 
     def test_get_scan_returns_combined_view(self):

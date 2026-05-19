@@ -160,7 +160,9 @@ class ContractReader:
 
     def extract_tuple(self, inp):
         s_ind = inp.index('(')
-        e_ind = inp.index(')')
+        e_ind = self._closing_paren_index(inp, s_ind)
+        if e_ind is None:
+            e_ind = inp.index(')')
         inp = inp[s_ind + 1:e_ind].strip()
         inp_params = inp.split(',')
         inp_params = [i.strip() for i in inp_params]
@@ -182,7 +184,9 @@ class ContractReader:
             name = name.replace('modifier', '').strip()
             return name, [], []
         s_ind = inp.index('(')
-        e_ind = inp.index(')')
+        e_ind = self._closing_paren_index(inp, s_ind)
+        if e_ind is None:
+            e_ind = inp.index(')')
         name = inp[:s_ind]
         name = name.replace('function', '').strip()
         name = name.replace('modifier', '').strip()
@@ -196,6 +200,13 @@ class ContractReader:
             ret_params = self.extract_tuple(ret)
         ext_params = inp[e_ind + 1:rind]
         ext_params = ext_params.strip().split(' ')
+        if name == 'constructor':
+            # Inheritance initializer calls (Base(...)) are not modifiers.
+            _CTOR_MODS = frozenset({
+                'public', 'external', 'internal', 'private',
+                'payable', 'virtual', 'override',
+            })
+            ext_params = [p for p in ext_params if p in _CTOR_MODS]
         return name, input_details, ext_params
 
     def extract_body(self, inp):
@@ -526,6 +537,31 @@ class ContractReader:
             ret.append(f)
         return ret, details
 
+    def extract_custom_errors(self, inp):
+        """Slice `error Name(...);` declarations (Solidity user-defined errors)."""
+        s_inds = [m.start() for m in re.finditer(r'\berror\s+', inp)]
+        ret = []
+        details = []
+        for i in range(len(s_inds)):
+            e_ind = None
+            temp = inp[s_inds[i]:]
+            try:
+                s_ind = temp.index('(')
+            except ValueError:
+                continue
+            for j in range(s_ind, len(temp)):
+                if temp[j] == ";":
+                    e_ind = j
+                    break
+            if e_ind is None:
+                continue
+            f = temp[:e_ind + 1]
+            name = f[:s_ind].replace('error', '').strip()
+            params = f[s_ind:]
+            details.append([name, params])
+            ret.append(f)
+        return ret, details
+
     def extract_obj_func_mapping(self, objs, func_names, bodies):
         ret = {}
         for i in objs:
@@ -581,6 +617,7 @@ class ContractReader:
         ret = []
         hierarchy = {}
         unit_kinds: dict = {}
+        file_imports = self.extract_imports(all_code)
         for ci in range(len(contracts)):
             funcs = []
             cont_code = contracts[ci]
@@ -625,8 +662,11 @@ class ContractReader:
             events, evt_details = self.extract_events(res_code)
             for ev in events:
                 res_code = res_code.replace(ev, ' ')
+            err_blocks, err_details = self.extract_custom_errors(res_code)
+            for eb in err_blocks:
+                res_code = res_code.replace(eb, ' ')
             vars, objs = self.extract_variables(res_code, self.vars, analyzed_contracts)
-            imps = self.extract_imports(res_code)
+            imps = file_imports
             var_names = [i[-1] for i in vars]
             var_names.extend([i[0] for i in structs])
             func_names = [i[0] for i in funcs]
@@ -635,6 +675,9 @@ class ContractReader:
                 func_names.extend([constructor[0]])
                 func_bodies.extend([constructor[-1]])
             for dt in evt_details:
+                func_names.append(dt[0])
+                func_bodies.append('')
+            for dt in err_details:
                 func_names.append(dt[0])
                 func_bodies.append('')
             var_func_mapping = self.extract_var_func_mapping(var_names, func_names, func_bodies)
@@ -647,7 +690,7 @@ class ContractReader:
             ret.append([
                 contract_name, funcs, vars, structs, imps,
                 var_func_mapping, func_func_mapping, sysfunc_func_mapping,
-                obj_func_mapping, func_conditionals, constructor, evt_details, objs, using,
+                obj_func_mapping, func_conditionals, constructor, evt_details, err_details, objs, using,
             ])
         all_contract_names = list(hierarchy.keys())
         high_connections = []

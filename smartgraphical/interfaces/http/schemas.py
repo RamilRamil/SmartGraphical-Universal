@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class RunScanRequest(BaseModel):
-    task: str = Field(..., description="Task id (e.g. '11') or 'all'")
+    task: str = Field(..., description="Task id (e.g. '11') or meta '0' / legacy alias 'all' for run-all")
     mode: str = Field(default="auditor", description="auditor | legacy | explore")
 
 

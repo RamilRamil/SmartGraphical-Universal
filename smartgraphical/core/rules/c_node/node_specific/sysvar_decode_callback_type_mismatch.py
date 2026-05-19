@@ -1,4 +1,4 @@
-"""Rule C06 (task 106): sysvar_decode_callback_type_mismatch.
+"""Rule C06 (task 6): sysvar_decode_callback_type_mismatch.
 
 Detects assignments to sysvar decode callback function pointers that use
 an explicit type cast, which is the canonical C sign that the compiler
@@ -35,8 +35,8 @@ _EXPLICIT_CAST = re.compile(
 )
 
 _META = dict(
-    task_id='106',
-    legacy_code=106,
+    task_id='6',
+    legacy_code=6,
     slug='sysvar_decode_callback_type_mismatch',
     title='Function Type Mismatch in Sysvar Decode Callbacks',
     category='control_flow_integrity',
@@ -61,7 +61,7 @@ def _detect(context):
                 if not _EXPLICIT_CAST.search(stmt):
                     continue
                 alerts.append({
-                    'code': 106,
+                    'code': 6,
                     'message': (
                         f"Sysvar decode callback assigned with explicit type cast "
                         f"(possible signature mismatch) in "

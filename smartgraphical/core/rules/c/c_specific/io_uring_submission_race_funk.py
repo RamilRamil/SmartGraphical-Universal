@@ -1,4 +1,4 @@
-"""Rule C11 (task 111): io_uring_submission_race_funk.
+"""Rule C11 (task 11): io_uring_submission_race_funk.
 
 Detects io_uring submit calls that target a likely shared ring without an
 explicit synchronization marker. This rule relies on dataflow facts produced
@@ -13,8 +13,8 @@ PoC heuristic:
 from smartgraphical.core.engine import make_findings
 
 _META = dict(
-    task_id='111',
-    legacy_code=111,
+    task_id='11',
+    legacy_code=11,
     slug='io_uring_submission_race_funk',
     title='Race Condition in Funk Database io_uring Submissions',
     category='data_integrity',
@@ -47,7 +47,7 @@ def _detect(context):
                 if not (site.get('is_shared') or has_tile_context):
                     continue
                 alerts.append({
-                    'code': 111,
+                    'code': 11,
                     'message': (
                         f"io_uring_submit on potentially shared ring '{ring_expr}' "
                         f"without synchronization in {function_key}: "

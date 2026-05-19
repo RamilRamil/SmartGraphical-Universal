@@ -1,4 +1,4 @@
-"""Rule C12 (task 112): alt_resolution_window_mismatch.
+"""Rule C12 (task 12): alt_resolution_window_mismatch.
 
 Detects ALT (Address Lookup Table) deactivation-slot comparisons that use
 a numeric literal other than the Agave-compatible 512-slot window. Using a
@@ -32,8 +32,8 @@ _SLOT_CONSTANT = re.compile(r'(?:>|>=|<|<=)\s*(\d+)\b')
 _CORRECT_WINDOW = 512
 
 _META = dict(
-    task_id='112',
-    legacy_code=112,
+    task_id='12',
+    legacy_code=12,
     slug='alt_resolution_window_mismatch',
     title='Incorrect ALT Resolution Slot Window',
     category='correctness',
@@ -59,7 +59,7 @@ def _detect(context):
                     if constant == _CORRECT_WINDOW:
                         continue
                     alerts.append({
-                        'code': 112,
+                        'code': 12,
                         'message': (
                             f"ALT slot window uses constant {constant} "
                             f"instead of {_CORRECT_WINDOW} in "

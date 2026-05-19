@@ -64,8 +64,8 @@ class CTaskCoverageContractTests(unittest.TestCase):
         registry = build_c_rule_registry()
         payload = list_tasks("c")
         ids = [t["id"] for t in payload["tasks"]]
-        self.assertEqual(ids[-1], "all")
-        self.assertEqual(set(ids[:-1]), set(registry.keys()))
+        self.assertEqual(ids[0], "0")
+        self.assertEqual(set(ids[1:]), set(registry.keys()))
 
 
 if __name__ == "__main__":

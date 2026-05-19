@@ -1,4 +1,4 @@
-"""Eight Soroban static checks (tasks 201-208).
+"""Eight Soroban static checks (tasks 1-8 in unified Rust registry).
 
 Each runner inspects Adapter-built function_facts keyed as `<stem>.<fn>`.
 """
@@ -21,8 +21,8 @@ def run_missing_auth_check(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='201',
-        legacy_code=201,
+        task_id='1',
+        legacy_code=1,
         slug='missing_auth_check',
         title='Missing Authorization on Public Entry That Mutates State',
         category='authorization',
@@ -41,7 +41,7 @@ def run_missing_auth_check(context):
         if facts.get('calls_require_auth'):
             continue
         alerts.append({
-            'code': 201,
+            'code': 1,
             'message': (
                 f"Public entry '{tname}.{function.name}' mutates ledger storage without "
                 f"observed require_auth* (body excerpt: {function.body[:120]!r})"
@@ -54,8 +54,8 @@ def run_unbounded_instance_storage_growth(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='202',
-        legacy_code=202,
+        task_id='2',
+        legacy_code=2,
         slug='unbounded_instance_storage_growth',
         title='Potentially Unbounded Structures in Instance Storage',
         category='economic_dos',
@@ -73,7 +73,7 @@ def run_unbounded_instance_storage_growth(context):
         if not coll.search(haystack):
             continue
         alerts.append({
-            'code': 202,
+            'code': 2,
             'message': (
                 f"Instance storage write in '{tname}.{function.name}' may carry dynamic Vec/Map/Bytes/String "
                 f"payloads (sig/body excerpt): {haystack[:180]!r}"
@@ -86,8 +86,8 @@ def run_unhandled_cross_contract_failure(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='203',
-        legacy_code=203,
+        task_id='3',
+        legacy_code=3,
         slug='unhandled_cross_contract_failure',
         title='Fallible External Call Without Controlled Error Boundary',
         category='cross_contract',
@@ -103,7 +103,7 @@ def run_unhandled_cross_contract_failure(context):
         if 'try_invoke_contract' in body:
             continue
         alerts.append({
-            'code': 203,
+            'code': 3,
             'message': (
                 f"'{tname}.{function.name}' calls invoke_contract without try_invoke_contract pairing "
                 f"in heuristic scan ({function.name} body)."
@@ -116,8 +116,8 @@ def run_dangerous_raw_val_conversion(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='204',
-        legacy_code=204,
+        task_id='4',
+        legacy_code=4,
         slug='dangerous_raw_val_conversion',
         title='Complex Collection Inputs Without Explicit Checks',
         category='input_validation',
@@ -136,7 +136,7 @@ def run_dangerous_raw_val_conversion(context):
         if re.search(r'\.len\s*\(\s*\)\s*<=', body):
             continue
         alerts.append({
-            'code': 204,
+            'code': 4,
             'message': (
                 f"'{tname}.{function.name}' exposes Vec/Map parameters without obvious length guard "
                 f"(signature prefix: {prefix[:120]!r})."
@@ -149,8 +149,8 @@ def run_missing_ttl_extension(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='205',
-        legacy_code=205,
+        task_id='5',
+        legacy_code=5,
         slug='missing_ttl_extension',
         title='Ledger Writes Missing TTL Extension Nearby',
         category='storage_ttl',
@@ -167,7 +167,7 @@ def run_missing_ttl_extension(context):
         if facts.get('calls_extend_ttl'):
             continue
         alerts.append({
-            'code': 205,
+            'code': 5,
             'message': (
                 f"'{tname}.{function.name}' writes instance/persistent storage without observed extend_ttl "
                 f"in the same function (heuristic false positives possible)."
@@ -180,8 +180,8 @@ def run_improper_error_signaling(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='206',
-        legacy_code=206,
+        task_id='6',
+        legacy_code=6,
         slug='improper_error_signaling',
         title='Bare panic! / assert! Instead of Structured Contract Errors',
         category='fuzzing_quality',
@@ -193,7 +193,7 @@ def run_improper_error_signaling(context):
         facts = (model.findings_data.function_facts or {}).get(fk_key) or {}
         if facts.get('panic_bare') or facts.get('panic_assert'):
             alerts.append({
-                'code': 206,
+                'code': 6,
                 'message': (
                     f"'{tname}.{function.name}' uses panic! or assert! (prefer panic_with_error! for diagnostics)."
                 ),
@@ -205,8 +205,8 @@ def run_resource_limit_exhaustion_loop(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='207',
-        legacy_code=207,
+        task_id='7',
+        legacy_code=7,
         slug='resource_limit_exhaustion_loop',
         title='Loops Over Storage That May Exhaust IO Budget',
         category='economic_dos',
@@ -219,7 +219,7 @@ def run_resource_limit_exhaustion_loop(context):
         if not facts.get('reads_storage_in_loop'):
             continue
         alerts.append({
-            'code': 207,
+            'code': 7,
             'message': (
                 f"'{tname}.{function.name}' loops while touching env.storage accessors "
                 f"(risk of ledger read amplification)."
@@ -232,8 +232,8 @@ def run_constructor_reinitialization_risk(context):
     model = context.normalized_model
     alerts = []
     meta = dict(
-        task_id='208',
-        legacy_code=208,
+        task_id='8',
+        legacy_code=8,
         slug='constructor_reinitialization_risk',
         title='Constructor-Like Entry Missing Reinitialization Guards',
         category='upgrade_migration',
@@ -248,7 +248,7 @@ def run_constructor_reinitialization_risk(context):
         body = function.body.lower()
         if facts.get('mutates_ledger_like') and 'has(' not in body and 'get(' not in body:
             alerts.append({
-                'code': 208,
+                'code': 8,
                 'message': (
                     f"'{tname}.{function.name}' performs storage mutation without observable has()/get() guard "
                     f"(migration safety review)."

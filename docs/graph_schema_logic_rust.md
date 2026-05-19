@@ -6,7 +6,7 @@ This specification defines the logic and structural requirements for constructin
 
 - This file defines the Rust/Soroban **target** schema, stable-id strategy, and domain mapping for graph construction and rule-oriented signals.
 - Target Soroban rule catalog (structured, implementation-agnostic until adapter lands): `docs/rust_stellar/soroban_rules_catalog.json`.
-- General Rust language helper catalog (tasks **209-223**; **209-216** language ergonomics/safety, **217-223** Base Azul-oriented review heuristics, plus optional `review_scenarios` / `review_checklist` JSON fields): `docs/rust/language_rules_catalog.json`.
+- General Rust language helper catalog: `docs/rust/language_rules_catalog.json` (tasks **9-23** on the shared adapter: **9-16** language ergonomics/safety, **17-23** Base Azul-oriented review heuristics, plus optional `review_scenarios` / `review_checklist` JSON fields). Soroban/Stellar rule tasks are **1-8** (see `docs/rust_stellar/soroban_rules_catalog.json`). HTTP/API task ordering is meta **0** (run all) then **1-23** for the combined registry.
 - **Implemented** graph behavior for the current production stack (serializers, API, UI) is documented in `docs/graph_schema_logic.md`.
 - When Rust/Soroban payload fields, `group` names, or `kind` semantics become implemented, mirror the relevant contract into the base doc in the **same** change (see `graph_schema_logic.md` section 7).
 

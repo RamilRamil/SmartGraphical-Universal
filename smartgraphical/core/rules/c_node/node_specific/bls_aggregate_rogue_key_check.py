@@ -1,4 +1,4 @@
-"""Rule C14 (task 114): bls_aggregate_rogue_key_check.
+"""Rule C14 (task 14): bls_aggregate_rogue_key_check.
 
 Detects BLS12-381 public key aggregation calls that are not preceded by a
 proof-of-possession (PoP) verification in the surrounding statement window.
@@ -37,8 +37,8 @@ _POP_TOKENS = [
 _WINDOW_RADIUS = 6
 
 _META = dict(
-    task_id='114',
-    legacy_code=114,
+    task_id='14',
+    legacy_code=14,
     slug='bls_aggregate_rogue_key_check',
     title='Missing Rogue Key Protection in Alpenglow Aggregation',
     category='cryptographic_safety',
@@ -67,7 +67,7 @@ def _detect(context):
                 if any(tok in s for tok in _POP_TOKENS for s in window):
                     continue
                 alerts.append({
-                    'code': 114,
+                    'code': 14,
                     'message': (
                         f"BLS key aggregation without proof-of-possession check "
                         f"in {type_entry.name}.{function.name}: {stmt[:120]}"

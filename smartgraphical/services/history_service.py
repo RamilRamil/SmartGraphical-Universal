@@ -429,7 +429,7 @@ class HistoryService:
                 language=artifact["language"],
             )
         except WebApiError as exc:
-            return self._persist_failed_scan(artifact, mode, "all", exc)
+            return self._persist_failed_scan(artifact, mode, web_api.META_TASK_ALL_ID, exc)
         return self._persist_successful_scan(artifact, mode, report, graph_report=graph_report)
 
     def get_scan(self, scan_id):

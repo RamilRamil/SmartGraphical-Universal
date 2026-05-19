@@ -72,7 +72,7 @@ class IoUringSubmissionRaceTests(unittest.TestCase):
         )
         findings = run_io_uring_race(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '111')
+        self.assertEqual(findings[0].task_id, '11')
 
     def test_private_ring_is_silent(self):
         ctx = _context(
@@ -114,7 +114,7 @@ class KeyswitchAtomicityTests(unittest.TestCase):
         )
         findings = run_keyswitch_atomicity(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '113')
+        self.assertEqual(findings[0].task_id, '13')
 
     def test_halt_flush_update_is_silent(self):
         ctx = _context(
@@ -157,7 +157,7 @@ class UnsupportedProgramIdDivergenceTests(unittest.TestCase):
         )
         findings = run_unsupported_program(ctx)
         self.assertTrue(findings)
-        self.assertEqual(findings[0].task_id, '115')
+        self.assertEqual(findings[0].task_id, '15')
 
     def test_unknown_program_with_expected_error_is_silent(self):
         ctx = _context(
@@ -184,7 +184,7 @@ class CRuleRegistryBatch4Tests(unittest.TestCase):
 
     def test_registry_contains_dataflow_rules(self):
         registry = build_c_rule_registry()
-        for task_id in ('111', '113', '115'):
+        for task_id in ('11', '13', '15'):
             self.assertIn(task_id, registry)
 
 

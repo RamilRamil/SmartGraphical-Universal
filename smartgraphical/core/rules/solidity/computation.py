@@ -11,7 +11,7 @@ def complicated_calculations(rets, reader):
     alerts = []
     all_vars = []
     for i in range(len(rets)):
-        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, objs, using = rets[i]
+        contract_name, funcs, vars, structs, imps, var_func_mapping, func_func_mapping, sysfunc_func_mapping, obj_func_mapping, func_conditionals, constructor, events, _custom_errors, objs, using = rets[i]
         dvars = deepcopy(vars)
         x = [item.insert(0, contract_name) for item in dvars]
         all_vars.extend(dvars)

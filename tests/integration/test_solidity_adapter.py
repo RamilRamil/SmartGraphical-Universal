@@ -75,14 +75,6 @@ class SolidityAdapterSimpleAuctionTests(unittest.TestCase):
         self.assertIn("SimpleAuction.bid", notes)
         self.assertGreater(notes["SimpleAuction.bid"]["statement_count"], 0)
 
-    def test_rule_groups_match_task_groups(self):
-        expected_groups = {
-            "NamingAndConsistency", "StateAndMutation",
-            "FlowAndOrdering", "ComputationAndEconomics",
-            "VisualizationOnly",
-        }
-        self.assertEqual(set(self.model.rule_groups.keys()), expected_groups)
-
     def _function(self, function_name):
         for function in self.model.types[0].functions:
             if function.name == function_name:

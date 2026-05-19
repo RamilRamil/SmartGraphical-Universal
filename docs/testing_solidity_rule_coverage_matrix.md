@@ -1,10 +1,10 @@
 # Solidity rule coverage matrix (model-level)
 
-C counterpart (tasks `101`..`120`): `docs/testing_c_rule_coverage_matrix.md`.
+C counterpart (tasks `1`..`20`): `docs/testing_c_rule_coverage_matrix.md`.
 
 Registry: `smartgraphical/adapters/solidity/adapter.py` (`build_rule_registry`).
 
-Human-readable rule catalog (EN): `docs/solidity_rules_catalog.json`. RU summaries: `docs/rules_ru_solidity.md`.
+Human-readable rule catalog (EN): `docs/solidity_rules_catalog.json` (meta task `0` = run all; `AdvancedReentrancy`: tasks 13-15; optional per-rule `knowdit` metadata). RU summaries: `docs/rules_ru_solidity.md`.
 
 | task_id | rule_id | Unit test module (synthetic model / legacy `rets`) |
 |--------|---------|-----------------------------------------------------|
@@ -19,7 +19,10 @@ Human-readable rule catalog (EN): `docs/solidity_rules_catalog.json`. RU summari
 | 9 | withdraw_check | `tests/unit/test_rules_solidity_normalized_coverage.py` |
 | 10 | similar_names | `tests/unit/test_rules_solidity_normalized_coverage.py` |
 | 11 | outer_calls | `tests/unit/test_rules_outer_calls.py` |
-| 14 | min_slippage_bounds | `tests/unit/test_rules_min_slippage_bounds.py` |
+| 12 | min_slippage_bounds | `tests/unit/test_rules_min_slippage_bounds.py` |
+| 13 | read_only_oracle_reentrancy | `tests/unit/test_rules_knowdit_reentrancy.py` |
+| 14 | bridge_retry_reentrancy | `tests/unit/test_rules_knowdit_reentrancy.py` |
+| 15 | unstake_share_burn_order | `tests/unit/test_rules_knowdit_reentrancy.py` |
 
 Adapter fixtures (small `.sol` under `tests/fixtures/solidity/`):
 
@@ -37,7 +40,7 @@ End-to-end pipeline invariants (`tests/integration/test_full_pipeline.py`):
 - Repo-root `SimpleAuction.sol`: optional golden file; suite is skipped if missing.
 - Always-on: `WithdrawNoGuard.sol`, `ExternalMint.sol` under `tests/fixtures/solidity/`.
 
-HTTP JSON shape (`task: all`): `tests/integration/test_http_fixture_contract.py` uses `MinimalGuard.sol`; skipped if FastAPI is not installed.
+HTTP JSON shape (`task: 0` or `all`): `tests/integration/test_http_fixture_contract.py` uses `MinimalGuard.sol`; skipped if FastAPI is not installed.
 
 ## Phase 4: declarative task manifest ( Solidity )
 
@@ -45,4 +48,4 @@ Machine-readable checklist: `tests/fixtures/solidity_task_coverage.json` (must s
 
 Gate test: `tests/unit/test_solidity_task_coverage_declared.py`.
 
-The HTTP catalog from `web_api.list_tasks("solidity")` is asserted to expose the same numeric task ids as the registry plus a trailing meta task id `all`.
+The HTTP catalog from `web_api.list_tasks("solidity")` is asserted to list meta task id `0` first, then the same numeric rule ids as the registry.

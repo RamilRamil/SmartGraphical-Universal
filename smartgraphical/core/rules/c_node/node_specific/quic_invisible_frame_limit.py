@@ -1,4 +1,4 @@
-"""Rule C08 (task 108): quic_invisible_frame_limit.
+"""Rule C08 (task 8): quic_invisible_frame_limit.
 
 Detects QUIC frame processing calls inside loops that lack a per-packet
 frame count cap in the surrounding statement window. Protocol-level frames
@@ -38,8 +38,8 @@ _LIMIT_TOKENS = [
 ]
 
 _META = dict(
-    task_id='108',
-    legacy_code=108,
+    task_id='8',
+    legacy_code=8,
     slug='quic_invisible_frame_limit',
     title='Missing Limit on Invisible QUIC Protocol Frames',
     category='denial_of_service',
@@ -70,7 +70,7 @@ def _detect(context):
                 if any(token in s for token in _LIMIT_TOKENS for s in window):
                     continue
                 alerts.append({
-                    'code': 108,
+                    'code': 8,
                     'message': (
                         f"Frame processing loop without per-packet frame limit "
                         f"in {type_entry.name}.{function.name}: {stmt[:120]}"

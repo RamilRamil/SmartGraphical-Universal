@@ -7,8 +7,8 @@ Limitations:
 - Complex macros expansion is not modeled; signatures are textual.
 - Dataflow is intra-statement heuristic only.
 
-Rule tasks include 201-208 (Soroban, docs/rust_stellar/soroban_rules_catalog.json) and
-209-223 (Rust language + Base Azul heuristics, docs/rust/language_rules_catalog.json).
+Rule tasks include 1-8 (Soroban, docs/rust_stellar/soroban_rules_catalog.json) and
+9-23 (Rust language + Base Azul heuristics, docs/rust/language_rules_catalog.json).
 """
 from __future__ import annotations
 
@@ -361,17 +361,15 @@ def build_normalized_model(source_path: str, source_text: str) -> NormalizedAudi
                     )
                 )
     model.call_edges = edges + added_fn_edges
-    model.rule_groups.setdefault('RustAll', []).extend([
-        str(i) for i in range(201, 217)
-    ])
+    model.rule_groups.setdefault('RustAll', []).extend([str(i) for i in range(1, 24)])
     return model
 
 
 def build_rust_rule_registry() -> dict[str, RuleSpec]:
     return {
-        '201': RuleSpec(
-            '201',
-            201,
+        '1': RuleSpec(
+            '1',
+            1,
             'missing_auth_check',
             'Missing Authorization on Public Entry That Mutates State',
             'authorization',
@@ -380,9 +378,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Require Authorization on mutating ledger paths reachable as contract entrypoints.',
             run_missing_auth_check,
         ),
-        '202': RuleSpec(
-            '202',
-            202,
+        '2': RuleSpec(
+            '2',
+            2,
             'unbounded_instance_storage_growth',
             'Potentially Unbounded Structures in Instance Storage',
             'economic_dos',
@@ -391,9 +389,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Cap serialized instance payloads; shard large aggregates into Persistent keys.',
             run_unbounded_instance_storage_growth,
         ),
-        '203': RuleSpec(
-            '203',
-            203,
+        '3': RuleSpec(
+            '3',
+            3,
             'unhandled_cross_contract_failure',
             'Fallible External Call Without Controlled Error Boundary',
             'cross_contract',
@@ -402,9 +400,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Prefer try_invoke_contract-style APIs and propagate contract errors deliberately.',
             run_unhandled_cross_contract_failure,
         ),
-        '204': RuleSpec(
-            '204',
-            204,
+        '4': RuleSpec(
+            '4',
+            4,
             'dangerous_raw_val_conversion',
             'Complex Collection Inputs Without Explicit Checks',
             'input_validation',
@@ -413,9 +411,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Wrap batch arguments in contract-type schemas and enforce max lengths.',
             run_dangerous_raw_val_conversion,
         ),
-        '205': RuleSpec(
-            '205',
-            205,
+        '5': RuleSpec(
+            '5',
+            5,
             'missing_ttl_extension',
             'Ledger Writes Missing TTL Extension Nearby',
             'storage_ttl',
@@ -424,9 +422,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Pair persistent/instance writes with extend_ttl or justified off-chain renewal.',
             run_missing_ttl_extension,
         ),
-        '206': RuleSpec(
-            '206',
-            206,
+        '6': RuleSpec(
+            '6',
+            6,
             'improper_error_signaling',
             'Bare panic! Instead of Structured Contract Errors',
             'fuzzing_quality',
@@ -435,9 +433,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Prefer panic_with_error! plus ContractError for observable abort reasons.',
             run_improper_error_signaling,
         ),
-        '207': RuleSpec(
-            '207',
-            207,
+        '7': RuleSpec(
+            '7',
+            7,
             'resource_limit_exhaustion_loop',
             'Loops Over Storage That May Exhaust IO Budget',
             'economic_dos',
@@ -446,9 +444,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Batch/paginate ledger reads outside tight loops.',
             run_resource_limit_exhaustion_loop,
         ),
-        '208': RuleSpec(
-            '208',
-            208,
+        '8': RuleSpec(
+            '8',
+            8,
             'constructor_reinitialization_risk',
             'Constructor-Like Entry Missing Reinitialization Guards',
             'upgrade_migration',
@@ -457,9 +455,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Guard __constructor with immutably-set admin markers after first initialization.',
             run_constructor_reinitialization_risk,
         ),
-        '209': RuleSpec(
-            '209',
-            209,
+        '9': RuleSpec(
+            '9',
+            9,
             'undocumented_unsafe_block',
             'Unsafe Block or Attribute Without SAFETY Commentary',
             'memory_safety',
@@ -468,9 +466,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Document every unsafe block with preceding `// SAFETY:` rationale.',
             run_undocumented_unsafe_block,
         ),
-        '210': RuleSpec(
-            '210',
-            210,
+        '10': RuleSpec(
+            '10',
+            10,
             'static_mut_ref_access',
             'Borrow of static mut Variable',
             'memory_safety',
@@ -479,9 +477,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Replace raw static mut aliases with concurrency-safe primitives.',
             run_static_mut_ref_access,
         ),
-        '211': RuleSpec(
-            '211',
-            211,
+        '11': RuleSpec(
+            '11',
+            11,
             'interior_mutability_sync_violation',
             'Interior Mutability Proximate to Concurrent Spawns',
             'concurrency',
@@ -490,9 +488,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Audit Send/Sync when RefCell-like types appear near spawning APIs.',
             run_interior_mutability_sync_violation,
         ),
-        '212': RuleSpec(
-            '212',
-            212,
+        '12': RuleSpec(
+            '12',
+            12,
             'unprotected_panic_in_public_api',
             'panic!, unwrap(), or expect() on Public Callable',
             'robustness',
@@ -501,9 +499,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Return Result instead of trapping in public crates.',
             run_unprotected_panic_in_public_api,
         ),
-        '213': RuleSpec(
-            '213',
-            213,
+        '13': RuleSpec(
+            '13',
+            13,
             'redundant_arc_clone_in_loop',
             'Potential Arc/Rc Clone After Loop Heads',
             'performance',
@@ -512,9 +510,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Avoid redundant smart-pointer clones inside hot loops.',
             run_redundant_arc_clone_in_loop,
         ),
-        '214': RuleSpec(
-            '214',
-            214,
+        '14': RuleSpec(
+            '14',
+            14,
             'missing_async_fn_trait_bound',
             'Async Closure Pattern Review (AsyncFn* Migration)',
             'maintainability',
@@ -523,9 +521,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Prefer AsyncFn/AsyncFnMut/AsyncFnOnce on sufficiently new toolchains.',
             run_missing_async_fn_trait_bound,
         ),
-        '215': RuleSpec(
-            '215',
-            215,
+        '15': RuleSpec(
+            '15',
+            15,
             'temporary_lifetime_extension_confusion',
             'Suspected Borrow Across Temporary Expressions',
             'lifetime',
@@ -534,9 +532,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Hoist temporaries so borrows clearly outlive their referents.',
             run_temporary_lifetime_extension_confusion,
         ),
-        '216': RuleSpec(
-            '216',
-            216,
+        '16': RuleSpec(
+            '16',
+            16,
             'forbidden_std_usage',
             'std Paths While Crate Banner Is no_std',
             'determinism',
@@ -545,9 +543,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Route std-only helpers through conditional compilation or rely on core/alloc.',
             run_forbidden_std_usage,
         ),
-        '217': RuleSpec(
-            '217',
-            217,
+        '17': RuleSpec(
+            '17',
+            17,
             'non_deterministic_state_root',
             'Non-deterministic Collections Near State Derivation',
             'determinism',
@@ -556,9 +554,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Prefer deterministic maps or sorted keys around Merkle/state hashing.',
             run_non_deterministic_state_root,
         ),
-        '218': RuleSpec(
-            '218',
-            218,
+        '18': RuleSpec(
+            '18',
+            18,
             'async_boundary_panic_leak',
             'Panic/unwrap Near Async Spawn Boundary',
             'concurrency',
@@ -567,9 +565,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Avoid unwrap/panic inside spawned tasks without teardown guarantees.',
             run_async_boundary_panic_leak,
         ),
-        '219': RuleSpec(
-            '219',
-            219,
+        '19': RuleSpec(
+            '19',
+            19,
             'serde_binary_codec_mismatch',
             'serde(flatten) With Serialize/Deserialize Present',
             'serialization',
@@ -578,9 +576,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Align serde layouts across CL/EL commitment codecs.',
             run_serde_binary_codec_mismatch,
         ),
-        '220': RuleSpec(
-            '220',
-            220,
+        '20': RuleSpec(
+            '20',
+            20,
             'divergent_fork_choice_assumptions',
             'Fork-choice Logic Present',
             'consensus',
@@ -589,9 +587,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Verify paired EL/CL fork-choice constants remain synchronized.',
             run_divergent_fork_choice_assumptions,
         ),
-        '221': RuleSpec(
-            '221',
-            221,
+        '21': RuleSpec(
+            '21',
+            21,
             'gas_limit_cl_el_mismatch',
             'Gas Limit Near Batching Context',
             'execution',
@@ -600,9 +598,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Mirror executor gas/env checks inside batching pipelines.',
             run_gas_limit_cl_el_mismatch,
         ),
-        '222': RuleSpec(
-            '222',
-            222,
+        '22': RuleSpec(
+            '22',
+            22,
             'unbounded_proposal_range',
             'Proposal u64 Range Without Obvious Guards',
             'logic',
@@ -611,9 +609,9 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
             'Bound proposal spans before expensive replay work.',
             run_unbounded_proposal_range,
         ),
-        '223': RuleSpec(
-            '223',
-            223,
+        '23': RuleSpec(
+            '23',
+            23,
             'tee_side_channel_via_panic',
             'Mixed panic_with_error! and panic! Paths',
             'side_channels',

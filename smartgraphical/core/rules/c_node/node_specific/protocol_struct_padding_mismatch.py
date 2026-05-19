@@ -1,4 +1,4 @@
-"""Rule C18 (task 118): protocol_struct_padding_mismatch.
+"""Rule C18 (task 18): protocol_struct_padding_mismatch.
 
 Detects protocol-mapped struct declarations that are later cast from raw
 network/disk buffers without packed/alignment guard.
@@ -9,8 +9,8 @@ from smartgraphical.core.engine import make_findings
 _PROTO_BUFFER_TOKENS = ('buffer', 'buf', 'packet', 'wire', 'disk', 'shred', 'account')
 
 _META = dict(
-    task_id='118',
-    legacy_code=118,
+    task_id='18',
+    legacy_code=18,
     slug='protocol_struct_padding_mismatch',
     title='Implicit Padding in Protocol-Mapped Structures',
     category='data_integrity',
@@ -46,7 +46,7 @@ def _detect(context):
                 if not has_buffer_cast or has_layout_assert:
                     continue
                 alerts.append({
-                    'code': 118,
+                    'code': 18,
                     'message': (
                         f"Protocol struct without explicit layout guard in "
                         f"{type_entry.name}.{function.name}: {stmt[:120]}"

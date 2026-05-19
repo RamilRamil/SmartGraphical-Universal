@@ -66,6 +66,7 @@ def make_legacy_contract_ret(
     func_conditionals = [[] for _ in funcs]
     constructor = []
     evt_details = []
+    err_details = []
     objs = []
     using = ""
     return [
@@ -81,6 +82,7 @@ def make_legacy_contract_ret(
         func_conditionals,
         constructor,
         evt_details,
+        err_details,
         objs,
         using,
     ]

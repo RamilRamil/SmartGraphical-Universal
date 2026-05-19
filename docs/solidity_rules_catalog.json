@@ -1,22 +1,50 @@
 {
   "catalog_id": "solidity_rules_catalog",
-  "description": "Human-readable Solidity rule definitions aligned with smartgraphical/adapters/solidity/adapter.py (build_rule_registry). Machine-readable checklist: tests/fixtures/solidity_task_coverage.json.",
+  "description": "Human-readable Solidity rule definitions aligned with smartgraphical/adapters/solidity/adapter.py (build_rule_registry). Meta task 0 = run all (alias all). Rule tasks 1-15. AdvancedReentrancy: 13-15. Optional knowdit blocks tie DeFi semantics to vulnerability patterns. Machine-readable checklist: tests/fixtures/solidity_task_coverage.json.",
   "registry_source": "smartgraphical/adapters/solidity/adapter.py",
   "readme_source": "README.md (section SmartGraphical checks the Solidity tasks below)",
   "task_groups": {
-    "NamingAndConsistency": ["1", "10"],
-    "StateAndMutation": ["2", "4", "11"],
-    "FlowAndOrdering": ["6", "8", "9"],
-    "ComputationAndEconomics": ["3", "5", "7", "14"],
-    "VisualizationOnly": ["12"]
+    "NamingAndConsistency": [
+      "1",
+      "10"
+    ],
+    "StateAndMutation": [
+      "2",
+      "4",
+      "11"
+    ],
+    "FlowAndOrdering": [
+      "6",
+      "8",
+      "9"
+    ],
+    "ComputationAndEconomics": [
+      "3",
+      "5",
+      "7",
+      "12"
+    ],
+    "AdvancedReentrancy": [
+      "13",
+      "14",
+      "15"
+    ],
+    "VisualizationOnly": []
   },
   "notes": {
-    "task_12": "CLI/API task 12 is graph visualization only; no RuleSpec entry in build_rule_registry().",
-    "meta_all": "Task 13 / 'all' runs tasks 1-11 plus 14 then graph; see adapter and API docs."
+    "task_cli_graph": "CLI graph-only visualization uses task 99 (not a RuleSpec).",
+    "meta_all": "Run-all is meta task id 0 (HTTP and list_tasks); body may still use alias 'all'. Runs every RuleSpec then renders graph when the pipeline includes graph."
   },
   "controlled_vocab": {
-    "portability": ["portable", "portable_with_adapter"],
-    "confidence": ["low", "medium", "high"]
+    "portability": [
+      "portable",
+      "portable_with_adapter"
+    ],
+    "confidence": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   "rules": [
     {
@@ -34,7 +62,9 @@
         "Comments that legitimately describe versioning without implying a stale contract migration.",
         "Narrative text in NatSpec that uses the same words in a non-signature context."
       ],
-      "readme_tasks": ["1"]
+      "readme_tasks": [
+        "1"
+      ]
     },
     {
       "rule_id": "unallowed_manipulation",
@@ -51,7 +81,12 @@
         "Assignments already conditioned on require/assert or admin-only modifiers.",
         "Renamed variables that no longer represent economic state."
       ],
-      "readme_tasks": ["2", "4", "5", "9"]
+      "readme_tasks": [
+        "2",
+        "4",
+        "5",
+        "9"
+      ]
     },
     {
       "rule_id": "staking",
@@ -68,7 +103,11 @@
         "Narrow helper names that contain 'stake' but are view-only or unrelated to collateral.",
         "Libraries that wrap staking without holding funds in the same contract."
       ],
-      "readme_tasks": ["3", "5", "9"]
+      "readme_tasks": [
+        "3",
+        "5",
+        "9"
+      ]
     },
     {
       "rule_id": "pool_interactions",
@@ -85,7 +124,10 @@
         "Intentionally public mint with upstream factory gate.",
         "Burn-to-dead-address patterns that are documented and guarded elsewhere."
       ],
-      "readme_tasks": ["2", "4"]
+      "readme_tasks": [
+        "2",
+        "4"
+      ]
     },
     {
       "rule_id": "local_points",
@@ -102,7 +144,11 @@
         "Off-chain credited systems with different naming.",
         "Internal functions that inherit checks from callers."
       ],
-      "readme_tasks": ["2", "5", "9"]
+      "readme_tasks": [
+        "2",
+        "5",
+        "9"
+      ]
     },
     {
       "rule_id": "exceptions",
@@ -119,7 +165,9 @@
         "Deliberate no-op catches with documented compensating actions elsewhere.",
         "Test-only fixtures with simplified error handling."
       ],
-      "readme_tasks": ["6"]
+      "readme_tasks": [
+        "6"
+      ]
     },
     {
       "rule_id": "complicated_calculations",
@@ -136,7 +184,9 @@
         "Fixed-precision libraries with audited rounding.",
         "Comments or strings that mention .div without executable code."
       ],
-      "readme_tasks": ["7"]
+      "readme_tasks": [
+        "7"
+      ]
     },
     {
       "rule_id": "check_order",
@@ -153,7 +203,10 @@
         "Internal helpers that already synchronized price and state.",
         "Patterns using separate modifiers for ordering guarantees."
       ],
-      "readme_tasks": ["8", "9"]
+      "readme_tasks": [
+        "8",
+        "9"
+      ]
     },
     {
       "rule_id": "withdraw_check",
@@ -170,12 +223,17 @@
         "Withdrawals gated by modifiers instead of inline require.",
         "Routed calls where validation happens in nested internal functions."
       ],
-      "readme_tasks": ["3", "5", "8", "9"]
+      "readme_tasks": [
+        "3",
+        "5",
+        "8",
+        "9"
+      ]
     },
     {
       "rule_id": "similar_names",
       "task_id": "10",
-      "legacy_finding_code": 11,
+      "legacy_finding_code": 10,
       "title": "Similar Names",
       "task_group": "NamingAndConsistency",
       "portability": "portable",
@@ -187,12 +245,14 @@
         "Intentional paired names in upgrade hooks with clear documentation.",
         "Generated getters that must mirror EIP interfaces."
       ],
-      "readme_tasks": ["10"]
+      "readme_tasks": [
+        "10"
+      ]
     },
     {
       "rule_id": "outer_calls",
       "task_id": "11",
-      "legacy_finding_code": 12,
+      "legacy_finding_code": 11,
       "title": "Outer Calls",
       "task_group": "StateAndMutation",
       "portability": "portable_with_adapter",
@@ -204,12 +264,14 @@
         "Trusted forwarder or meta-tx entry with upstream authorization.",
         "Router contracts designed as permissionless aggregators."
       ],
-      "readme_tasks": ["11"]
+      "readme_tasks": [
+        "11"
+      ]
     },
     {
       "rule_id": "min_slippage_bounds",
-      "task_id": "14",
-      "legacy_finding_code": 14,
+      "task_id": "12",
+      "legacy_finding_code": 12,
       "title": "Minimum Bounds On Swap And Liquidity Calls",
       "task_group": "ComputationAndEconomics",
       "portability": "portable_with_adapter",
@@ -222,6 +284,100 @@
         "Custom routers that rename parameters outside the substring heuristics."
       ],
       "readme_tasks": []
+    },
+    {
+      "rule_id": "read_only_oracle_reentrancy",
+      "task_id": "13",
+      "legacy_finding_code": 13,
+      "title": "Read-Only Reentrancy Window (Reserve Valuation)",
+      "task_group": "AdvancedReentrancy",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Finalize reserves, virtual price, or sync state before any external call that can reenter; keep view getters consistent with committed accounting.",
+      "rationale": "Reserve-based internal pricing can be observed mid-transaction through a view while reserves and derived price are not yet consistent; dependent protocols may act on the stale snapshot.",
+      "detection_logic": "Entrypoint body: reserve-style mutation, then transfer/call-like external effect, then sync or updateReserves-style finalizer (statement order).",
+      "false_positive_patterns": [
+        "Naming does not contain reserve tokens but semantics are unrelated to valuation.",
+        "Finalization uses helper names outside the token list (manual review)."
+      ],
+      "readme_tasks": [],
+      "knowdit": {
+        "defi_semantics": [
+          "reserve_based_valuation",
+          "internal_price_from_reserves"
+        ],
+        "vulnerability_patterns": [
+          "read_only_reentrancy",
+          "cross_dapp_price_observation"
+        ],
+        "spec_phases": {
+          "initial_state": "Oracle/pool reserves Ra, Rb committed.",
+          "pre_vuln_state": "Liquidity removal started: reserve decreased, external transfer done, sync/finalize not yet run.",
+          "post_vuln_state": "Attacker view-reads price during the window and trades profitably elsewhere."
+        }
+      }
+    },
+    {
+      "rule_id": "bridge_retry_reentrancy",
+      "task_id": "14",
+      "legacy_finding_code": 14,
+      "title": "Bridge Retry Idempotency Ordering",
+      "task_group": "AdvancedReentrancy",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Mark bridge/relay attempts as consumed (or delete pending state) before token transfer or other externally visible effects.",
+      "rationale": "Retry paths that pay out before marking an attempt consumed allow reentrancy to replay the same logical id and drain funds.",
+      "detection_logic": "Retry/replay plus bridge/cross-chain/message context: external payout before assignment or delete that marks the attempt processed.",
+      "false_positive_patterns": [
+        "Different domain retry helpers without asset transfer.",
+        "Consumed flag set via modifier or internal helper not visible as a simple assign."
+      ],
+      "readme_tasks": [],
+      "knowdit": {
+        "defi_semantics": [
+          "multi_standard_bridging",
+          "failed_transfer_retry_refund"
+        ],
+        "vulnerability_patterns": [
+          "state_read_write_inconsistency_on_retry"
+        ],
+        "spec_phases": {
+          "initial_state": "Failed bridge record exists with a stable id.",
+          "pre_vuln_state": "Retry entry performs external token payout.",
+          "post_vuln_state": "Recipient reenters retry with same id before consumed-state update completes, withdrawing multiple times."
+        }
+      }
+    },
+    {
+      "rule_id": "unstake_share_burn_order",
+      "task_id": "15",
+      "legacy_finding_code": 15,
+      "title": "Unstake Share Burn Ordering",
+      "task_group": "AdvancedReentrancy",
+      "portability": "portable_with_adapter",
+      "confidence": "medium",
+      "remediation_hint": "Burn or reduce staking shares before transferring rewards or principal to the user to prevent reusing the same share balance during reentrancy.",
+      "rationale": "Paying rewards or principal while share balance is still full lets a reentrant path reuse the same share entitlement.",
+      "detection_logic": "Unstake/withdraw-stake entrypoints: user-visible transfer or native/value call appears before burn or share balance decrease.",
+      "false_positive_patterns": [
+        "Payout is trust-adjustment only with no user callback surface.",
+        "Share reduction hidden in a nested callee not surfaced as statements."
+      ],
+      "readme_tasks": [],
+      "knowdit": {
+        "defi_semantics": [
+          "proportional_shares_staking",
+          "stake_unstake_reward_payout"
+        ],
+        "vulnerability_patterns": [
+          "inconsistent_state_update_reentrancy"
+        ],
+        "spec_phases": {
+          "initial_state": "User share balance S > 0.",
+          "pre_vuln_state": "Unstake computes payout from S and sends tokens.",
+          "post_vuln_state": "Reentry runs before S is reduced, reusing the same shares for another payout."
+        }
+      }
     }
   ]
 }

@@ -1,4 +1,4 @@
-"""Rule C07 (task 107): bitwise_flag_normalization_mismatch.
+"""Rule C07 (task 7): bitwise_flag_normalization_mismatch.
 
 Detects bitwise AND with literal 1 (or 0x1) applied to known boolean-semantic
 account flag fields. In C, `account->executable & 1` extracts the LSB, which
@@ -30,8 +30,8 @@ _BITWISE_CAST = re.compile(r'\b(\w+)\s*&\s*(?:0x1|1)(?!\d)')
 _SAFE_NORMALIZATION = ['!!', '(bool)', '(int)(bool)', 'fd_bool_if', '? 1 : 0']
 
 _META = dict(
-    task_id='107',
-    legacy_code=107,
+    task_id='7',
+    legacy_code=7,
     slug='bitwise_flag_normalization_mismatch',
     title='Bitwise AND for Flag Normalization in Consensus Hashes',
     category='consensus_failure',
@@ -59,7 +59,7 @@ def _detect(context):
                 if any(safe in stmt for safe in _SAFE_NORMALIZATION):
                     continue
                 alerts.append({
-                    'code': 107,
+                    'code': 7,
                     'message': (
                         f"Boolean flag '{field}' normalized with bitwise AND "
                         f"instead of !! in "
