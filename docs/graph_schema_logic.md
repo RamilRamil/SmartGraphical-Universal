@@ -152,15 +152,22 @@ synthetic edge.
 
 File: `smartgraphical/adapters/solidity/adapter.py`
 
-Edge kinds used by graph:
+Edge kinds used by graph (Solidity adapter, schema `1.1`):
 
-- `state_to_function`
+- `state_to_function_read` — state variable is read by function
+- `state_to_function_write` — state variable may be written by function
 - `function_to_function`
 - `function_to_system`
 - `function_to_object`
 - `function_to_event`
-- `cross_type_state`
-- `cross_type_call`
+- `cross_type_state_read` / `cross_type_state_write` — parent state, child function
+- `cross_type_call` — child function (caller) to parent function (callee) for inherited internal calls detected in the child body
+
+Legacy (older payloads only; UI treats `state_to_function` as read):
+
+- `state_to_function`, `cross_type_state`
+
+Contract reference: `specs/001-fix-solidity-state-writes/contracts/graph-state-access-v1.1.md`.
 
 Important detail:
 

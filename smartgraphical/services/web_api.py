@@ -816,6 +816,123 @@ def _attach_solidity_bundle_inheritance_edges(
     _revalidate_bundle_graph(model_summary, False)
 
 
+def _solidity_member_contract_funcs(abs_path: str):
+    """Return (contract_name, [(func_name, body), ...]) for one bundle member file."""
+    from smartgraphical.adapters.solidity.reader import ContractReader
+
+    reader = ContractReader()
+    lines = reader.read_file(abs_path)
+    unified = reader.unify_text(lines)
+    rets, _hierarchy, _hc, _uk = reader(unified)
+    if not rets:
+        return "", []
+    contract_name = rets[0][0]
+    funcs = []
+    for entry in rets[0][1]:
+        if len(entry) < 4:
+            continue
+        funcs.append((entry[0], entry[3]))
+    return contract_name, funcs
+
+
+def _attach_solidity_bundle_inherited_call_edges(
+    bundle_root: str,
+    model_summary: dict,
+) -> None:
+    """Link inherited internal calls across bundle members (caller child -> callee parent)."""
+    graph = model_summary.get("graph") or {}
+    nodes = graph.get("nodes") or []
+    edges = list(graph.get("edges") or [])
+    manifest_path = os.path.join(bundle_root, BUNDLE_MANIFEST_BASENAME)
+    if not os.path.isfile(manifest_path):
+        return
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+
+    from smartgraphical.adapters.solidity.reader import ContractReader
+
+    reader = ContractReader()
+    rel_to_contract = {}
+    rel_to_funcs = {}
+    for entry in manifest.get("members") or []:
+        rel = entry.get("path") or ""
+        if not rel.lower().endswith(".sol"):
+            continue
+        abs_path = os.path.join(bundle_root, rel)
+        if not os.path.isfile(abs_path):
+            continue
+        contract_name, funcs = _solidity_member_contract_funcs(abs_path)
+        if not contract_name:
+            continue
+        rel_to_contract[rel] = contract_name
+        rel_to_funcs[rel] = funcs
+
+    contract_to_rel = {}
+    for rel, name in rel_to_contract.items():
+        contract_to_rel.setdefault(name, rel)
+
+    dedupe = set()
+    new_edges = []
+    for entry in manifest.get("members") or []:
+        child_rel = entry.get("path") or ""
+        if not child_rel.lower().endswith(".sol"):
+            continue
+        child_abs = os.path.join(bundle_root, child_rel)
+        if not os.path.isfile(child_abs):
+            continue
+        with open(child_abs, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+        child_funcs = rel_to_funcs.get(child_rel) or []
+        if not child_funcs:
+            continue
+        child_fn_names = [name for name, _body in child_funcs]
+        child_bodies = [body for _name, body in child_funcs]
+        for child_name, parents in _solidity_contract_inheritance_pairs(text):
+            if rel_to_contract.get(child_rel) != child_name:
+                continue
+            for parent_name in parents:
+                parent_rel = contract_to_rel.get(parent_name)
+                if not parent_rel or parent_rel == child_rel:
+                    continue
+                parent_funcs = rel_to_funcs.get(parent_rel) or []
+                parent_fn_names = [name for name, _body in parent_funcs]
+                mapping = reader.extract_intra_func_func_mapping(
+                    parent_fn_names,
+                    child_fn_names,
+                    child_bodies,
+                )
+                for callee, callers in mapping.items():
+                    for caller in callers:
+                        caller_ids = _function_node_ids_by_type(
+                            nodes, child_name, caller, child_rel,
+                        )
+                        callee_ids = _function_node_ids_by_type(
+                            nodes, parent_name, callee, parent_rel,
+                        )
+                        if not caller_ids or not callee_ids:
+                            continue
+                        pair = (caller_ids[0], callee_ids[0])
+                        if pair in dedupe:
+                            continue
+                        dedupe.add(pair)
+                        digest = hashlib.sha256(
+                            f"{pair[0]}\0{pair[1]}\0inherited\0{callee}".encode("utf-8"),
+                        ).hexdigest()[:12]
+                        new_edges.append({
+                            "id": f"bundle_sol_inherited:{digest}",
+                            "source": caller_ids[0],
+                            "target": callee_ids[0],
+                            "kind": "cross_type_call",
+                            "label": f"{caller} -> {callee}",
+                        })
+    if not new_edges:
+        return
+    edges.extend(new_edges)
+    graph["edges"] = edges
+    model_summary["graph"] = graph
+    _revalidate_bundle_graph(model_summary, False)
+
+
 def _rust_naive_match_brace(source: str, open_idx: int) -> int:
     """Return index of brace matching ``source[open_idx]``, or -1 (string-unaware)."""
     if open_idx >= len(source) or source[open_idx] != "{":
@@ -1123,6 +1240,17 @@ def _analysis_source_steps(path):
     return _bundle_member_abs_paths(path)
 
 
+def _is_bundle_root(path):
+    return os.path.isdir(path) and os.path.isfile(
+        os.path.join(path, BUNDLE_MANIFEST_BASENAME),
+    )
+
+
+def _analyze_source(service, abs_path, bundle_root):
+    expand_local_imports = not _is_bundle_root(bundle_root)
+    return service.analyze(abs_path, expand_local_imports=expand_local_imports)
+
+
 def _assert_consistent_bundle_language(pairs, language_hint):
     first = _resolve_language_safe(pairs[0][0], language_hint)
     for abs_path, _ in pairs[1:]:
@@ -1221,6 +1349,7 @@ def analyze(path, task_id, language=None, mode="auditor"):
     pairs = _analysis_source_steps(path)
     resolved_language = _assert_consistent_bundle_language(pairs, language)
     service = _build_service_safe(resolved_language)
+    bundle_root = path if _is_bundle_root(path) else None
 
     task_id = str(task_id).strip() if task_id is not None else ""
     if not task_id:
@@ -1236,7 +1365,7 @@ def analyze(path, task_id, language=None, mode="auditor"):
     all_findings = []
     try:
         for abs_path, label in pairs:
-            context = service.analyze(abs_path)
+            context = _analyze_source(service, abs_path, bundle_root or abs_path)
             findings = service.run_task(context, task_id)
             for item in findings:
                 row = finding_to_dict(item)
@@ -1267,12 +1396,13 @@ def analyze_all(path, language=None, mode="auditor"):
     pairs = _analysis_source_steps(path)
     resolved_language = _assert_consistent_bundle_language(pairs, language)
     service = _build_service_safe(resolved_language)
+    bundle_root = path if _is_bundle_root(path) else None
 
     started_at = time.perf_counter()
     all_findings = []
     try:
         for abs_path, label in pairs:
-            context = service.analyze(abs_path)
+            context = _analyze_source(service, abs_path, bundle_root or abs_path)
             findings = service.run_all(context)
             for item in findings:
                 row = finding_to_dict(item)
@@ -1306,7 +1436,7 @@ def graph(path, language=None):
         service = _build_service_safe(resolved_language)
         started_at = time.perf_counter()
         try:
-            context = service.analyze(path)
+            context = _analyze_source(service, path, path)
         except Exception as exc:
             raise WebApiError(ERROR_INTERNAL, f"analysis failed: {exc}")
 
@@ -1328,7 +1458,7 @@ def graph(path, language=None):
     summaries = []
     try:
         for abs_path, label in pairs:
-            context = service.analyze(abs_path)
+            context = _analyze_source(service, abs_path, path)
             summaries.append((label, model_summary_to_dict(context.normalized_model)))
     except Exception as exc:
         raise WebApiError(ERROR_INTERNAL, f"analysis failed: {exc}")
@@ -1341,6 +1471,7 @@ def graph(path, language=None):
     elif resolved_language == "solidity":
         _attach_solidity_bundle_import_edges(path, merged, bundle_stats)
         _attach_solidity_bundle_inheritance_edges(path, merged)
+        _attach_solidity_bundle_inherited_call_edges(path, merged)
         _consolidate_solidity_bundle_graph(merged)
     elif resolved_language == "rust":
         _attach_rust_bundle_module_edges(path, merged, bundle_stats)

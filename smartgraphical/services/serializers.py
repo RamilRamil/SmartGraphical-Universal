@@ -14,7 +14,7 @@ from smartgraphical.adapters.c_base.adapter import _TU_INCLUDE_EDGE_SOURCE
 _VIS_ONLY = frozenset({"public", "external", "internal", "private"})
 _SOLIDITY_STORAGE_ATTRS = frozenset({"constant", "immutable"})
 _DECLARED_MODIFIER_MARKER = "__declared_modifier__"
-_GRAPH_SCHEMA_VERSION = "1.0"
+_GRAPH_SCHEMA_VERSION = "1.1"
 
 _C_NODE_ALLOWED_NODE_GROUPS = frozenset({
     "tile",

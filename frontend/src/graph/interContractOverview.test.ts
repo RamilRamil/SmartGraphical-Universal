@@ -2,11 +2,101 @@ import { describe, expect, it } from "vitest";
 
 import type { GraphData, GraphEdge, GraphNode } from "../api/types";
 
-import { toInterContractOverviewGraph } from "./interContractOverview";
+import {
+  filterFullGraphEdges,
+  isTypeCompoundInterContractEdge,
+  toInterContractOverviewGraph,
+} from "./interContractOverview";
 
 function minimalGraph(nodes: GraphNode[], edges: GraphEdge[]): GraphData {
   return { nodes, edges };
 }
+
+describe("filterFullGraphEdges", () => {
+  it("hides cross_type_call when toggle is off", () => {
+    const nodes: GraphNode[] = [
+      { id: "type:A", label: "A", group: "type" },
+      { id: "type:B", label: "B", group: "type" },
+    ];
+    const edges: GraphEdge[] = [
+      {
+        id: "xt",
+        source: "type:A",
+        target: "type:B",
+        kind: "cross_type_call",
+        label: "extends B",
+      },
+      {
+        id: "ff",
+        source: "function:A.f",
+        target: "function:A.g",
+        kind: "function_to_function",
+        label: "",
+      },
+    ];
+    const g = minimalGraph(nodes, edges);
+    const out = filterFullGraphEdges(g, false);
+    expect(out.edges.map((e) => e.kind)).toEqual(["function_to_function"]);
+  });
+
+  it("hides type-to-type extends even when toggle is on", () => {
+    const nodes: GraphNode[] = [
+      { id: "type:A", label: "A", group: "type" },
+      { id: "type:B", label: "B", group: "type" },
+    ];
+    const edges: GraphEdge[] = [
+      {
+        id: "xt",
+        source: "type:A",
+        target: "type:B",
+        kind: "cross_type_call",
+        label: "extends B",
+      },
+      {
+        id: "bi",
+        source: "type:A",
+        target: "type:B",
+        kind: "bundle_import",
+        label: "solidity_import",
+      },
+    ];
+    const g = minimalGraph(nodes, edges);
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    expect(isTypeCompoundInterContractEdge(edges[0]!, byId)).toBe(true);
+    const out = filterFullGraphEdges(g, true);
+    expect(out.edges.map((e) => e.kind)).toEqual(["bundle_import"]);
+  });
+
+  it("shows function-level cross_type_call when toggle is on", () => {
+    const nodes: GraphNode[] = [
+      { id: "type:A", label: "A", group: "type" },
+      {
+        id: "function:A.f",
+        label: "f",
+        group: "function",
+        parent: "type:A",
+      },
+      { id: "type:B", label: "B", group: "type" },
+      {
+        id: "function:B.g",
+        label: "g",
+        group: "function",
+        parent: "type:B",
+      },
+    ];
+    const edges: GraphEdge[] = [
+      {
+        id: "xt",
+        source: "function:A.f",
+        target: "function:B.g",
+        kind: "cross_type_call",
+        label: "g()",
+      },
+    ];
+    const out = filterFullGraphEdges(minimalGraph(nodes, edges), true);
+    expect(out.edges.map((e) => e.kind)).toEqual(["cross_type_call"]);
+  });
+});
 
 describe("toInterContractOverviewGraph", () => {
   it("keeps only type, tile, external, and external_import nodes", () => {
@@ -308,5 +398,48 @@ describe("toInterContractOverviewGraph", () => {
     expect(ov.nodes.map((n) => n.id).sort()).toEqual(["tile:tu1", "tile:tu2"]);
     expect(ov.edges[0]?.source).toBe("tile:tu1");
     expect(ov.edges[0]?.target).toBe("tile:tu2");
+  });
+
+  it("drops bundle_import when cross_type_call already links the pair", () => {
+    const nodes: GraphNode[] = [
+      { id: "type:Child", label: "Child", group: "type" },
+      { id: "type:Base", label: "Base", group: "type" },
+    ];
+    const edges: GraphEdge[] = [
+      {
+        id: "bi",
+        source: "type:Child",
+        target: "type:Base",
+        kind: "bundle_import",
+        label: "solidity_import",
+      },
+      {
+        id: "ext",
+        source: "type:Child",
+        target: "type:Base",
+        kind: "cross_type_call",
+        label: "extends Base",
+      },
+    ];
+    const ov = toInterContractOverviewGraph(minimalGraph(nodes, edges));
+    expect(ov.edges.map((e) => e.kind)).toEqual(["cross_type_call"]);
+  });
+
+  it("keeps bundle_import when no semantic cross-type edge exists", () => {
+    const nodes: GraphNode[] = [
+      { id: "type:User", label: "User", group: "type" },
+      { id: "type:Lib", label: "Lib", group: "type" },
+    ];
+    const edges: GraphEdge[] = [
+      {
+        id: "bi",
+        source: "type:User",
+        target: "type:Lib",
+        kind: "bundle_import",
+        label: "solidity_import",
+      },
+    ];
+    const ov = toInterContractOverviewGraph(minimalGraph(nodes, edges));
+    expect(ov.edges.map((e) => e.kind)).toEqual(["bundle_import"]);
   });
 });
