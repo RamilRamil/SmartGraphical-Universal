@@ -218,7 +218,7 @@ class SerializerHelpersTests(unittest.TestCase):
             ),
             types=[type_entry],
             call_edges=[
-                NormalizedCallEdge("C", "amount", "C", "setAmount", "state_to_function"),
+                NormalizedCallEdge("C", "amount", "C", "setAmount", "state_to_function_write"),
             ],
         )
         graph = model_graph_to_dict(model)
@@ -232,7 +232,7 @@ class SerializerHelpersTests(unittest.TestCase):
         fn_ids = {
             e["target"]
             for e in graph["edges"]
-            if e["kind"] == "state_to_function" and e["source"] == amount["id"]
+            if e["kind"] == "state_to_function_write" and e["source"] == amount["id"]
         }
         self.assertTrue(
             any(
@@ -245,7 +245,7 @@ class SerializerHelpersTests(unittest.TestCase):
     def test_model_graph_handles_none(self):
         self.assertEqual(
             model_graph_to_dict(None),
-            {"graph_schema_version": "1.0", "nodes": [], "edges": []},
+            {"graph_schema_version": "1.1", "nodes": [], "edges": []},
         )
 
 

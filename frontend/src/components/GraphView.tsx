@@ -13,7 +13,14 @@ import coseBilkent from "cytoscape-cose-bilkent";
 
 import type { GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
 import { buildFocusNodeSet, buildFocusSecondaryEdgeIds } from "../graph/focusNeighborhood";
-import { toInterContractOverviewGraph } from "../graph/interContractOverview";
+import {
+  edgeIdsDroppedAsRedundantBundleLinks,
+  filterFullGraphEdges,
+  FULL_GRAPH_EXTERNAL_EDGE_KINDS,
+  INTER_CONTRACT_EDGE_KINDS,
+  isTypeCompoundInterContractEdge,
+  toInterContractOverviewGraph,
+} from "../graph/interContractOverview";
 
 /** Bundled cytoscape typings omit eles.show/hide (present at runtime). */
 type CyElements = ReturnType<Core["elements"]>;
@@ -48,13 +55,92 @@ type LegendEdgeBucket =
 
 type HiddenLegend = Partial<Record<LegendNodeBucket | LegendEdgeBucket, true>>;
 
-/** Edge kinds toggled by "Show cross-contract calls". */
-const CROSS_CONTRACT_EDGE_KINDS = new Set([
-  "cross_contract_call",
-  "function_to_object",
-  "cross_type_call",
-  "cross_type_state",
+/** Edges that mean a function writes contract storage (not reads). */
+const STATE_WRITE_EDGE_KINDS = new Set([
+  "state_to_function_write",
+  "cross_type_state_write",
 ]);
+
+type EdgeLegendToggle = {
+  bucket: LegendEdgeBucket;
+  label: string;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+type EdgeLegendGuideRow = {
+  label: string;
+  description: string;
+  sampleClassName?: string;
+  sampleStyle?: React.CSSProperties;
+};
+
+const EDGE_TOGGLE_ENTRIES: EdgeLegendToggle[] = [
+  { bucket: "edge_state", label: "state", className: "sg-graph__edge-key--state" },
+  { bucket: "edge_emit", label: "emit", className: "sg-graph__edge-key--emit" },
+  { bucket: "edge_revert_error", label: "revert error", style: { color: "#f87171" } },
+  { bucket: "edge_ext_contract", label: "ext contract", className: "sg-graph__edge-key--contract" },
+  { bucket: "edge_system", label: "system", className: "sg-graph__edge-key--system" },
+  { bucket: "edge_internal", label: "internal", className: "sg-graph__edge-key--call" },
+  { bucket: "edge_cross_type", label: "cross-type", className: "sg-graph__edge-key--cross" },
+  { bucket: "edge_include_c", label: "inc .c", style: { color: "#2dd4bf" } },
+  { bucket: "edge_struct_ws", label: "struct/workspace", style: { color: "#fb923c" } },
+];
+
+const EDGE_GUIDE_ROWS: EdgeLegendGuideRow[] = [
+  {
+    label: "State read",
+    description: "State variable to function that reads storage (solid green).",
+    sampleClassName: "sg-graph__edge-key--state",
+  },
+  {
+    label: "State write",
+    description: "State variable to function that may write storage (dashed orange).",
+    sampleClassName: "sg-graph__edge-key--state",
+    sampleStyle: { borderLeftColor: "#f59e0b", borderLeftStyle: "dashed" },
+  },
+  {
+    label: "Emit",
+    description: "Function to Solidity event it emits.",
+    sampleClassName: "sg-graph__edge-key--emit",
+  },
+  {
+    label: "Revert error",
+    description: "Function to user-defined error used on revert.",
+    sampleStyle: { borderLeftColor: "#f87171" },
+  },
+  {
+    label: "External contract",
+    description: "Function to external type or cross-file contract call (dashed).",
+    sampleClassName: "sg-graph__edge-key--contract",
+  },
+  {
+    label: "System",
+    description: "Function to built-in or runtime call (dotted).",
+    sampleClassName: "sg-graph__edge-key--system",
+  },
+  {
+    label: "Internal",
+    description: "Call between functions in the same contract.",
+    sampleClassName: "sg-graph__edge-key--call",
+  },
+  {
+    label: "Cross-type",
+    description:
+      "Between contracts in a bundle: inheritance, parent calls, shared state (red). Shown in Inter-contract view.",
+    sampleClassName: "sg-graph__edge-key--cross",
+  },
+  {
+    label: "Import (C)",
+    description: "C translation unit includes another bundle file.",
+    sampleStyle: { borderLeftColor: "#2dd4bf" },
+  },
+  {
+    label: "Struct / workspace",
+    description: "Function uses struct or workspace entity (C profile).",
+    sampleStyle: { borderLeftColor: "#fb923c" },
+  },
+];
 
 function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
   const g = node.data("group") as GraphNode["group"] | undefined;
@@ -80,6 +166,8 @@ function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
 function bucketForEdgeKind(kind: string): LegendEdgeBucket | null {
   switch (kind) {
     case "state_to_function":
+    case "state_to_function_read":
+    case "state_to_function_write":
       return "edge_state";
     case "function_to_event":
       return "edge_emit";
@@ -94,6 +182,8 @@ function bucketForEdgeKind(kind: string): LegendEdgeBucket | null {
       return "edge_internal";
     case "cross_type_call":
     case "cross_type_state":
+    case "cross_type_state_read":
+    case "cross_type_state_write":
       return "edge_cross_type";
     case "function_to_include_template":
       return "edge_include_c";
@@ -113,11 +203,20 @@ type GraphVisibilityOpts = {
   hiddenLegend: HiddenLegend;
   showImports: boolean;
   showCrossContractCalls: boolean;
+  interContractOnly: boolean;
+  hiddenRedundantBundleImportIds: Set<string>;
   focusNodeIds: Set<string> | null;
 };
 
 function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
-  const { hiddenLegend, showImports, showCrossContractCalls, focusNodeIds } = opts;
+  const {
+    hiddenLegend,
+    showImports,
+    showCrossContractCalls,
+    interContractOnly,
+    hiddenRedundantBundleImportIds,
+    focusNodeIds,
+  } = opts;
 
   const nodeBaseVisible = (node: NodeSingular): boolean => {
     const g = node.data("group") as string | undefined;
@@ -151,15 +250,61 @@ function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
     let ok = !isLegendHidden(hiddenLegend, eBucket);
 
     if (kind === "import_dependency" && !showImports) ok = false;
-    if (CROSS_CONTRACT_EDGE_KINDS.has(kind) && !showCrossContractCalls) ok = false;
+    if (!interContractOnly) {
+      if (isTypeCompoundCrossEdgeEle(edge)) {
+        ok = false;
+      } else if (!showCrossContractCalls) {
+        if (INTER_CONTRACT_EDGE_KINDS.has(kind)) {
+          ok = false;
+        } else if (FULL_GRAPH_EXTERNAL_EDGE_KINDS.has(kind)) {
+          ok = false;
+        }
+      }
+    }
+    if (hiddenRedundantBundleImportIds.has(edge.id())) {
+      ok = false;
+    }
 
     const src = edge.source();
     const tgt = edge.target();
     if (!nodeVisible(src as NodeSingular) || !nodeVisible(tgt as NodeSingular)) ok = false;
 
     const cy = edge as unknown as CyElementsVisibility;
-    if (ok) cy.show();
-    else cy.hide();
+    if (ok) {
+      cy.show();
+      edge.removeClass("sg-view-suppressed");
+    } else {
+      cy.hide();
+      edge.addClass("sg-view-suppressed");
+    }
+  });
+}
+
+function isTypeCompoundCrossEdgeEle(edge: EdgeSingular): boolean {
+  const kind = String(edge.data("kind") ?? "");
+  if (!INTER_CONTRACT_EDGE_KINDS.has(kind)) {
+    return false;
+  }
+  if (
+    edge.source().data("group") === "type" &&
+    edge.target().data("group") === "type"
+  ) {
+    return true;
+  }
+  return String(edge.data("label") ?? "").startsWith("extends ");
+}
+
+function crossContractEdgesInCore(core: Core): ReturnType<Core["edges"]> {
+  return core.edges().filter((ele) => {
+    const edge = ele as EdgeSingular;
+    if (isTypeCompoundCrossEdgeEle(edge)) {
+      return false;
+    }
+    const kind = String(edge.data("kind") ?? "");
+    return (
+      INTER_CONTRACT_EDGE_KINDS.has(kind) ||
+      FULL_GRAPH_EXTERNAL_EDGE_KINDS.has(kind)
+    );
   });
 }
 
@@ -436,6 +581,7 @@ export function GraphView({ graph }: GraphViewProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const toolbarWrapRef = useRef<HTMLDivElement | null>(null);
   const coreRef = useRef<Core | null>(null);
+  const prevShowCrossContractCallsRef = useRef(false);
   const fullscreenShellRef = useRef<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
@@ -460,6 +606,28 @@ export function GraphView({ graph }: GraphViewProps) {
     setGraphCanvasOnly(false);
   }, [graph]);
 
+  useEffect(() => {
+    if (interContractOnly) {
+      return;
+    }
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    setSelectedEdge((edge) => {
+      if (!edge) {
+        return edge;
+      }
+      if (
+        INTER_CONTRACT_EDGE_KINDS.has(edge.kind) &&
+        (!showCrossContractCalls ||
+          (edge.source &&
+            edge.target &&
+            isTypeCompoundInterContractEdge(edge, nodeById)))
+      ) {
+        return null;
+      }
+      return edge;
+    });
+  }, [interContractOnly, graph, showCrossContractCalls]);
+
   const toggleLegend = (key: LegendNodeBucket | LegendEdgeBucket) => {
     setHiddenLegend((prev) => {
       const next = { ...prev };
@@ -469,33 +637,70 @@ export function GraphView({ graph }: GraphViewProps) {
     });
   };
 
-  const displayGraph = useMemo(
-    () => (interContractOnly ? toInterContractOverviewGraph(graph) : graph),
-    [graph, interContractOnly],
+  const structureGraph = useMemo(() => {
+    if (interContractOnly) {
+      return toInterContractOverviewGraph(graph);
+    }
+    return graph;
+  }, [graph, interContractOnly]);
+
+  const displayGraph = useMemo(() => {
+    if (interContractOnly) {
+      return structureGraph;
+    }
+    return filterFullGraphEdges(graph, showCrossContractCalls);
+  }, [graph, interContractOnly, showCrossContractCalls, structureGraph]);
+
+  const hiddenRedundantBundleImportIds = useMemo(
+    () =>
+      interContractOnly || !showCrossContractCalls
+        ? new Set<string>()
+        : edgeIdsDroppedAsRedundantBundleLinks(graph.edges),
+    [graph.edges, interContractOnly, showCrossContractCalls],
   );
 
-  const elements = useMemo(() => buildElements(displayGraph), [displayGraph]);
-  const stateWritersCount = useMemo(
-    () =>
-      displayGraph.nodes.filter(
-        (node) =>
+  const elements = useMemo(() => buildElements(structureGraph), [structureGraph]);
+  const stateWriteTargets = useMemo(() => {
+    const functionIds = new Set<string>();
+    const stateIds = new Set<string>();
+    const edgeIds = new Set<string>();
+    for (const edge of displayGraph.edges) {
+      if (!STATE_WRITE_EDGE_KINDS.has(edge.kind)) {
+        continue;
+      }
+      edgeIds.add(edge.id);
+      functionIds.add(edge.target);
+      stateIds.add(edge.source);
+    }
+    if (functionIds.size === 0) {
+      for (const node of displayGraph.nodes) {
+        if (
           node.group === "function" &&
           Array.isArray(node.state_writes) &&
-          node.state_writes.length > 0,
-      ).length,
-    [displayGraph.nodes],
-  );
-  const entrypointWritersCount = useMemo(
-    () =>
-      displayGraph.nodes.filter(
-        (node) =>
-          node.group === "function" &&
-          Boolean(node.is_entrypoint) &&
-          Array.isArray(node.state_writes) &&
-          node.state_writes.length > 0,
-      ).length,
-    [displayGraph.nodes],
-  );
+          node.state_writes.length > 0
+        ) {
+          functionIds.add(node.id);
+        }
+      }
+    }
+    return { functionIds, stateIds, edgeIds };
+  }, [displayGraph.edges, displayGraph.nodes]);
+
+  const stateWritersCount = stateWriteTargets.functionIds.size;
+
+  const entrypointWritersCount = useMemo(() => {
+    let count = 0;
+    for (const node of displayGraph.nodes) {
+      if (
+        node.group === "function" &&
+        Boolean(node.is_entrypoint) &&
+        stateWriteTargets.functionIds.has(node.id)
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [displayGraph.nodes, stateWriteTargets.functionIds]);
   const nodeLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const node of displayGraph.nodes) {
@@ -546,13 +751,36 @@ export function GraphView({ graph }: GraphViewProps) {
     return rows;
   }, [displayGraph.edges, selected, nodeLabelById]);
 
-  const stateAccessFunctionLabels = useMemo(() => {
+  const stateReaderFunctionLabels = useMemo(() => {
     if (!selected || (selected.group !== "state" && selected.group !== "workspace")) {
       return [];
     }
+    const readKinds = new Set([
+      "state_to_function",
+      "state_to_function_read",
+      "cross_type_state_read",
+    ]);
     const labels: string[] = [];
     for (const edge of displayGraph.edges) {
-      if (edge.kind !== "state_to_function" || edge.source !== selected.id) {
+      if (!readKinds.has(edge.kind) || edge.source !== selected.id) {
+        continue;
+      }
+      labels.push(nodeLabelById.get(edge.target) ?? edge.target);
+    }
+    return [...new Set(labels)].sort((a, b) => a.localeCompare(b));
+  }, [displayGraph.edges, selected, nodeLabelById]);
+
+  const stateWriterFunctionLabels = useMemo(() => {
+    if (!selected || (selected.group !== "state" && selected.group !== "workspace")) {
+      return [];
+    }
+    const writeKinds = new Set([
+      "state_to_function_write",
+      "cross_type_state_write",
+    ]);
+    const labels: string[] = [];
+    for (const edge of displayGraph.edges) {
+      if (!writeKinds.has(edge.kind) || edge.source !== selected.id) {
         continue;
       }
       labels.push(nodeLabelById.get(edge.target) ?? edge.target);
@@ -577,6 +805,27 @@ export function GraphView({ graph }: GraphViewProps) {
     if (!focusNodeIds || !selected?.id) return null;
     return buildFocusSecondaryEdgeIds(displayGraph, selected.id, focusNodeIds);
   }, [displayGraph, focusNodeIds, selected?.id]);
+
+  const graphVisibilityOpts = useMemo<GraphVisibilityOpts>(
+    () => ({
+      hiddenLegend,
+      showImports,
+      showCrossContractCalls,
+      interContractOnly,
+      hiddenRedundantBundleImportIds,
+      focusNodeIds,
+    }),
+    [
+      hiddenLegend,
+      showImports,
+      showCrossContractCalls,
+      interContractOnly,
+      hiddenRedundantBundleImportIds,
+      focusNodeIds,
+    ],
+  );
+  const graphVisibilityOptsRef = useRef(graphVisibilityOpts);
+  graphVisibilityOptsRef.current = graphVisibilityOpts;
 
   useEffect(() => {
     if (!focusSelectionEnabled) return;
@@ -853,10 +1102,18 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
-          selector: 'edge[kind = "state_to_function"]',
+          selector: 'edge[kind = "state_to_function"], edge[kind = "state_to_function_read"]',
           style: {
             "line-color": "#34d399",
             "target-arrow-color": "#34d399",
+          },
+        },
+        {
+          selector: 'edge[kind = "state_to_function_write"]',
+          style: {
+            "line-color": "#f59e0b",
+            "target-arrow-color": "#f59e0b",
+            "line-style": "dashed",
           },
         },
         {
@@ -889,6 +1146,14 @@ export function GraphView({ graph }: GraphViewProps) {
             opacity: 0.15,
           },
         },
+        {
+          selector: "edge.sg-view-suppressed",
+          style: {
+            opacity: 0,
+            "z-index": -1,
+            events: "no",
+          },
+        },
       ],
       layout: layoutOptions,
     });
@@ -917,13 +1182,19 @@ export function GraphView({ graph }: GraphViewProps) {
         }
       }
       core.edges().removeClass("sg-highlighted");
-      selectedNode.connectedEdges().addClass("sg-highlighted");
+      selectedNode
+        .connectedEdges()
+        .filter((e: EdgeSingular) => e.visible())
+        .addClass("sg-highlighted");
       setSelected(readSelectedNode(selectedNode));
       setSelectedEdge(null);
     });
 
     core.on("tap", "edge", (event: EventObject) => {
       const edge = event.target as EdgeSingular;
+      if (!edge.visible()) {
+        return;
+      }
       core.edges().removeClass("sg-highlighted");
       edge.addClass("sg-highlighted");
       setSelected(null);
@@ -937,6 +1208,8 @@ export function GraphView({ graph }: GraphViewProps) {
         setSelectedEdge(null);
       }
     });
+
+    applyGraphVisibility(core, graphVisibilityOptsRef.current);
 
     return () => {
       core.destroy();
@@ -952,13 +1225,13 @@ export function GraphView({ graph }: GraphViewProps) {
     fnNodes.removeClass("sg-state-write");
     fnNodes.removeClass("sg-entrypoint-write");
     fnNodes.forEach((node) => {
-      const stateWrites = node.data("state_writes");
-      const isEntrypoint = Boolean(node.data("is_entrypoint"));
-      if (Array.isArray(stateWrites) && stateWrites.length > 0) {
-        node.addClass("sg-state-write");
-        if (isEntrypoint) {
-          node.addClass("sg-entrypoint-write");
-        }
+      const nodeId = node.id();
+      if (!stateWriteTargets.functionIds.has(nodeId)) {
+        return;
+      }
+      node.addClass("sg-state-write");
+      if (Boolean(node.data("is_entrypoint"))) {
+        node.addClass("sg-entrypoint-write");
       }
     });
 
@@ -968,28 +1241,65 @@ export function GraphView({ graph }: GraphViewProps) {
 
     core.nodes().addClass("sg-dimmed");
     core.edges().addClass("sg-dimmed");
-    if (highlightEntrypointWrites) {
-      core.nodes("node.sg-entrypoint-write").removeClass("sg-dimmed");
-    } else {
-      core.nodes("node.sg-state-write").removeClass("sg-dimmed");
-    }
-    core.edges().forEach((edge) => {
-      const className = highlightEntrypointWrites ? "sg-entrypoint-write" : "sg-state-write";
-      if (edge.source().hasClass(className) || edge.target().hasClass(className)) {
-        edge.removeClass("sg-dimmed");
+
+    const showWriter = (nodeId: string) => {
+      const node = core.getElementById(nodeId);
+      if (!node.empty()) {
+        node.removeClass("sg-dimmed");
       }
+    };
+
+    if (highlightEntrypointWrites) {
+      fnNodes.forEach((node) => {
+        if (node.hasClass("sg-entrypoint-write")) {
+          node.removeClass("sg-dimmed");
+        }
+      });
+    } else if (highlightStateWrites) {
+      stateWriteTargets.functionIds.forEach(showWriter);
+      stateWriteTargets.stateIds.forEach(showWriter);
+    }
+
+    stateWriteTargets.edgeIds.forEach((edgeId) => {
+      const edge = core.getElementById(edgeId);
+      if (edge.empty()) {
+        return;
+      }
+      if (highlightEntrypointWrites) {
+        if (!edge.target().hasClass("sg-entrypoint-write")) {
+          return;
+        }
+      } else if (!highlightStateWrites) {
+        return;
+      }
+      edge.removeClass("sg-dimmed");
     });
-  }, [displayGraph, highlightStateWrites, highlightEntrypointWrites, hiddenLegend, focusNodeIds]);
+  }, [
+    displayGraph,
+    highlightStateWrites,
+    highlightEntrypointWrites,
+    hiddenLegend,
+    focusNodeIds,
+    stateWriteTargets,
+  ]);
 
   useEffect(() => {
     const core = coreRef.current;
     if (!core) return;
-    applyGraphVisibility(core, {
-      hiddenLegend,
-      showImports,
-      showCrossContractCalls,
-      focusNodeIds,
-    });
+    applyGraphVisibility(core, graphVisibilityOpts);
+    const turnedOn =
+      showCrossContractCalls &&
+      !prevShowCrossContractCallsRef.current &&
+      !interContractOnly;
+    prevShowCrossContractCallsRef.current = showCrossContractCalls;
+    if (turnedOn) {
+      const cross = crossContractEdgesInCore(core);
+      if (cross.length > 0) {
+        requestAnimationFrame(() => {
+          core.fit(cross, 48);
+        });
+      }
+    }
     setSelected((sel) => {
       if (!sel) return sel;
       const n = core.getElementById(sel.id);
@@ -1002,7 +1312,7 @@ export function GraphView({ graph }: GraphViewProps) {
       if (e.empty() || !e.visible()) return null;
       return edge;
     });
-  }, [hiddenLegend, showImports, showCrossContractCalls, elements, focusNodeIds]);
+  }, [graphVisibilityOpts, showCrossContractCalls, interContractOnly]);
 
   useEffect(() => {
     const core = coreRef.current;
@@ -1301,7 +1611,28 @@ export function GraphView({ graph }: GraphViewProps) {
               <button
                 type="button"
                 className="sg-button sg-button--ghost"
-                onClick={() => setShowCrossContractCalls((v) => !v)}
+                disabled={interContractOnly}
+                title={
+                  interContractOnly
+                    ? "Links between contracts are always shown in Inter-contract view"
+                    : "Show function-level cross-contract calls and external calls (contract extends stay in Inter-contract view)"
+                }
+                onClick={() => {
+                  setShowCrossContractCalls((v) => {
+                    const next = !v;
+                    if (next) {
+                      setHiddenLegend((prev) => {
+                        if (!prev.edge_cross_type) {
+                          return prev;
+                        }
+                        const copy = { ...prev };
+                        delete copy.edge_cross_type;
+                        return copy;
+                      });
+                    }
+                    return next;
+                  });
+                }}
               >
                 {showCrossContractCalls
                   ? "Hide cross-contract calls"
@@ -1412,87 +1743,59 @@ export function GraphView({ graph }: GraphViewProps) {
           <div className="sg-graph__legend-block">
             <span
               className="sg-graph__legend-heading"
-              title="Click a label to hide or show that edge kind on the graph."
+              title="Click a filter to hide or show that edge family on the graph."
             >
               Edges
             </span>
+            <p className="sg-graph__legend-hint">
+              Arrow points from source node to target node.
+            </p>
             <div className="sg-graph__edge-legend" role="group" aria-label="Edge kinds visibility">
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--state${hiddenLegend.edge_state ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_state)}
-                onClick={() => toggleLegend("edge_state")}
-              >
-                state
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--emit${hiddenLegend.edge_emit ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_emit)}
-                onClick={() => toggleLegend("edge_emit")}
-              >
-                emit
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key${hiddenLegend.edge_revert_error ? " sg-graph__edge-key--suppressed" : ""}`}
-                style={{ color: "#f87171" }}
-                aria-pressed={Boolean(hiddenLegend.edge_revert_error)}
-                onClick={() => toggleLegend("edge_revert_error")}
-              >
-                revert error
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--contract${hiddenLegend.edge_ext_contract ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_ext_contract)}
-                onClick={() => toggleLegend("edge_ext_contract")}
-              >
-                ext contract
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--system${hiddenLegend.edge_system ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_system)}
-                onClick={() => toggleLegend("edge_system")}
-              >
-                system
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--call${hiddenLegend.edge_internal ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_internal)}
-                onClick={() => toggleLegend("edge_internal")}
-              >
-                internal
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key sg-graph__edge-key--cross${hiddenLegend.edge_cross_type ? " sg-graph__edge-key--suppressed" : ""}`}
-                aria-pressed={Boolean(hiddenLegend.edge_cross_type)}
-                onClick={() => toggleLegend("edge_cross_type")}
-              >
-                cross-type
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key${hiddenLegend.edge_include_c ? " sg-graph__edge-key--suppressed" : ""}`}
-                style={{ color: "#2dd4bf" }}
-                aria-pressed={Boolean(hiddenLegend.edge_include_c)}
-                onClick={() => toggleLegend("edge_include_c")}
-              >
-                inc .c
-              </button>
-              <button
-                type="button"
-                className={`sg-graph__edge-key${hiddenLegend.edge_struct_ws ? " sg-graph__edge-key--suppressed" : ""}`}
-                style={{ color: "#fb923c" }}
-                aria-pressed={Boolean(hiddenLegend.edge_struct_ws)}
-                onClick={() => toggleLegend("edge_struct_ws")}
-              >
-                struct/workspace
-              </button>
+              {EDGE_TOGGLE_ENTRIES.map((entry) => {
+                const suppressed = Boolean(hiddenLegend[entry.bucket]);
+                const classNames = [
+                  "sg-graph__edge-key",
+                  entry.className ?? "",
+                  suppressed ? "sg-graph__edge-key--suppressed" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <button
+                    key={entry.bucket}
+                    type="button"
+                    className={classNames}
+                    style={entry.style}
+                    aria-pressed={suppressed}
+                    title={`Toggle ${entry.label} edges`}
+                    onClick={() => toggleLegend(entry.bucket)}
+                  >
+                    {entry.label}
+                  </button>
+                );
+              })}
             </div>
+            <ul className="sg-graph__edge-legend-guide" aria-label="Edge meanings">
+              {EDGE_GUIDE_ROWS.map((row) => (
+                <li key={row.label} className="sg-graph__edge-legend-guide-row">
+                  <span
+                    className={[
+                      "sg-graph__edge-legend-sample",
+                      row.sampleClassName ?? "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    style={row.sampleStyle}
+                    aria-hidden
+                  />
+                  <span className="sg-graph__edge-legend-guide-text">
+                    <strong>{row.label}</strong>
+                    {" - "}
+                    {row.description}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -1768,13 +2071,28 @@ export function GraphView({ graph }: GraphViewProps) {
                   </>
                 )}
                 {(selected.group === "state" || selected.group === "workspace") &&
-                  stateAccessFunctionLabels.length > 0 && (
+                  stateReaderFunctionLabels.length > 0 && (
                   <>
-                    <dt>Used by functions</dt>
+                    <dt>Readers</dt>
                     <dd>
                       <ul className="sg-graph__modifiers">
-                        {stateAccessFunctionLabels.map((name) => (
-                          <li key={name} className="sg-graph__modifier-row">
+                        {stateReaderFunctionLabels.map((name) => (
+                          <li key={`read-${name}`} className="sg-graph__modifier-row">
+                            <span>{name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </>
+                )}
+                {(selected.group === "state" || selected.group === "workspace") &&
+                  stateWriterFunctionLabels.length > 0 && (
+                  <>
+                    <dt>Writers</dt>
+                    <dd>
+                      <ul className="sg-graph__modifiers">
+                        {stateWriterFunctionLabels.map((name) => (
+                          <li key={`write-${name}`} className="sg-graph__modifier-row">
                             <span>{name}</span>
                           </li>
                         ))}

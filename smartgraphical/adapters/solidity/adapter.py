@@ -20,6 +20,8 @@ from smartgraphical.core.model import (
     NormalizedType,
 )
 from smartgraphical.adapters.solidity.reader import ContractReader
+from smartgraphical.adapters.solidity import state_access
+from smartgraphical.adapters.solidity.import_resolve import collect_lines_with_imports
 from smartgraphical.adapters.solidity.helpers import (
     extract_requirements,
     extract_asserts,
@@ -139,32 +141,39 @@ def _collect_guard_facts(body, conditionals):
     return facts
 
 
-def _collect_mutations(body, state_names):
-    mutations = []
-    for stmt in _split_body(body):
-        for name in state_names:
-            if name in stmt and ('=' in stmt or '+=' in stmt or '-=' in stmt):
-                if stmt not in mutations:
-                    mutations.append(stmt)
-    return mutations
+def _collect_state_accesses(body, state_names, modifiers=None):
+    reads, writes, mutations = state_access.collect_function_state_accesses(
+        body,
+        state_names,
+        modifiers or [],
+    )
+    return reads, writes, mutations
 
 
-def _collect_state_accesses(body, state_names):
-    reads = []
-    writes = []
-    for stmt in _split_body(body):
-        for name in state_names:
-            if name not in stmt:
-                continue
-            if ('=' in stmt or '+=' in stmt or '-=' in stmt):
-                entry = NormalizedStateAccess(name, 'write', stmt)
-                if entry not in writes:
-                    writes.append(entry)
-            else:
-                entry = NormalizedStateAccess(name, 'read', stmt)
-                if entry not in reads:
-                    reads.append(entry)
-    return reads, writes
+def _append_state_access_edges(model, source_type, type_entry):
+    state_names = [e.name for e in type_entry.state_entities]
+    for function in type_entry.functions:
+        for access in function.read_accesses or []:
+            model.call_edges.append(NormalizedCallEdge(
+                source_type,
+                access.entity_name,
+                source_type,
+                function.name,
+                'state_to_function_read',
+            ))
+        _reads, write_accesses, _mutations = state_access.collect_function_state_accesses(
+            function.body,
+            state_names,
+            function.modifiers,
+        )
+        for access in write_accesses:
+            model.call_edges.append(NormalizedCallEdge(
+                source_type,
+                access.entity_name,
+                source_type,
+                function.name,
+                'state_to_function_write',
+            ))
 
 
 def _collect_transfers(body):
@@ -684,8 +693,9 @@ def build_normalized_model(context):
             split_statements = _split_body(body)
             guard_facts = _collect_guard_facts(body, conditionals)
             guards = _collect_guards(body, conditionals)
-            read_accesses, mutation_accesses = _collect_state_accesses(body, state_names)
-            mutations = _collect_mutations(body, state_names)
+            read_accesses, mutation_accesses, mutations = _collect_state_accesses(
+                body, state_names, ext_params,
+            )
             visibility = _extract_visibility(ext_params)
             permissions = _extract_permissions(ext_params)
             external_calls = _collect_external_calls(body, object_calls, system_calls)
@@ -746,9 +756,7 @@ def build_normalized_model(context):
 
         event_name_set = {ev[0] for ev in events}
         error_name_set = {e[0] for e in custom_errors}
-        for var_name, used_by in var_func_mapping.items():
-            for fn in used_by:
-                model.call_edges.append(NormalizedCallEdge(contract_name, var_name, contract_name, fn, 'state_to_function'))
+        _append_state_access_edges(model, contract_name, type_entry)
         for src, targets in func_func_mapping.items():
             if src in event_name_set or src in error_name_set:
                 continue
@@ -808,14 +816,47 @@ def build_normalized_model(context):
             contracts_in_file,
         )
 
+    type_by_name = {t.name: t for t in model.types}
     for conn in context.high_connections:
         parent, child = conn['parent'], conn['child']
-        for var_name, used_by in conn['var_func_mapping'].items():
-            for fn in used_by:
-                model.call_edges.append(NormalizedCallEdge(parent, var_name, child, fn, 'cross_type_state'))
-        for src, targets in conn['func_func_mapping'].items():
-            for tgt in targets:
-                model.call_edges.append(NormalizedCallEdge(parent, src, child, tgt, 'cross_type_call'))
+        parent_type = type_by_name.get(parent)
+        child_type = type_by_name.get(child)
+        if not parent_type or not child_type:
+            continue
+        parent_state_names = {e.name for e in parent_type.state_entities}
+        for function in child_type.functions:
+            for access in function.read_accesses or []:
+                if access.entity_name in parent_state_names:
+                    model.call_edges.append(NormalizedCallEdge(
+                        parent,
+                        access.entity_name,
+                        child,
+                        function.name,
+                        'cross_type_state_read',
+                    ))
+            _reads, write_accesses, _mutations = state_access.collect_function_state_accesses(
+                function.body,
+                [e.name for e in child_type.state_entities],
+                function.modifiers,
+            )
+            for access in write_accesses:
+                if access.entity_name in parent_state_names:
+                    model.call_edges.append(NormalizedCallEdge(
+                        parent,
+                        access.entity_name,
+                        child,
+                        function.name,
+                        'cross_type_state_write',
+                    ))
+        for callee, callers in conn['func_func_mapping'].items():
+            for caller in callers:
+                model.call_edges.append(NormalizedCallEdge(
+                    child,
+                    caller,
+                    parent,
+                    callee,
+                    'cross_type_call',
+                ))
     return model
 
 
@@ -827,8 +868,21 @@ class SolidityAdapterV0:
     def __init__(self):
         self.reader = ContractReader()
 
-    def parse_source(self, source_path):
-        lines = self.reader.read_file(source_path)
+    def parse_source(self, source_path, *, expand_local_imports=True):
+        """Parse one Solidity source file.
+
+        When ``expand_local_imports`` is True (default), relative ``.sol`` imports
+        beside the file are merged in (single-file upload). Bundle scans pass
+        False so each member is analyzed once without duplicating siblings.
+        """
+        if expand_local_imports:
+            lines = collect_lines_with_imports(
+                source_path,
+                self.reader.read_file,
+            )
+        else:
+            lines = self.reader.read_file(source_path)
+        self.reader.lines = lines
         unified_source = self.reader.unify_text(lines)
         parsed_rets, parsed_hierarchy, parsed_high_connections, parsed_unit_kinds = self.reader(unified_source)
         context = AnalysisContext(

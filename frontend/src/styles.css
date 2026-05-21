@@ -828,11 +828,54 @@ body {
   align-items: center;
 }
 
+.sg-graph__legend-hint {
+  margin: 0;
+  font-size: 10px;
+  color: #6e7681;
+  line-height: 1.4;
+}
+
 .sg-graph__edge-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 8px;
   align-items: center;
+}
+
+.sg-graph__edge-legend-guide {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sg-graph__edge-legend-guide-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.sg-graph__edge-legend-sample {
+  display: block;
+  height: 12px;
+  margin-top: 2px;
+  border-left: 3px solid #4b5563;
+  border-radius: 2px;
+  background: #161b22;
+}
+
+.sg-graph__edge-legend-guide-text {
+  font-size: 10px;
+  line-height: 1.45;
+  color: #8b949e;
+}
+
+.sg-graph__edge-legend-guide-text strong {
+  font-weight: 600;
+  color: #c9d1d9;
 }
 
 .sg-graph__edge-key {

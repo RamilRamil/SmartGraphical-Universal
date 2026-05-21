@@ -9,8 +9,8 @@ class AnalysisService:
         self.rule_engine = rule_engine or RuleEngine(build_rule_registry())
         self.graph_builder = graph_builder or GraphBuilder()
 
-    def analyze(self, source_path):
-        return self.adapter.parse_source(source_path)
+    def analyze(self, source_path, **parse_kwargs):
+        return self.adapter.parse_source(source_path, **parse_kwargs)
 
     def run_task(self, context, task_id):
         return self.rule_engine.run_task(context, task_id)

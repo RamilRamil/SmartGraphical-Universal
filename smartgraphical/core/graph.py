@@ -73,7 +73,14 @@ class GraphBuilder:
         for edge in model.call_edges:
             source_type = sanitize_graph_token(edge.source_type)
             target_type = sanitize_graph_token(edge.target_type)
-            if edge.edge_kind in ["state_to_function", "cross_type_state"]:
+            if edge.edge_kind in [
+                "state_to_function",
+                "state_to_function_read",
+                "state_to_function_write",
+                "cross_type_state",
+                "cross_type_state_read",
+                "cross_type_state_write",
+            ]:
                 dot.edge(
                     f"var_{source_type}_{sanitize_graph_token(edge.source_name)}",
                     f"func_{target_type}_{sanitize_graph_token(edge.target_name)}",
