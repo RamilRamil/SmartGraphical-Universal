@@ -157,6 +157,27 @@ class ContractReaderExtractFuncTests(unittest.TestCase):
         self.assertEqual([d[0] for d in details], ["InvalidShares", "Another"])
         self.assertIn("uint256", details[1][1])
 
+    def test_fparams_keeps_override_parent_list_as_one_token(self):
+        r = ContractReader()
+        header = (
+            "function _checkHarvested() internal view virtual "
+            "override(VaultImmutables, VaultSubVaults) { super._checkHarvested(); }"
+        )
+        name, _inputs, ext_params = r.extract_fparams(header)
+        self.assertEqual(name, "_checkHarvested")
+        self.assertIn("override(VaultImmutables, VaultSubVaults)", ext_params)
+        self.assertNotIn("override(VaultImmutables,", ext_params)
+        self.assertNotIn("VaultSubVaults)", ext_params)
+
+    def test_fparams_keeps_reinitializer_as_one_token(self):
+        r = ContractReader()
+        header = (
+            "function initialize(bytes calldata params) external payable virtual "
+            "override reinitializer(_version) { __init(); }"
+        )
+        _name, _inputs, ext_params = r.extract_fparams(header)
+        self.assertIn("reinitializer(_version)", ext_params)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,11 @@ from smartgraphical.adapters.c_base.adapter import _TU_INCLUDE_EDGE_SOURCE
 _VIS_ONLY = frozenset({"public", "external", "internal", "private"})
 _SOLIDITY_STORAGE_ATTRS = frozenset({"constant", "immutable"})
 _DECLARED_MODIFIER_MARKER = "__declared_modifier__"
+_SOLIDITY_SIGNATURE_MODIFIERS = frozenset({
+    "public", "external", "internal", "private",
+    "pure", "view", "payable", "constant",
+    "virtual", "override",
+})
 _GRAPH_SCHEMA_VERSION = "1.1"
 
 _C_NODE_ALLOWED_NODE_GROUPS = frozenset({
@@ -74,10 +79,29 @@ def _modifier_hex(name):
     return f"#{digest[:6]}"
 
 
+def _is_graph_modifier_token(name):
+    token = (name or "").strip()
+    if not token or token == _DECLARED_MODIFIER_MARKER:
+        return False
+    lowered = token.lower()
+    if lowered in _SOLIDITY_SIGNATURE_MODIFIERS:
+        return False
+    if lowered.startswith("override("):
+        return False
+    if lowered.startswith("reinitializer("):
+        return False
+    if lowered.startswith("returns"):
+        return False
+    return True
+
+
 def _graph_modifier_fields(modifiers):
     if not modifiers:
         return None
-    raw = [m for m in modifiers if m and m != _DECLARED_MODIFIER_MARKER]
+    raw = [
+        m for m in modifiers
+        if m and m != _DECLARED_MODIFIER_MARKER and _is_graph_modifier_token(m)
+    ]
     if not raw:
         return None
     return [{"name": m, "color": _modifier_hex(m)} for m in raw]
@@ -507,7 +531,7 @@ def model_graph_to_dict(model):
                     declared_modifier_names.add(fn_name)
                 continue
             for mod_name in fn_modifiers:
-                if mod_name and mod_name != _DECLARED_MODIFIER_MARKER:
+                if _is_graph_modifier_token(mod_name):
                     used_modifier_names.add(mod_name)
         all_visible_modifier_names = sorted(declared_modifier_names | used_modifier_names)
         for modifier_name in all_visible_modifier_names:
@@ -725,7 +749,19 @@ def model_graph_to_dict(model):
         if not source_name or not target_name:
             continue
         edge_kind = getattr(edge, "edge_kind", "") or ""
-        source_id = resolve_endpoint(source_type, source_name)
+        if (
+            edge_kind == "import_dependency"
+            and source_type
+            and source_name == source_type
+        ):
+            type_source = _type_id(source_type)
+            source_id = (
+                type_source
+                if type_source in node_ids
+                else resolve_endpoint(source_type, source_name)
+            )
+        else:
+            source_id = resolve_endpoint(source_type, source_name)
         target_id = resolve_endpoint(target_type, target_name, edge_kind=edge_kind)
         edge_payload = {
             "id": f"edge:{index}",

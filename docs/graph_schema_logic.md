@@ -156,7 +156,9 @@ Edge kinds used by graph (Solidity adapter, schema `1.1`):
 
 - `state_to_function_read` — state variable is read by function
 - `state_to_function_write` — state variable may be written by function
-- `function_to_function`
+- `function_to_function` — caller function to callee function within the same contract (same direction as `cross_type_call`: caller -> callee)
+
+**State variables (Solidity reader):** `ContractReader.extract_variables` matches declaration lines by type prefix: `mapping`, `address`, `string`, `bool`, `bytes<N>`, `uint<N>`, `int<N>`, plus `Lib.Type visibility name` for user-defined storage (e.g. `ExitQueue.History internal _exitQueue`). Bare `uint` without digits is covered by `uint<N>` with optional digits. Legacy keyword list `string/uint/mapping/address/bytes` alone is insufficient for `uint256` / `uint128` fields.
 - `function_to_system`
 - `function_to_object`
 - `function_to_event`

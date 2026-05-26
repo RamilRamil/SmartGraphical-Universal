@@ -10,9 +10,13 @@ import cytoscape, {
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error no types for cytoscape-cose-bilkent
 import coseBilkent from "cytoscape-cose-bilkent";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error no types for cytoscape-fcose
+import fcose from "cytoscape-fcose";
 
 import type { GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
 import { buildFocusNodeSet, buildFocusSecondaryEdgeIds } from "../graph/focusNeighborhood";
+import { applyFullGraphTwoPhaseLayout } from "../graph/intraCompoundLayout";
 import {
   edgeIdsDroppedAsRedundantBundleLinks,
   filterFullGraphEdges,
@@ -141,6 +145,54 @@ const EDGE_GUIDE_ROWS: EdgeLegendGuideRow[] = [
     sampleStyle: { borderLeftColor: "#fb923c" },
   },
 ];
+
+const NODE_GUIDE_ROWS: EdgeLegendGuideRow[] = [
+  {
+    label: "Entrypoint border",
+    description: "Public or external function (orange outline on the graph).",
+    sampleStyle: {
+      border: "2px solid #f97316",
+      borderRadius: 3,
+      background: "#3b82f6",
+    },
+  },
+  {
+    label: "State writer border",
+    description: "Function that may write contract storage (red outline).",
+    sampleStyle: {
+      border: "2px solid #ef4444",
+      borderRadius: 3,
+      background: "#3b82f6",
+    },
+  },
+  {
+    label: "Entrypoint + writer",
+    description: "Public/external entrypoint that may write storage (dark red double outline).",
+    sampleStyle: {
+      border: "5px double #dc2626",
+      borderRadius: 3,
+      background: "#3b82f6",
+    },
+  },
+];
+
+function functionBorderHint(
+  node: GraphNode,
+  writesState: boolean,
+): string | null {
+  if (node.group !== "function") return null;
+  const isEntry = Boolean(node.is_entrypoint);
+  if (isEntry && writesState) {
+    return "Dark red double outline: public/external entrypoint that may write storage";
+  }
+  if (writesState) {
+    return "Red: may write contract storage";
+  }
+  if (isEntry) {
+    return "Orange: public or external entrypoint";
+  }
+  return null;
+}
 
 function bucketForNode(node: NodeSingular): LegendNodeBucket | null {
   const g = node.data("group") as GraphNode["group"] | undefined;
@@ -347,6 +399,7 @@ function ensurePluginRegistered() {
   if (pluginRegistered) return;
   try {
     cytoscape.use(coseBilkent);
+    cytoscape.use(fcose);
     pluginRegistered = true;
   } catch {
     pluginRegistered = true;
@@ -731,6 +784,11 @@ export function GraphView({ graph }: GraphViewProps) {
     return rows;
   }, [displayGraph.edges, selected, nodeLabelById]);
 
+  const selectedFunctionBorderHint = useMemo(() => {
+    if (!selected || selected.group !== "function") return null;
+    return functionBorderHint(selected, stateWriteTargets.functionIds.has(selected.id));
+  }, [selected, stateWriteTargets.functionIds]);
+
   const selectedExternalImportUsages = useMemo(() => {
     if (!selected || selected.group !== "external_import") return [];
     const rows: Array<{
@@ -840,27 +898,17 @@ export function GraphView({ graph }: GraphViewProps) {
 
     const overviewLayout = interContractOnly;
 
-    const layoutOptions = overviewLayout
-      ? {
-          name: "cose-bilkent" as const,
-          animate: false,
-          nodeDimensionsIncludeLabels: true,
-          randomize: true,
-          idealEdgeLength: 170,
-          nodeRepulsion: 22000,
-          gravity: 0.4,
-          nestingFactor: 0.04,
-          tile: true,
-        }
-      : {
-          name: "cose-bilkent" as const,
-          animate: false,
-          nodeDimensionsIncludeLabels: true,
-          randomize: true,
-          idealEdgeLength: 80,
-          nodeRepulsion: 5000,
-          tile: true,
-        };
+    const overviewLayoutOptions = {
+      name: "cose-bilkent" as const,
+      animate: false,
+      nodeDimensionsIncludeLabels: true,
+      randomize: false,
+      idealEdgeLength: 170,
+      nodeRepulsion: 22000,
+      gravity: 0.4,
+      nestingFactor: 0.04,
+      tile: true,
+    };
 
     const core = cytoscape({
       container: containerRef.current,
@@ -891,7 +939,7 @@ export function GraphView({ graph }: GraphViewProps) {
             "border-color": (ele: NodeSingular) =>
               ele.data("is_entrypoint") ? "#f97316" : "#0e1116",
             "border-width": (ele: NodeSingular) =>
-              ele.data("is_entrypoint") ? 3 : 1,
+              ele.data("is_entrypoint") ? 2 : 1,
           },
         },
         {
@@ -901,7 +949,7 @@ export function GraphView({ graph }: GraphViewProps) {
             "border-width": 3,
             "border-color": "data(ring_color)",
             shape: "round-rectangle",
-            padding: "4px",
+            padding: "8px",
             width: "label",
             height: "label",
             label: "",
@@ -920,7 +968,7 @@ export function GraphView({ graph }: GraphViewProps) {
             "text-halign": "center",
             "font-size": 12,
             "font-weight": 600,
-            padding: "10px",
+            padding: "24px",
           },
         },
         {
@@ -1014,8 +1062,9 @@ export function GraphView({ graph }: GraphViewProps) {
         {
           selector: "node.sg-entrypoint-write",
           style: {
-            "border-color": "#f97316",
-            "border-width": 4,
+            "border-color": "#dc2626",
+            "border-width": 5,
+            "border-style": "double",
           },
         },
         {
@@ -1155,10 +1204,15 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
       ],
-      layout: layoutOptions,
     });
 
     coreRef.current = core;
+
+    if (overviewLayout) {
+      core.layout(overviewLayoutOptions).run();
+    } else {
+      applyFullGraphTwoPhaseLayout(core);
+    }
 
     const fitPadding = overviewLayout ? 56 : 36;
     const applyFit = () => {
@@ -1739,6 +1793,28 @@ export function GraphView({ graph }: GraphViewProps) {
                 external
               </button>
             </div>
+            <ul className="sg-graph__edge-legend-guide" aria-label="Function border meanings">
+              {NODE_GUIDE_ROWS.map((row) => (
+                <li key={row.label} className="sg-graph__edge-legend-guide-row">
+                  <span
+                    className={[
+                      "sg-graph__edge-legend-sample",
+                      "sg-graph__node-border-sample",
+                      row.sampleClassName ?? "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    style={row.sampleStyle}
+                    aria-hidden
+                  />
+                  <span className="sg-graph__edge-legend-guide-text">
+                    <strong>{row.label}</strong>
+                    {" - "}
+                    {row.description}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
           <div className="sg-graph__legend-block">
             <span
@@ -1851,7 +1927,12 @@ export function GraphView({ graph }: GraphViewProps) {
                 {selected.type_name && (
                   <>
                     <dt>
-                      {selected.group === "state" || selected.group === "workspace"
+                      {selected.group === "state" ||
+                      selected.group === "workspace" ||
+                      selected.group === "modifier" ||
+                      selected.group === "function" ||
+                      selected.group === "event" ||
+                      selected.group === "custom_error"
                         ? "Contract"
                         : "Type"}
                     </dt>
@@ -1909,14 +1990,18 @@ export function GraphView({ graph }: GraphViewProps) {
                   <>
                     <dt>Used from</dt>
                     <dd>
-                      <ul className="sg-graph__modifiers">
+                      <ul className="sg-graph__detail-list">
                         {selectedExternalImportUsages.map((row) => (
                           <li
                             key={`${row.fromId}-${row.lines}`}
-                            className="sg-graph__modifier-row"
+                            className="sg-graph__detail-list-item"
                           >
-                            <span>{row.fromLabel}</span>
-                            {row.lines ? <span>{` (lines ${row.lines})`}</span> : null}
+                            <div className="sg-graph__detail-list-head">
+                              <strong>{row.fromLabel}</strong>
+                              {row.lines ? (
+                                <span className="sg-page__hint">{`(lines ${row.lines})`}</span>
+                              ) : null}
+                            </div>
                             {row.callsite ? (
                               <pre className="sg-graph__code">
                                 <code>{row.callsite}</code>
@@ -1959,20 +2044,30 @@ export function GraphView({ graph }: GraphViewProps) {
                     <dd>yes (public or external)</dd>
                   </>
                 )}
+                {selectedFunctionBorderHint && (
+                  <>
+                    <dt>Border on graph</dt>
+                    <dd>{selectedFunctionBorderHint}</dd>
+                  </>
+                )}
                 {selected.group === "function" && selectedImportUsages.length > 0 && (
                   <>
                     <dt>Import usage</dt>
                     <dd>
-                      <ul className="sg-graph__modifiers">
+                      <ul className="sg-graph__detail-list">
                         {selectedImportUsages.map((row) => (
                           <li
-                            key={`${row.symbol}-${row.lines}`}
-                            className="sg-graph__modifier-row"
+                            key={`${row.symbol}-${row.path}-${row.lines}`}
+                            className="sg-graph__detail-list-item"
                           >
-                            <span>{row.symbol}</span>
-                            <span>{` -> ${row.targetLabel}`}</span>
-                            {row.lines ? <span>{` (lines ${row.lines})`}</span> : null}
-                            <span className="sg-page__hint">{row.path}</span>
+                            <div className="sg-graph__detail-list-head">
+                              <strong>{row.symbol}</strong>
+                              <span>{`-> ${row.targetLabel}`}</span>
+                              {row.lines ? (
+                                <span className="sg-page__hint">{`(lines ${row.lines})`}</span>
+                              ) : null}
+                            </div>
+                            <div className="sg-graph__detail-list-path">{row.path}</div>
                             {row.callsite ? (
                               <pre className="sg-graph__code">
                                 <code>{row.callsite}</code>
