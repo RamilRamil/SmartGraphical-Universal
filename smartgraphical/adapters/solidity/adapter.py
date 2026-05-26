@@ -757,24 +757,26 @@ def build_normalized_model(context):
         event_name_set = {ev[0] for ev in events}
         error_name_set = {e[0] for e in custom_errors}
         _append_state_access_edges(model, contract_name, type_entry)
-        for src, targets in func_func_mapping.items():
-            if src in event_name_set or src in error_name_set:
+        for callee, callers in func_func_mapping.items():
+            if callee in event_name_set or callee in error_name_set:
                 continue
-            for tgt in targets:
-                resolved_tgt = tgt.replace('super.', '')
+            for caller in callers:
+                is_super = str(caller).startswith("super.")
+                resolved_caller = caller.replace("super.", "", 1) if is_super else caller
+                metadata_callee = f"super.{callee}" if is_super else callee
                 metadata = _call_metadata_for_target(
-                    function_bodies.get(src, ""),
-                    resolved_tgt,
-                    function_param_names.get(resolved_tgt, []),
+                    function_bodies.get(resolved_caller, ""),
+                    metadata_callee,
+                    function_param_names.get(callee, []),
                     context.lines,
-                    caller_params=function_param_names.get(src, []),
+                    caller_params=function_param_names.get(resolved_caller, []),
                     state_names=state_names,
                 )
                 model.call_edges.append(NormalizedCallEdge(
                     contract_name,
-                    src,
+                    resolved_caller,
                     contract_name,
-                    resolved_tgt,
+                    callee,
                     'function_to_function',
                     callsite=metadata["callsite"],
                     args_map=metadata["args_map"],

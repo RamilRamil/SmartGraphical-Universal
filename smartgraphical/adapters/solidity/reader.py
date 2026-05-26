@@ -169,6 +169,32 @@ class ContractReader:
         ret = [i.split(' ') for i in inp_params]
         return ret
 
+    @staticmethod
+    def _split_ext_params(text):
+        """Split signature tail tokens without breaking parenthesized modifiers."""
+        text = (text or "").strip()
+        if not text:
+            return []
+        tokens = []
+        current = []
+        paren_depth = 0
+        for ch in text:
+            if ch == " " and paren_depth == 0:
+                part = "".join(current).strip()
+                if part:
+                    tokens.append(part)
+                current = []
+                continue
+            current.append(ch)
+            if ch == "(":
+                paren_depth += 1
+            elif ch == ")" and paren_depth > 0:
+                paren_depth -= 1
+        tail = "".join(current).strip()
+        if tail:
+            tokens.append(tail)
+        return tokens
+
     def extract_fparams(self, inp):
         inp = inp.replace(self.line_sep, '')
         inp = ' '.join(inp.split())
@@ -193,13 +219,11 @@ class ContractReader:
         inp_params = inp[s_ind:e_ind + 1].strip()
         input_details = self.extract_tuple(inp_params)
         rind = len(inp)
-        if 'returns' in inp:
-            rind = inp.index('returns')
-            ret = inp[rind:]
-            ret = ret.replace('returns', '').strip()
-            ret_params = self.extract_tuple(ret)
-        ext_params = inp[e_ind + 1:rind]
-        ext_params = ext_params.strip().split(' ')
+        if ' returns ' in inp:
+            rind = inp.index(' returns ')
+        elif ' returns(' in inp:
+            rind = inp.index(' returns(')
+        ext_params = self._split_ext_params(inp[e_ind + 1:rind])
         if name == 'constructor':
             # Inheritance initializer calls (Base(...)) are not modifiers.
             _CTOR_MODS = frozenset({
@@ -281,12 +305,39 @@ class ContractReader:
             contract_name = cont_inp
         return contract_name, props
 
+    def _storage_type_patterns(self):
+        """Regex prefixes for state declarations in unified contract text."""
+        sep = re.escape(self.line_sep)
+        return [
+            sep + r'\s+mapping\b',
+            sep + r'\s+address\b',
+            sep + r'\s+string\b',
+            sep + r'\s+bool\b',
+            sep + r'\s+bytes\d*\b',
+            sep + r'\s+uint\d*\b',
+            sep + r'\s+int\d*\b',
+        ]
+
+    def _append_variable_declaration(self, raw_slice, prev_vars, ret):
+        for kk in prev_vars:
+            if raw_slice in kk:
+                return
+        prev_vars.append(deepcopy(raw_slice))
+        temp = raw_slice.replace(self.line_sep, '').strip()
+        temp = temp.replace(';', '').strip()
+        if '=' in temp:
+            ind = temp.index('=')
+            if temp[ind:ind + 2] != '=>':
+                temp = temp[:ind]
+        temp2 = [i for i in temp.split(' ') if i != '']
+        if temp2:
+            ret.append(temp2)
+
     def extract_variables(self, inp, gvars, obj_vars):
         ret = []
         d_inp = deepcopy(inp)
         prev_vars = []
-        for k in range(len(gvars)):
-            pattern = re.escape(self.line_sep) + r'\s+' + re.escape(gvars[k]) + r'\b'
+        for pattern in self._storage_type_patterns():
             var_inds = [m.start() for m in re.finditer(pattern, d_inp)]
             for i in range(len(var_inds)):
                 eol = None
@@ -294,23 +345,27 @@ class ContractReader:
                     if d_inp[j] == ";":
                         eol = j
                         break
-                temp = d_inp[var_inds[i]:eol + 1]
-                repeat_flag = False
-                for kk in prev_vars:
-                    if temp in kk:
-                        repeat_flag = True
-                if repeat_flag:
+                if eol is None:
                     continue
-                prev_vars.append(deepcopy(temp))
-                temp = temp.replace(self.line_sep, '').strip()
-                temp = temp.replace(';', '').strip()
-                if '=' in temp:
-                    ind = temp.index('=')
-                    if temp[ind:ind + 2] != '=>':
-                        temp = temp[:ind]
-                temp = temp.split(' ')
-                temp2 = [i for i in temp if i != '']
-                ret.append(temp2)
+                temp = d_inp[var_inds[i]:eol + 1]
+                self._append_variable_declaration(temp, prev_vars, ret)
+        custom_re = re.compile(
+            re.escape(self.line_sep) + r'\s+'
+            r'([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s+'
+            r'(internal|private|public|constant|immutable)\s+'
+            r'([A-Za-z_][A-Za-z0-9_]*)\s*;',
+        )
+        reserved_types = frozenset({
+            'function', 'event', 'modifier', 'struct', 'enum', 'error',
+            'mapping', 'address', 'string', 'bool',
+        })
+        for match in custom_re.finditer(d_inp):
+            type_name = match.group(1)
+            if type_name in reserved_types or type_name.startswith('uint') or type_name.startswith('int'):
+                continue
+            if type_name.startswith('bytes'):
+                continue
+            self._append_variable_declaration(match.group(0), prev_vars, ret)
         objs = []
         for k in range(len(obj_vars)):
             pattern = re.escape(self.line_sep) + r'\s+' + re.escape(obj_vars[k]) + r'\b'

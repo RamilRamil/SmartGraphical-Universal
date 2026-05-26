@@ -5,6 +5,7 @@ import unittest
 from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 from smartgraphical.core.findings import Finding, FindingEvidence
 from smartgraphical.services.serializers import (
+    _is_graph_modifier_token,
     _state_entity_graph_extra,
     evidence_to_dict,
     finding_to_dict,
@@ -71,6 +72,12 @@ class SerializerHelpersTests(unittest.TestCase):
     def test_findings_to_list_returns_empty_for_none(self):
         self.assertEqual(findings_to_list(None), [])
         self.assertEqual(findings_to_list([]), [])
+
+    def test_signature_annotations_are_not_graph_modifier_tokens(self):
+        self.assertFalse(_is_graph_modifier_token("override(A, B)"))
+        self.assertFalse(_is_graph_modifier_token("reinitializer(_version)"))
+        self.assertTrue(_is_graph_modifier_token("nonReentrant"))
+        self.assertTrue(_is_graph_modifier_token("onlyOwner"))
 
     def test_model_summary_covers_core_counts(self):
         if not os.path.isfile(SOL_FIXTURE):

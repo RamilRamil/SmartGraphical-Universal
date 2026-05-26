@@ -754,7 +754,6 @@ body {
 .sg-graph__fullscreen-shell:-moz-full-screen .sg-graph__side {
   min-height: 0;
   max-height: 100%;
-  overflow-y: auto;
 }
 
 .sg-graph__toolbar-wrap {
@@ -1098,7 +1097,9 @@ button.sg-graph__chip:focus-visible {
   .sg-graph__workspace {
     flex: 1;
     min-height: 0;
+    max-height: min(78vh, 100%);
     align-items: stretch;
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .sg-graph__canvas {
@@ -1108,9 +1109,15 @@ button.sg-graph__chip:focus-visible {
     max-height: none;
   }
 
+  .sg-graph__side {
+    align-self: stretch;
+    max-height: 100%;
+  }
+
   .sg-graph__workspace--graph-only {
     grid-template-columns: 1fr;
     gap: 0;
+    max-height: none;
   }
 }
 
@@ -1168,6 +1175,11 @@ button.sg-graph__chip:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .sg-graph__details {
@@ -1175,6 +1187,8 @@ button.sg-graph__chip:focus-visible {
   background: #161b22;
   border: 1px solid #21262d;
   border-radius: 6px;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .sg-graph__details-title {
@@ -1203,6 +1217,49 @@ button.sg-graph__chip:focus-visible {
 .sg-graph__meta dd {
   margin: 0;
   color: #e6edf3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sg-graph__detail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sg-graph__detail-list-item {
+  margin: 0 0 10px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid #21262d;
+}
+
+.sg-graph__detail-list-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.sg-graph__detail-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.sg-graph__detail-list-path {
+  font-size: 11px;
+  color: #8b949e;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.sg-graph__node-border-sample {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-left: none;
+  border-radius: 3px;
 }
 
 .sg-graph__modifiers {
@@ -1239,6 +1296,10 @@ button.sg-graph__chip:focus-visible {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1200px) {
@@ -1249,6 +1310,10 @@ button.sg-graph__chip:focus-visible {
 
   .sg-graph__splitter {
     display: none;
+  }
+
+  .sg-graph__side {
+    max-height: min(55vh, 640px);
   }
 
   .sg-graph__toolbar-wrap {
