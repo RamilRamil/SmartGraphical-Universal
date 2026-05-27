@@ -41,6 +41,17 @@ This document splits the work for **folder-shaped uploads** (relative paths pres
 - `frontend/src/api/client.ts` — `uploadArtifactBundle(files, bundleRelativePaths?)`
 - `frontend/src/api/hooks.ts` — `UploadBundleVariables`
 
+## Iteration 2b — Subfolder include filter (done)
+
+**Scope:** Combined upload can include only selected immediate subfolders under the inferred tree root (spec `009-bundle-subfolder-select`).
+
+| Item | Detail |
+|------|--------|
+| Helpers | `frontend/src/lib/bundleFolderFilter.ts` — common root, sibling subfolder list, path filter. |
+| UX | After folder pick, checkboxes for each immediate subfolder (default all on); preview counts staged vs filtered files. |
+| Upload | Subset of staged files + `bundle_paths_json`; backend unchanged. |
+| Limits | At least one subfolder required when the picker is shown. |
+
 ## Iteration 3 — Docs, contract, and hardening (done)
 
 | Item | Detail |

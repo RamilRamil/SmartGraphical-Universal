@@ -201,6 +201,42 @@ body {
   font-size: 12px;
 }
 
+.sg-subfolder-picker {
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+}
+
+.sg-subfolder-picker__title {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  color: #e6edf3;
+}
+
+.sg-subfolder-picker__actions {
+  margin: 8px 0;
+}
+
+.sg-subfolder-picker__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 16px;
+}
+
+.sg-subfolder-picker__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #e6edf3;
+  cursor: pointer;
+}
+
 .sg-field {
   display: flex;
   flex-direction: column;
