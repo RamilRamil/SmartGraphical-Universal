@@ -7,6 +7,12 @@ import { SgApiError } from "../api/client";
 import { useUploadArtifactBundle, useUploadArtifactsBatch } from "../api/hooks";
 import type { Artifact, BatchUploadResponse } from "../api/types";
 import {
+  defaultSelectedSubfolders,
+  filterEntriesBySubfolders,
+  inferBundleSubfolderSelection,
+  type BundleSubfolderSelection,
+} from "../lib/bundleFolderFilter";
+import {
   ALLOWED_EXTENSIONS,
   coalesceFolderRelativePath,
   entryLeafFileName,
@@ -54,6 +60,24 @@ function formatApiError(err: unknown): string {
 function displayPathForEntry(entry: PendingEntry): string {
   if (entry.treePath) return entry.treePath.replace(/\\/g, "/");
   return entry.file.name;
+}
+
+function normalizeTreePath(entry: PendingEntry): string {
+  return (entry.treePath ?? "").replace(/\\/g, "/");
+}
+
+function filterPendingBySubfolders(
+  source: PendingEntry[],
+  root: string,
+  selected: ReadonlySet<string>,
+): PendingEntry[] {
+  return filterEntriesBySubfolders(
+    source
+      .filter((e): e is PendingEntry & { treePath: string } => e.treePath !== null)
+      .map((e) => ({ ...e, treePath: normalizeTreePath(e) })),
+    root,
+    selected,
+  );
 }
 
 /** Drop files whose extension is not in ALLOWED_EXTENSIONS (no error for whole batch). */
@@ -192,6 +216,11 @@ export function UploadPage() {
     if (fromUrl) setUploadLayout(fromUrl);
   }, [searchParams]);
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
+  const [stagedEntries, setStagedEntries] = useState<PendingEntry[]>([]);
+  const [subfolderSelection, setSubfolderSelection] = useState<BundleSubfolderSelection | null>(
+    null,
+  );
+  const [selectedSubfolders, setSelectedSubfolders] = useState<Set<string>>(() => new Set());
   const [clientError, setClientError] = useState<string | null>(null);
   const [extensionSkipNotice, setExtensionSkipNotice] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchUploadResponse | null>(null);
@@ -215,25 +244,27 @@ export function UploadPage() {
     return pendingEntries.every((e) => e.treePath !== null);
   }, [pendingEntries]);
 
-  function applyPendingEntries(entries: PendingEntry[]) {
-    setClientError(null);
-    setExtensionSkipNotice(null);
-    setBatchResult(null);
-    setBundleArtifact(null);
-    const allowedEntries = filterEntriesByAllowedExtensions(entries);
-    const skippedExtensions = entries.length - allowedEntries.length;
-    if (allowedEntries.length === 0) {
-      setPendingEntries([]);
-      if (entries.length === 0) {
-        setClientError("No files selected.");
-      } else {
-        setClientError(
-          `No supported source files (${ALLOWED_EXTENSIONS.join(", ")}). Skipped ${skippedExtensions} other file(s).`,
-        );
+  function commitFilteredEntries(
+    source: PendingEntry[],
+    meta: BundleSubfolderSelection | null,
+    selected: ReadonlySet<string>,
+    skippedExtensions: number,
+  ) {
+    let working = source;
+    if (meta) {
+      if (selected.size === 0) {
+        setClientError("Select at least one subfolder to include in the bundle.");
+        setPendingEntries([]);
+        return;
       }
-      return;
+      working = filterPendingBySubfolders(source, meta.root, selected);
+      if (working.length === 0) {
+        setClientError("No supported source files in the selected subfolders.");
+        setPendingEntries([]);
+        return;
+      }
     }
-    const result = validatePendingEntries(allowedEntries, uploadLayout);
+    const result = validatePendingEntries(working, uploadLayout);
     if (!result.ok) {
       setClientError(result.error);
       setPendingEntries([]);
@@ -247,6 +278,76 @@ export function UploadPage() {
     }
   }
 
+  function applyPendingEntries(entries: PendingEntry[]) {
+    setClientError(null);
+    setExtensionSkipNotice(null);
+    setBatchResult(null);
+    setBundleArtifact(null);
+    const allowedEntries = filterEntriesByAllowedExtensions(entries);
+    const skippedExtensions = entries.length - allowedEntries.length;
+    if (allowedEntries.length === 0) {
+      setPendingEntries([]);
+      setStagedEntries([]);
+      setSubfolderSelection(null);
+      setSelectedSubfolders(new Set());
+      if (entries.length === 0) {
+        setClientError("No files selected.");
+      } else {
+        setClientError(
+          `No supported source files (${ALLOWED_EXTENSIONS.join(", ")}). Skipped ${skippedExtensions} other file(s).`,
+        );
+      }
+      return;
+    }
+
+    const allTreePaths =
+      uploadLayout === "combined" &&
+      allowedEntries.length > 0 &&
+      allowedEntries.every((e) => e.treePath !== null);
+    let meta: BundleSubfolderSelection | null = null;
+    let selected = new Set<string>();
+
+    if (allTreePaths) {
+      const paths = allowedEntries.map((e) => normalizeTreePath(e));
+      meta = inferBundleSubfolderSelection(paths);
+      if (meta) {
+        setStagedEntries(allowedEntries);
+        setSubfolderSelection(meta);
+        selected = defaultSelectedSubfolders(meta.subfolders);
+        setSelectedSubfolders(selected);
+      } else {
+        setStagedEntries([]);
+        setSubfolderSelection(null);
+        setSelectedSubfolders(new Set());
+      }
+    } else {
+      setStagedEntries([]);
+      setSubfolderSelection(null);
+      setSelectedSubfolders(new Set());
+    }
+
+    commitFilteredEntries(allowedEntries, meta, selected, skippedExtensions);
+  }
+
+  function handleSubfolderToggle(folderName: string, checked: boolean) {
+    if (!subfolderSelection) return;
+    const next = new Set(selectedSubfolders);
+    if (checked) {
+      next.add(folderName);
+    } else {
+      next.delete(folderName);
+    }
+    setSelectedSubfolders(next);
+    commitFilteredEntries(stagedEntries, subfolderSelection, next, 0);
+  }
+
+  function handleSubfolderSelectAll() {
+    if (!subfolderSelection) return;
+    const next = defaultSelectedSubfolders(subfolderSelection.subfolders);
+    setSelectedSubfolders(next);
+    commitFilteredEntries(stagedEntries, subfolderSelection, next, 0);
+  }
+
   function handleLayoutChange(next: "separate" | "combined") {
     setUploadLayout(next);
     setClientError(null);
@@ -255,12 +356,9 @@ export function UploadPage() {
     setBundleArtifact(null);
     batchMutation.reset();
     bundleMutation.reset();
-    if (pendingEntries.length === 0) return;
-    const v = validatePendingEntries(pendingEntries, next);
-    if (!v.ok) {
-      setClientError(v.error);
-      setPendingEntries([]);
-    }
+    if (pendingEntries.length === 0 && stagedEntries.length === 0) return;
+    const source = stagedEntries.length > 0 ? stagedEntries : pendingEntries;
+    applyPendingEntries(source);
   }
 
   function handleFlatFileInput(event: ChangeEvent<HTMLInputElement>) {
@@ -331,7 +429,12 @@ export function UploadPage() {
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pendingEntries.length === 0) return;
+    if (pendingEntries.length === 0) {
+      if (subfolderSelection && selectedSubfolders.size === 0) {
+        setClientError("Select at least one subfolder to include in the bundle.");
+      }
+      return;
+    }
     const v = validatePendingEntries(pendingEntries, uploadLayout);
     if (!v.ok) {
       setClientError(v.error);
@@ -384,6 +487,9 @@ export function UploadPage() {
     setBatchResult(null);
     setBundleArtifact(null);
     setPendingEntries([]);
+    setStagedEntries([]);
+    setSubfolderSelection(null);
+    setSelectedSubfolders(new Set());
     setClientError(null);
     setExtensionSkipNotice(null);
     batchMutation.reset();
@@ -431,7 +537,7 @@ export function UploadPage() {
           >
             <p className="sg-dropzone__label">
               {uploadLayout === "combined"
-                ? "Drop files, or drop a single folder (Chrome/Edge/Safari). Or use Select files / Select folder. Folder uploads preserve relative paths for imports and includes."
+                ? "Drop files, or drop a single folder (Chrome/Edge/Safari). Or use Select files / Select folder. Folder uploads preserve relative paths; when the tree has several subfolders you can include only the ones you need."
                 : "Drag and drop source files here, or select them (multiple allowed). Each file becomes a separate artifact."}
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
@@ -470,6 +576,44 @@ export function UploadPage() {
 
           {extensionSkipNotice && (
             <p className="sg-banner sg-banner--info">{extensionSkipNotice}</p>
+          )}
+
+          {subfolderSelection && uploadLayout === "combined" && (
+            <div className="sg-subfolder-picker" role="group" aria-label="Subfolders to include">
+              <p className="sg-subfolder-picker__title">
+                Include subfolders under{" "}
+                <span className="sg-preview__value--mono">
+                  {subfolderSelection.root || "(root)"}
+                </span>
+              </p>
+              <p className="sg-form__hint">
+                {selectedSubfolders.size} of {subfolderSelection.subfolders.length} selected;{" "}
+                {stagedEntries.length} file(s) in full folder, {pendingEntries.length} after filter.
+              </p>
+              <div className="sg-subfolder-picker__actions">
+                <button
+                  type="button"
+                  className="sg-button sg-button--ghost"
+                  onClick={handleSubfolderSelectAll}
+                >
+                  Select all
+                </button>
+              </div>
+              <ul className="sg-subfolder-picker__list">
+                {subfolderSelection.subfolders.map((name) => (
+                  <li key={name}>
+                    <label className="sg-subfolder-picker__label">
+                      <input
+                        type="checkbox"
+                        checked={selectedSubfolders.has(name)}
+                        onChange={(event) => handleSubfolderToggle(name, event.target.checked)}
+                      />{" "}
+                      {name}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {pendingEntries.length > 0 && (
