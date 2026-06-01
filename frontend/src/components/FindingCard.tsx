@@ -5,9 +5,11 @@ import type { Finding } from "../api/types";
 type FindingCardProps = {
   finding: Finding;
   defaultOpen?: boolean;
+  /** When provided, renders a "Show on graph" action that focuses this finding's node. */
+  onShowOnGraph?: () => void;
 };
 
-export function FindingCard({ finding, defaultOpen = false }: FindingCardProps) {
+export function FindingCard({ finding, defaultOpen = false, onShowOnGraph }: FindingCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const evidenceCount = finding.evidences?.length ?? 0;
   return (
@@ -40,6 +42,19 @@ export function FindingCard({ finding, defaultOpen = false }: FindingCardProps) 
             {finding.confidence || "unknown"}
           </span>
           <span className="sg-finding__category">{finding.category}</span>
+          {onShowOnGraph && (
+            <button
+              type="button"
+              className="sg-button sg-button--ghost sg-finding__graph-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                onShowOnGraph();
+              }}
+              title="Focus this finding's node on the graph"
+            >
+              Show on graph
+            </button>
+          )}
           <span className="sg-finding__toggle">{open ? "-" : "+"}</span>
         </div>
       </header>

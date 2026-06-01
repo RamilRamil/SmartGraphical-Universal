@@ -8,6 +8,7 @@ import { parseAnalysisMode } from "../components/RunScanForm";
 import { getUploadLayoutForArtifact } from "../lib/uploadNavigationContext";
 import { FindingCard } from "../components/FindingCard";
 import { GraphView } from "../components/GraphView";
+import { correlateFindings } from "../graph/correlateFindings";
 
 const CONFIDENCE_FILTERS = ["any", "high", "medium", "low"] as const;
 type ConfidenceFilter = (typeof CONFIDENCE_FILTERS)[number];
@@ -58,6 +59,17 @@ export function ScanDetailPage() {
   const graphQuery = useGraph(
     Number.isFinite(parsedScanId) ? (parsedScanId as number) : undefined,
   );
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [navNotice, setNavNotice] = useState<string | null>(null);
+  const correlation = useMemo(() => {
+    const f = scanQuery.data?.findings;
+    const g =
+      graphQuery.data && graphQuery.data.available
+        ? graphQuery.data.graph.model_summary.graph
+        : undefined;
+    if (!f || !g) return null;
+    return correlateFindings(f, g.nodes);
+  }, [scanQuery.data, graphQuery.data]);
 
   const filtered = useMemo(() => {
     const list = scanQuery.data?.findings ?? [];
@@ -129,6 +141,21 @@ export function ScanDetailPage() {
       ? graphQuery.data.graph.model_summary.graph
       : undefined;
   const hasFindings = findings.length > 0;
+
+  const handleShowOnGraph = (finding: Finding) => {
+    if (!correlation) return;
+    const index = findings.indexOf(finding);
+    const nodeIds = index >= 0 ? correlation.nodeIdsForFindingIndex(index) : [];
+    if (nodeIds.length > 0) {
+      setNavNotice(null);
+      setFocusNodeId(nodeIds[0] ?? null);
+      setTab("graph");
+    } else {
+      setNavNotice(
+        `"${finding.title || finding.rule_id}" could not be located on the graph (no resolvable type/function).`,
+      );
+    }
+  };
 
   const handleDownloadFindingsMd = () => {
     if (!hasFindings) return;
@@ -271,6 +298,10 @@ export function ScanDetailPage() {
             </button>
           </div>
 
+          {navNotice && (
+            <p className="sg-banner sg-banner--error">{navNotice}</p>
+          )}
+
           {tab === "findings" && (
             <>
               <div className="sg-filter">
@@ -313,6 +344,9 @@ export function ScanDetailPage() {
                     <FindingCard
                       key={`${finding.task_id}-${finding.rule_id}-${index}`}
                       finding={finding}
+                      onShowOnGraph={
+                        graphAvailable ? () => handleShowOnGraph(finding) : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -334,7 +368,11 @@ export function ScanDetailPage() {
                 </p>
               )}
               {graphData ? (
-                <GraphView graph={graphData} />
+                <GraphView
+                  graph={graphData}
+                  findingSummaries={correlation?.byNodeId}
+                  focusNodeId={focusNodeId}
+                />
               ) : (
                 !graphQuery.isPending && (
                   <p className="sg-page__hint">

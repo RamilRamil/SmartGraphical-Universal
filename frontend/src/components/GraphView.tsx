@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, {
   type Core,
   type EdgeSingular,
@@ -15,6 +15,8 @@ import coseBilkent from "cytoscape-cose-bilkent";
 import fcose from "cytoscape-fcose";
 
 import type { GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
+import type { NodeFindingSummary } from "../graph/correlateFindings";
+import { CallFlowModal } from "./CallFlowModal";
 import { buildFocusNodeSet, buildFocusSecondaryEdgeIds } from "../graph/focusNeighborhood";
 import { applyFullGraphTwoPhaseLayout } from "../graph/intraCompoundLayout";
 import {
@@ -627,9 +629,13 @@ function readSelectedEdge(edge: cytoscape.EdgeSingular): GraphEdge {
 
 type GraphViewProps = {
   graph: GraphData;
+  /** Feature 012: per-node finding summary (count + maxConfidence) for the overlay. */
+  findingSummaries?: ReadonlyMap<string, NodeFindingSummary>;
+  /** Feature 012: when set, center + highlight this node (finding -> graph navigation). */
+  focusNodeId?: string | null;
 };
 
-export function GraphView({ graph }: GraphViewProps) {
+export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const toolbarWrapRef = useRef<HTMLDivElement | null>(null);
@@ -652,11 +658,13 @@ export function GraphView({ graph }: GraphViewProps) {
   const [hiddenLegend, setHiddenLegend] = useState<HiddenLegend>(() => ({}));
   const [focusSelectionEnabled, setFocusSelectionEnabled] = useState(false);
   const [graphCanvasOnly, setGraphCanvasOnly] = useState(false);
+  const [callFlowOpen, setCallFlowOpen] = useState(false);
 
   useEffect(() => {
     setHiddenLegend({});
     setFocusSelectionEnabled(false);
     setGraphCanvasOnly(false);
+    setCallFlowOpen(false);
   }, [graph]);
 
   useEffect(() => {
@@ -704,6 +712,32 @@ export function GraphView({ graph }: GraphViewProps) {
     return filterFullGraphEdges(graph, showCrossContractCalls);
   }, [graph, interContractOnly, showCrossContractCalls, structureGraph]);
 
+  const focusNodeOnMainGraph = useCallback(
+    (nodeId: string) => {
+      const graphNode = displayGraph.nodes.find((n) => n.id === nodeId);
+      if (!graphNode) return;
+      setSelected(graphNode);
+      setSelectedEdge(null);
+      const core = coreRef.current;
+      if (!core) return;
+      const apply = (el: NodeSingular) => {
+        core.nodes().unselect();
+        core.edges().removeClass("sg-highlighted");
+        el.select();
+        el.connectedEdges()
+          .filter((edge: EdgeSingular) => edge.visible())
+          .addClass("sg-highlighted");
+        requestAnimationFrame(() => {
+          core.animate({ center: { eles: el }, duration: 220 });
+        });
+      };
+      const el = core.getElementById(nodeId);
+      if (el.empty() || !el.visible()) return;
+      apply(el);
+    },
+    [displayGraph],
+  );
+
   const hiddenRedundantBundleImportIds = useMemo(
     () =>
       interContractOnly || !showCrossContractCalls
@@ -713,6 +747,11 @@ export function GraphView({ graph }: GraphViewProps) {
   );
 
   const elements = useMemo(() => buildElements(structureGraph), [structureGraph]);
+  const baseLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of structureGraph.nodes) map.set(node.id, node.label);
+    return map;
+  }, [structureGraph]);
   const stateWriteTargets = useMemo(() => {
     const functionIds = new Set<string>();
     const stateIds = new Set<string>();
@@ -1068,6 +1107,30 @@ export function GraphView({ graph }: GraphViewProps) {
           },
         },
         {
+          selector: "node.sg-finding-high",
+          style: {
+            "overlay-color": "#ef4444",
+            "overlay-opacity": 0.35,
+            "overlay-padding": 7,
+          },
+        },
+        {
+          selector: "node.sg-finding-medium",
+          style: {
+            "overlay-color": "#f59e0b",
+            "overlay-opacity": 0.28,
+            "overlay-padding": 6,
+          },
+        },
+        {
+          selector: "node.sg-finding-low",
+          style: {
+            "overlay-color": "#9ca3af",
+            "overlay-opacity": 0.18,
+            "overlay-padding": 5,
+          },
+        },
+        {
           selector: "node.sg-dimmed",
           style: {
             opacity: 0.2,
@@ -1336,6 +1399,29 @@ export function GraphView({ graph }: GraphViewProps) {
     focusNodeIds,
     stateWriteTargets,
   ]);
+
+  // Feature 012 (US1): overlay finding count + confidence on owning nodes.
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core) return;
+    core.nodes().removeClass("sg-finding-high sg-finding-medium sg-finding-low");
+    core.nodes().forEach((node) => {
+      const base = baseLabelById.get(node.id());
+      const summary = findingSummaries?.get(node.id());
+      if (base !== undefined) {
+        node.data("label", summary ? `${base}  [${summary.count}]` : base);
+      }
+      if (summary) {
+        node.addClass(`sg-finding-${summary.maxConfidence}`);
+      }
+    });
+  }, [elements, findingSummaries, baseLabelById]);
+
+  // Feature 012 (US2): focus a finding's node when requested from the findings list.
+  useEffect(() => {
+    if (!focusNodeId) return;
+    focusNodeOnMainGraph(focusNodeId);
+  }, [focusNodeId, focusNodeOnMainGraph]);
 
   useEffect(() => {
     const core = coreRef.current;
@@ -1923,6 +2009,17 @@ export function GraphView({ graph }: GraphViewProps) {
                 {selected.label}{" "}
                 <span className="sg-graph__group">({selected.group})</span>
               </h3>
+              {selected.group === "function" && (
+                <div className="sg-graph__details-actions">
+                  <button
+                    type="button"
+                    className="sg-button sg-button--primary"
+                    onClick={() => setCallFlowOpen(true)}
+                  >
+                    Call flow
+                  </button>
+                </div>
+              )}
               <dl className="sg-graph__meta">
                 {selected.type_name && (
                   <>
@@ -2312,6 +2409,18 @@ export function GraphView({ graph }: GraphViewProps) {
         ) : null}
       </div>
       </div>
+      {callFlowOpen && selected?.group === "function" && (
+        <CallFlowModal
+          graph={displayGraph}
+          root={selected}
+          onClose={(mainGraphNodeId) => {
+            setCallFlowOpen(false);
+            if (mainGraphNodeId) {
+              focusNodeOnMainGraph(mainGraphNodeId);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
