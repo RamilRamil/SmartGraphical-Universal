@@ -673,11 +673,13 @@ def model_graph_to_dict(model):
                     "group": "external_import",
                 })
             return ext_id
-        if (
-            type_name
-            and target_name == _TU_INCLUDE_EDGE_SOURCE
-            and edge_kind == "function_to_include_template"
-        ):
+        # The C translation-unit include anchor is a reserved sentinel that only
+        # ever appears as the *source* of a function_to_include_template edge.
+        # Source endpoints are resolved without an edge_kind (see the call site),
+        # so match the anchor by name alone and resolve it to the owning TU type
+        # node (later normalized to a `tile:` id by _stable_c_node_ids). Without
+        # this the anchor falls through to a synthetic external:* node.
+        if type_name and target_name == _TU_INCLUDE_EDGE_SOURCE:
             tid = _type_id(type_name)
             if tid in node_ids:
                 return tid

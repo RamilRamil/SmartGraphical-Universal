@@ -76,8 +76,8 @@ class SolidityAdapterFixtureTests(unittest.TestCase):
         self.assertIn("/", joined)
 
     def test_minimal_guard_phase5_shape_snapshot(self):
-        """Golden: public storage may be absent from state_entities until reader extends."""
-        golden = '{"artifact_language":"solidity","basename":"MinimalGuard.sol","types":[{"functions":["setAmount"],"state_entities":[],"type_name":"MinimalGuard"}]}'
+        """Golden: uint256 public storage (`amount`) is captured as a state entity (post spec 008)."""
+        golden = '{"artifact_language":"solidity","basename":"MinimalGuard.sol","types":[{"functions":["setAmount"],"state_entities":["amount"],"type_name":"MinimalGuard"}]}'
         path = _fixture("MinimalGuard.sol")
         ctx = self.adapter.parse_source(path)
         self.assertEqual(narrow_normalized_model_shape_json(ctx.normalized_model), golden)

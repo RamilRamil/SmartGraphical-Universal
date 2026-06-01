@@ -624,7 +624,11 @@ def build_rust_rule_registry() -> dict[str, RuleSpec]:
 
 
 class RustStellarAdapterV0:
-    def parse_source(self, source_path: str):
+    def parse_source(self, source_path: str, *, expand_local_imports: bool = True):
+        # ``expand_local_imports`` is accepted for adapter-contract uniformity
+        # (see smartgraphical/adapters/base.py, rule R2). The Rust/Stellar adapter
+        # has no local-import expansion yet, so the flag is a documented no-op.
+        del expand_local_imports
         with open(source_path, 'r', errors='replace') as handle:
             text = handle.read()
         model = build_normalized_model(source_path, text)
