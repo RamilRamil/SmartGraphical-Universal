@@ -1,11 +1,14 @@
+from smartgraphical.adapters.base import AnalysisAdapter
 from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0, build_rule_registry
 from smartgraphical.core.engine import RuleEngine
 from smartgraphical.core.graph import GraphBuilder
 
 
 class AnalysisService:
-    def __init__(self, adapter=None, rule_engine=None, graph_builder=None):
-        self.adapter = adapter or SolidityAdapterV0()
+    def __init__(self, adapter: AnalysisAdapter | None = None, rule_engine=None, graph_builder=None):
+        # Any object satisfying the AnalysisAdapter contract is accepted here;
+        # this is the single seam where every language adapter is consumed.
+        self.adapter: AnalysisAdapter = adapter or SolidityAdapterV0()
         self.rule_engine = rule_engine or RuleEngine(build_rule_registry())
         self.graph_builder = graph_builder or GraphBuilder()
 

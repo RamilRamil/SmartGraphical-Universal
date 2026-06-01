@@ -1,11 +1,13 @@
 # SmartGraphical
 
 SmartGraphical is an auditor-centric logical vulnerability scanner with a
-graphical code model. Two languages are supported today:
+graphical code model. Three languages are supported today:
 
-- **Solidity** (original domain, 11 rule tasks).
+- **Solidity** (original domain, 15 rule tasks).
 - **C / Solana node client** (second-language PoC, 20+ rules across memory,
   concurrency, validation, portability and Rust semantic-gap categories).
+- **Rust / Stellar (Soroban)** (Soroban rules plus Rust language / Base Azul
+  semantic heuristics).
 
 The tool can be used as a CLI or as a local web application with upload,
 history, diff and interactive graph visualization.
@@ -71,7 +73,7 @@ python3 sg_cli.py SimpleAuction.sol                # auto-detect language, run a
 python3 sg_cli.py SimpleAuction.sol 8              # single task
 python3 sg_cli.py SimpleAuction.sol all auditor    # all tasks, auditor output
 python3 sg_cli.py contracts/parser.c all explore   # C file, explore mode
-python3 sg_cli.py SimpleAuction.sol all auditor --format json
+python3 sg_cli.py SimpleAuction.sol 8 auditor json # single task, JSON (positional <format>)
 ```
 
 Output modes:
@@ -82,6 +84,12 @@ Output modes:
 - `explore` - normalized model summary before findings or the graph.
 
 Output formats: `text` (default) or `json` (stable contract, suitable for CI).
+CLI arguments are positional: `sg_cli.py <file> <task> <mode> <format>` (there
+is no `--format` flag).
+
+Continuous integration: a GitHub Actions workflow (`.github/workflows/ci.yml`)
+runs the full test suite and a CLI JSON smoke on Python 3.10 and 3.12 for every
+push and pull request.
 
 ## Web UI
 

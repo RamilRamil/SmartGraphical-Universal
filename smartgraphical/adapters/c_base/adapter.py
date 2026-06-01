@@ -819,7 +819,11 @@ def build_c_rule_registry():
 # ---------------------------------------------------------------------------
 
 class CBaseAdapterV0:
-    def parse_source(self, source_path):
+    def parse_source(self, source_path, *, expand_local_imports=True):
+        # ``expand_local_imports`` is accepted for adapter-contract uniformity
+        # (see smartgraphical/adapters/base.py, rule R2). The C adapter has no
+        # local-import expansion yet, so the flag is a documented no-op.
+        del expand_local_imports
         with open(source_path, 'r', errors='replace') as f:
             source_text = f.read()
 
