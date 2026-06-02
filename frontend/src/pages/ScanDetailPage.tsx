@@ -372,6 +372,7 @@ export function ScanDetailPage() {
                   graph={graphData}
                   findingSummaries={correlation?.byNodeId}
                   focusNodeId={focusNodeId}
+                  findings={findings}
                 />
               ) : (
                 !graphQuery.isPending && (

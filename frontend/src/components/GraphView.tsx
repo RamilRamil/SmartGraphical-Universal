@@ -14,7 +14,7 @@ import coseBilkent from "cytoscape-cose-bilkent";
 // @ts-expect-error no types for cytoscape-fcose
 import fcose from "cytoscape-fcose";
 
-import type { GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
+import type { Finding, GraphData, GraphEdge, GraphNode, ModifierSwatch } from "../api/types";
 import type { NodeFindingSummary } from "../graph/correlateFindings";
 import { CallFlowModal } from "./CallFlowModal";
 import { buildFocusNodeSet, buildFocusSecondaryEdgeIds } from "../graph/focusNeighborhood";
@@ -65,6 +65,17 @@ type HiddenLegend = Partial<Record<LegendNodeBucket | LegendEdgeBucket, true>>;
 const STATE_WRITE_EDGE_KINDS = new Set([
   "state_to_function_write",
   "cross_type_state_write",
+]);
+
+/** Leaf node groups the "only nodes with findings" filter (US3) may hide;
+ *  compounds (type/tile) and modifier_ring are always kept so nothing collapses. */
+const FINDINGS_RESTRICTABLE_GROUPS = new Set([
+  "function",
+  "state",
+  "workspace",
+  "event",
+  "custom_error",
+  "modifier",
 ]);
 
 type EdgeLegendToggle = {
@@ -260,6 +271,7 @@ type GraphVisibilityOpts = {
   interContractOnly: boolean;
   hiddenRedundantBundleImportIds: Set<string>;
   focusNodeIds: Set<string> | null;
+  findingsKeepIds: Set<string> | null;
 };
 
 function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
@@ -270,6 +282,7 @@ function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
     interContractOnly,
     hiddenRedundantBundleImportIds,
     focusNodeIds,
+    findingsKeepIds,
   } = opts;
 
   const nodeBaseVisible = (node: NodeSingular): boolean => {
@@ -283,6 +296,12 @@ function applyGraphVisibility(core: Core, opts: GraphVisibilityOpts): void {
 
   const nodeVisible = (node: NodeSingular): boolean => {
     const id = node.id();
+    if (findingsKeepIds) {
+      const fg = node.data("group") as string | undefined;
+      if (fg && FINDINGS_RESTRICTABLE_GROUPS.has(fg) && !findingsKeepIds.has(id)) {
+        return false;
+      }
+    }
     if (focusNodeIds?.has(id)) {
       if (node.data("group") === "external_import" && !showImports) return false;
       return true;
@@ -633,9 +652,11 @@ type GraphViewProps = {
   findingSummaries?: ReadonlyMap<string, NodeFindingSummary>;
   /** Feature 012: when set, center + highlight this node (finding -> graph navigation). */
   focusNodeId?: string | null;
+  /** Feature 012 (US4): scan findings, for listing a selected node's findings. */
+  findings?: readonly Finding[];
 };
 
-export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewProps) {
+export function GraphView({ graph, findingSummaries, focusNodeId, findings }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const toolbarWrapRef = useRef<HTMLDivElement | null>(null);
@@ -659,12 +680,16 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
   const [focusSelectionEnabled, setFocusSelectionEnabled] = useState(false);
   const [graphCanvasOnly, setGraphCanvasOnly] = useState(false);
   const [callFlowOpen, setCallFlowOpen] = useState(false);
+  const [findingsOnly, setFindingsOnly] = useState(false);
+  const [findingsIncludeNeighbors, setFindingsIncludeNeighbors] = useState(false);
 
   useEffect(() => {
     setHiddenLegend({});
     setFocusSelectionEnabled(false);
     setGraphCanvasOnly(false);
     setCallFlowOpen(false);
+    setFindingsOnly(false);
+    setFindingsIncludeNeighbors(false);
   }, [graph]);
 
   useEffect(() => {
@@ -903,6 +928,32 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
     return buildFocusSecondaryEdgeIds(displayGraph, selected.id, focusNodeIds);
   }, [displayGraph, focusNodeIds, selected?.id]);
 
+  const hasFindingNodes = (findingSummaries?.size ?? 0) > 0;
+
+  // US3: when "only with findings" is on, the set of leaf node ids to keep.
+  const findingsKeepIds = useMemo(() => {
+    if (!findingsOnly || !findingSummaries || findingSummaries.size === 0) return null;
+    const keep = new Set<string>(findingSummaries.keys());
+    if (findingsIncludeNeighbors) {
+      const seed = new Set(findingSummaries.keys());
+      for (const edge of displayGraph.edges) {
+        if (seed.has(edge.source)) keep.add(edge.target);
+        if (seed.has(edge.target)) keep.add(edge.source);
+      }
+    }
+    return keep;
+  }, [findingsOnly, findingsIncludeNeighbors, findingSummaries, displayGraph.edges]);
+
+  // US4: findings owned by the currently selected node.
+  const selectedFindingList = useMemo<Finding[]>(() => {
+    if (!selected || !findingSummaries || !findings) return [];
+    const summary = findingSummaries.get(selected.id);
+    if (!summary) return [];
+    return summary.findingRefs
+      .map((index) => findings[index])
+      .filter((f): f is Finding => Boolean(f));
+  }, [selected, findingSummaries, findings]);
+
   const graphVisibilityOpts = useMemo<GraphVisibilityOpts>(
     () => ({
       hiddenLegend,
@@ -911,6 +962,7 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
       interContractOnly,
       hiddenRedundantBundleImportIds,
       focusNodeIds,
+      findingsKeepIds,
     }),
     [
       hiddenLegend,
@@ -919,6 +971,7 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
       interContractOnly,
       hiddenRedundantBundleImportIds,
       focusNodeIds,
+      findingsKeepIds,
     ],
   );
   const graphVisibilityOptsRef = useRef(graphVisibilityOpts);
@@ -1722,6 +1775,32 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
                   : "Only entrypoints writing state"}
               </button>
             </div>
+            <div className="sg-graph__action-group" role="group" aria-label="Findings">
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                disabled={!hasFindingNodes}
+                aria-pressed={findingsOnly}
+                title={
+                  hasFindingNodes
+                    ? "Show only nodes that own findings"
+                    : "No findings to filter by"
+                }
+                onClick={() => setFindingsOnly((v) => !v)}
+              >
+                {findingsOnly ? "Show all nodes" : "Only with findings"}
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                disabled={!hasFindingNodes || !findingsOnly}
+                aria-pressed={findingsIncludeNeighbors}
+                title="Also keep nodes directly connected to a finding"
+                onClick={() => setFindingsIncludeNeighbors((v) => !v)}
+              >
+                {findingsIncludeNeighbors ? "Hide neighbors" : "Incl. neighbors"}
+              </button>
+            </div>
             <div className="sg-graph__action-group" role="group" aria-label="Focus neighborhood">
               <button
                 type="button"
@@ -2009,6 +2088,24 @@ export function GraphView({ graph, findingSummaries, focusNodeId }: GraphViewPro
                 {selected.label}{" "}
                 <span className="sg-graph__group">({selected.group})</span>
               </h3>
+              {selectedFindingList.length > 0 && (
+                <div className="sg-graph__node-findings">
+                  <h4 className="sg-graph__details-subtitle">
+                    Findings ({selectedFindingList.length})
+                  </h4>
+                  <ul className="sg-graph__node-findings-list">
+                    {selectedFindingList.map((f, index) => (
+                      <li key={`${f.task_id}-${f.rule_id}-${index}`}>
+                        <span className={`sg-badge sg-badge--${f.confidence || "unknown"}`}>
+                          {f.confidence || "unknown"}
+                        </span>{" "}
+                        {f.title || f.rule_id}{" "}
+                        <span className="sg-graph__group">{f.category}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {selected.group === "function" && (
                 <div className="sg-graph__details-actions">
                   <button
