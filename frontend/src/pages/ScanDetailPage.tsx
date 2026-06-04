@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { SgApiError } from "../api/client";
-import { useGraph, useScan } from "../api/hooks";
+import { useClearVerdict, useGraph, useScan, useSetVerdict } from "../api/hooks";
 import type { Finding } from "../api/types";
 import { parseAnalysisMode } from "../components/RunScanForm";
 import { getUploadLayoutForArtifact } from "../lib/uploadNavigationContext";
@@ -61,6 +61,10 @@ export function ScanDetailPage() {
   );
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [navNotice, setNavNotice] = useState<string | null>(null);
+  const [showSuppressed, setShowSuppressed] = useState(false);
+  const verdictScanId = Number.isFinite(parsedScanId) ? (parsedScanId as number) : 0;
+  const setVerdict = useSetVerdict(verdictScanId);
+  const clearVerdict = useClearVerdict(verdictScanId);
   const correlation = useMemo(() => {
     const f = scanQuery.data?.findings;
     const g =
@@ -71,11 +75,24 @@ export function ScanDetailPage() {
     return correlateFindings(f, g.nodes);
   }, [scanQuery.data, graphQuery.data]);
 
-  const filtered = useMemo(() => {
+  const confidenceFiltered = useMemo(() => {
     const list = scanQuery.data?.findings ?? [];
     if (filter === "any") return list;
     return list.filter((finding) => finding.confidence === filter);
   }, [filter, scanQuery.data]);
+
+  const suppressedCount = useMemo(
+    () => confidenceFiltered.filter((f) => f.verdict?.status === "false_positive").length,
+    [confidenceFiltered],
+  );
+
+  const filtered = useMemo(
+    () =>
+      showSuppressed
+        ? confidenceFiltered
+        : confidenceFiltered.filter((f) => f.verdict?.status !== "false_positive"),
+    [confidenceFiltered, showSuppressed],
+  );
 
   const uploadBackHref = useMemo(() => {
     const detailEarly = scanQuery.data;
@@ -324,6 +341,17 @@ export function ScanDetailPage() {
                 <span className="sg-filter__count">
                   {filtered.length} / {findings.length} findings
                 </span>
+                {suppressedCount > 0 && (
+                  <button
+                    type="button"
+                    className="sg-button sg-button--ghost"
+                    onClick={() => setShowSuppressed((value) => !value)}
+                  >
+                    {showSuppressed
+                      ? `Hide ${suppressedCount} suppressed`
+                      : `Show ${suppressedCount} suppressed`}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="sg-button sg-button--ghost"
@@ -346,6 +374,26 @@ export function ScanDetailPage() {
                       finding={finding}
                       onShowOnGraph={
                         graphAvailable ? () => handleShowOnGraph(finding) : undefined
+                      }
+                      onSetVerdict={
+                        artifact && finding.finding_key
+                          ? (status, note) =>
+                              setVerdict.mutate({
+                                artifactId: artifact.id,
+                                finding_key: finding.finding_key as string,
+                                status,
+                                note,
+                              })
+                          : undefined
+                      }
+                      onClearVerdict={
+                        artifact && finding.finding_key
+                          ? () =>
+                              clearVerdict.mutate({
+                                artifactId: artifact.id,
+                                finding_key: finding.finding_key as string,
+                              })
+                          : undefined
                       }
                     />
                   ))}

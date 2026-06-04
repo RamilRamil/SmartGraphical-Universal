@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UseQueryOptions } from "@tanstack/react-query";
 
 import { api } from "./client";
-import type { Artifact, BatchUploadResponse, RunScanRequest, Scan } from "./types";
+import type { Artifact, BatchUploadResponse, RunScanRequest, Scan, Verdict } from "./types";
 
 export const queryKeys = {
   health: ["health"] as const,
@@ -162,6 +162,35 @@ export function useDeleteScan() {
     mutationFn: (scanId: number) => api.deleteScan(scanId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["scans"] });
+    },
+  });
+}
+
+export function useSetVerdict(scanId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    Verdict,
+    Error,
+    { artifactId: number; finding_key: string; status: string; note?: string }
+  >({
+    mutationFn: (v) =>
+      api.setVerdict(v.artifactId, { finding_key: v.finding_key, status: v.status, note: v.note }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scan(scanId) });
+    },
+  });
+}
+
+export function useClearVerdict(scanId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    { cleared: boolean },
+    Error,
+    { artifactId: number; finding_key: string }
+  >({
+    mutationFn: (v) => api.clearVerdict(v.artifactId, v.finding_key),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scan(scanId) });
     },
   });
 }

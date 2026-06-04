@@ -153,6 +153,12 @@ export function DiffPage() {
           <span className="sg-meta__label">Unchanged</span>
           <span className="sg-meta__value">{diff.unchanged_count}</span>
         </div>
+        {diff.suppressed_count ? (
+          <div>
+            <span className="sg-meta__label">Suppressed</span>
+            <span className="sg-meta__value">{diff.suppressed_count}</span>
+          </div>
+        ) : null}
         <div>
           <span className="sg-meta__label">Scan A</span>
           <Link to={`/scans/${diff.scan_a_id}`} className="sg-meta__value sg-link">

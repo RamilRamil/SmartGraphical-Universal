@@ -67,6 +67,19 @@ export type Finding = {
   remediation_hint: string;
   evidences: Evidence[];
   source_file?: string;
+  /** Feature 013: server-issued stable identity for addressing a verdict. */
+  finding_key?: string;
+  /** Feature 013: auditor verdict, or null when untriaged. */
+  verdict?: { status: string; note: string } | null;
+};
+
+export type Verdict = {
+  artifact_id: number;
+  finding_key: string;
+  status: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ScanDetail = {
@@ -190,6 +203,7 @@ export type DiffResponse = {
   added: Finding[];
   removed: Finding[];
   unchanged_count: number;
+  suppressed_count?: number;
 };
 
 export type ApiError = {

@@ -17,6 +17,7 @@ from smartgraphical.upload_limits import (
 )
 from smartgraphical.services import web_api
 from smartgraphical.services.web_api import WebApiError
+from smartgraphical.persistence.verdict_repository import VALID_STATUSES
 
 
 ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs")
@@ -30,6 +31,7 @@ ERROR_UNSUPPORTED_FILE = "unsupported_file"
 ERROR_NOT_FOUND = "not_found"
 ERROR_DIFF_MISMATCH = "diff_artifact_mismatch"
 ERROR_INVALID_PAYLOAD = "invalid_payload"
+ERROR_INVALID_VERDICT = "invalid_verdict"
 
 
 class HistoryError(Exception):
@@ -164,14 +166,23 @@ def _finding_key(finding):
     )
 
 
+def _finding_key_hash(finding):
+    """Stable string identity for a finding: sha256 of the shared _finding_key
+    tuple. Diff uses the tuple; verdicts store this hash. Single source of truth."""
+    digest = hashlib.sha256()
+    digest.update("\x00".join(_finding_key(finding)).encode("utf-8", errors="replace"))
+    return digest.hexdigest()
+
+
 class HistoryService:
 
-    def __init__(self, store, artifact_repository, scan_repository, workspace_path, repo_root=None):
+    def __init__(self, store, artifact_repository, scan_repository, workspace_path, repo_root=None, verdict_repository=None):
         if not workspace_path:
             raise ValueError("workspace_path must be non-empty")
         self._store = store
         self._artifacts = artifact_repository
         self._scans = scan_repository
+        self._verdicts = verdict_repository
         self._workspace = os.path.abspath(workspace_path)
         self._repo_root = os.path.abspath(repo_root) if repo_root else os.path.abspath(os.getcwd())
         os.makedirs(self._workspace, exist_ok=True)
@@ -438,6 +449,7 @@ class HistoryService:
             raise HistoryError(ERROR_NOT_FOUND, f"scan {scan_id} not found")
         artifact = self._artifacts.get(scan["artifact_id"])
         findings = self._read_json(scan["findings_payload_path"], default=[])
+        findings = self._annotate_with_verdicts(findings, scan["artifact_id"])
         return {"scan": scan, "artifact": artifact, "findings": findings}
 
     def get_graph(self, scan_id):
@@ -467,7 +479,8 @@ class HistoryService:
         scan = self._scans.get(scan_id)
         if scan is None or scan.get("deleted_at"):
             raise HistoryError(ERROR_NOT_FOUND, f"scan {scan_id} not found")
-        return self._read_json(scan["findings_payload_path"], default=[])
+        findings = self._read_json(scan["findings_payload_path"], default=[])
+        return self._annotate_with_verdicts(findings, scan["artifact_id"])
 
     def soft_delete_scan(self, scan_id):
         return self._scans.soft_delete(scan_id, _now_iso())
@@ -489,6 +502,13 @@ class HistoryService:
         added = [keyed_b[key] for key in keyed_b if key not in keyed_a]
         removed = [keyed_a[key] for key in keyed_a if key not in keyed_b]
         unchanged_count = sum(1 for key in keyed_a if key in keyed_b)
+        suppressed_count = 0
+        fp_hashes = self._false_positive_hashes(scan_a["artifact_id"])
+        if fp_hashes:
+            kept_added = [it for it in added if _finding_key_hash(it) not in fp_hashes]
+            kept_removed = [it for it in removed if _finding_key_hash(it) not in fp_hashes]
+            suppressed_count = (len(added) - len(kept_added)) + (len(removed) - len(kept_removed))
+            added, removed = kept_added, kept_removed
         return {
             "scan_a_id": scan_a["id"],
             "scan_b_id": scan_b["id"],
@@ -496,7 +516,64 @@ class HistoryService:
             "added": added,
             "removed": removed,
             "unchanged_count": unchanged_count,
+            "suppressed_count": suppressed_count,
         }
+
+    # ----- Finding verdicts (feature 013) -----
+
+    def _verdict_map(self, artifact_id):
+        if self._verdicts is None:
+            return {}
+        rows = self._verdicts.get_by_artifact(artifact_id)
+        return {
+            row["finding_key"]: {"status": row["status"], "note": row.get("note", "")}
+            for row in rows
+        }
+
+    def _annotate_with_verdicts(self, findings, artifact_id):
+        verdicts = self._verdict_map(artifact_id)
+        annotated = []
+        for finding in findings:
+            item = dict(finding)
+            key = _finding_key_hash(finding)
+            item["finding_key"] = key
+            item["verdict"] = verdicts.get(key)
+            annotated.append(item)
+        return annotated
+
+    def _false_positive_hashes(self, artifact_id):
+        return {
+            key
+            for key, value in self._verdict_map(artifact_id).items()
+            if value.get("status") == "false_positive"
+        }
+
+    def set_verdict(self, artifact_id, finding_key, status, note=""):
+        self._require_artifact(artifact_id)
+        if self._verdicts is None:
+            raise HistoryError(ERROR_INVALID_VERDICT, "verdict storage not configured")
+        if status not in VALID_STATUSES:
+            raise HistoryError(
+                ERROR_INVALID_VERDICT,
+                "status must be one of " + ", ".join(VALID_STATUSES),
+            )
+        key = str(finding_key or "").strip()
+        if not key:
+            raise HistoryError(ERROR_INVALID_VERDICT, "finding_key must be non-empty")
+        return self._verdicts.upsert(artifact_id, key, status, (note or "")[:2000])
+
+    def clear_verdict(self, artifact_id, finding_key):
+        self._require_artifact(artifact_id)
+        if self._verdicts is None:
+            raise HistoryError(ERROR_INVALID_VERDICT, "verdict storage not configured")
+        cleared = self._verdicts.delete(artifact_id, str(finding_key or "").strip())
+        return {"cleared": bool(cleared)}
+
+    def list_verdicts(self, artifact_id):
+        self._require_artifact(artifact_id)
+        if self._verdicts is None:
+            return []
+        return self._verdicts.get_by_artifact(artifact_id)
 
     def _require_artifact(self, artifact_id):
         artifact = self._artifacts.get(artifact_id)

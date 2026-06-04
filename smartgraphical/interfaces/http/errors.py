@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from smartgraphical.services.history_service import (
     ERROR_DIFF_MISMATCH,
     ERROR_INVALID_PAYLOAD,
+    ERROR_INVALID_VERDICT,
     ERROR_NOT_FOUND,
     ERROR_UNSUPPORTED_FILE,
     HistoryError,
@@ -29,6 +30,7 @@ _CODE_TO_STATUS = {
     ERROR_INVALID_MODE: 400,
     ERROR_INVALID_TASK: 400,
     ERROR_INVALID_PAYLOAD: 400,
+    ERROR_INVALID_VERDICT: 400,
     ERROR_UNSUPPORTED_FILE: 400,
     ERROR_NOT_FOUND: 404,
     ERROR_DIFF_MISMATCH: 409,
