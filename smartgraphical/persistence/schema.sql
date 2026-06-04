@@ -37,3 +37,19 @@ CREATE TABLE IF NOT EXISTS scan (
 CREATE INDEX IF NOT EXISTS idx_scan_artifact_id ON scan(artifact_id);
 CREATE INDEX IF NOT EXISTS idx_scan_created_at ON scan(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_deleted_at ON scan(deleted_at);
+
+-- Finding verdicts (feature 013): auditor triage over findings, scoped to the
+-- artifact and keyed by the same stable finding identity the diff uses.
+CREATE TABLE IF NOT EXISTS finding_verdict (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_id INTEGER NOT NULL,
+    finding_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(artifact_id, finding_key),
+    FOREIGN KEY(artifact_id) REFERENCES artifact(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_finding_verdict_artifact ON finding_verdict(artifact_id);

@@ -10,6 +10,7 @@ import type {
   Scan,
   ScanDetail,
   TaskList,
+  Verdict,
 } from "./types";
 
 const API_BASE = "/api";
@@ -61,6 +62,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -127,4 +136,13 @@ export const api = {
     request<{ deleted: boolean; scan_id: number }>(`/scans/${scanId}`, {
       method: "DELETE",
     }),
+  setVerdict: (
+    artifactId: number,
+    body: { finding_key: string; status: string; note?: string },
+  ) => putJson<Verdict>(`/artifacts/${artifactId}/verdicts`, body),
+  clearVerdict: (artifactId: number, findingKey: string) =>
+    request<{ cleared: boolean }>(
+      `/artifacts/${artifactId}/verdicts/${encodeURIComponent(findingKey)}`,
+      { method: "DELETE" },
+    ),
 };

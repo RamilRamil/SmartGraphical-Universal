@@ -21,7 +21,7 @@ from smartgraphical.services.history_service import (
     HistoryService,
 )
 
-from .schemas import RunScanRequest
+from .schemas import RunScanRequest, VerdictRequest
 
 
 def get_history_service(request: Request) -> HistoryService:
@@ -202,6 +202,31 @@ def build_router() -> APIRouter:
         service: HistoryService = Depends(get_history_service),
     ):
         return service.get_artifact(artifact_id)
+
+    @router.put("/artifacts/{artifact_id}/verdicts")
+    def set_verdict(
+        artifact_id: int,
+        payload: VerdictRequest,
+        service: HistoryService = Depends(get_history_service),
+    ):
+        return service.set_verdict(
+            artifact_id, payload.finding_key, payload.status, payload.note,
+        )
+
+    @router.get("/artifacts/{artifact_id}/verdicts")
+    def list_verdicts(
+        artifact_id: int,
+        service: HistoryService = Depends(get_history_service),
+    ):
+        return {"items": service.list_verdicts(artifact_id)}
+
+    @router.delete("/artifacts/{artifact_id}/verdicts/{finding_key}")
+    def clear_verdict(
+        artifact_id: int,
+        finding_key: str,
+        service: HistoryService = Depends(get_history_service),
+    ):
+        return service.clear_verdict(artifact_id, finding_key)
 
     @router.post("/artifacts/{artifact_id}/scans", status_code=201)
     def create_scan(

@@ -17,6 +17,7 @@ import uvicorn
 from smartgraphical.interfaces.http.app import create_app
 from smartgraphical.persistence.artifact_repository import ArtifactRepository
 from smartgraphical.persistence.scan_repository import ScanRepository
+from smartgraphical.persistence.verdict_repository import VerdictRepository
 from smartgraphical.persistence.sqlite_store import SqliteStore
 from smartgraphical.services.history_service import HistoryService
 
@@ -74,12 +75,14 @@ def build_app():
     store = SqliteStore(database_path)
     artifacts = ArtifactRepository(store)
     scans = ScanRepository(store)
+    verdicts = VerdictRepository(store)
     service = HistoryService(
         store=store,
         artifact_repository=artifacts,
         scan_repository=scans,
         workspace_path=workspace_path,
         repo_root=os.path.dirname(os.path.abspath(__file__)),
+        verdict_repository=verdicts,
     )
     return create_app(service, static_dir=_resolve_frontend_dir())
 

@@ -14,6 +14,12 @@ class RunScanRequest(BaseModel):
     mode: str = Field(default="auditor", description="auditor | legacy | explore")
 
 
+class VerdictRequest(BaseModel):
+    finding_key: str = Field(..., description="Stable finding identity hash (server-issued)")
+    status: str = Field(..., description="false_positive | accepted")
+    note: str = Field(default="", description="Optional auditor note")
+
+
 class ErrorResponse(BaseModel):
     status: str = "error"
     code: str
@@ -75,3 +81,4 @@ class DiffResponse(BaseModel):
     added: List[Any]
     removed: List[Any]
     unchanged_count: int
+    suppressed_count: int = 0

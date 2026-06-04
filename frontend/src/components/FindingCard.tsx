@@ -7,11 +7,23 @@ type FindingCardProps = {
   defaultOpen?: boolean;
   /** When provided, renders a "Show on graph" action that focuses this finding's node. */
   onShowOnGraph?: () => void;
+  /** Feature 013: set this finding's verdict. */
+  onSetVerdict?: (status: "false_positive" | "accepted", note: string) => void;
+  /** Feature 013: clear this finding's verdict. */
+  onClearVerdict?: () => void;
 };
 
-export function FindingCard({ finding, defaultOpen = false, onShowOnGraph }: FindingCardProps) {
+export function FindingCard({
+  finding,
+  defaultOpen = false,
+  onShowOnGraph,
+  onSetVerdict,
+  onClearVerdict,
+}: FindingCardProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [note, setNote] = useState(finding.verdict?.note ?? "");
   const evidenceCount = finding.evidences?.length ?? 0;
+  const verdictStatus = finding.verdict?.status ?? null;
   return (
     <article className="sg-finding">
       <header
@@ -42,6 +54,11 @@ export function FindingCard({ finding, defaultOpen = false, onShowOnGraph }: Fin
             {finding.confidence || "unknown"}
           </span>
           <span className="sg-finding__category">{finding.category}</span>
+          {verdictStatus && (
+            <span className={`sg-badge sg-verdict--${verdictStatus}`}>
+              {verdictStatus === "false_positive" ? "false positive" : verdictStatus}
+            </span>
+          )}
           {onShowOnGraph && (
             <button
               type="button"
@@ -60,6 +77,43 @@ export function FindingCard({ finding, defaultOpen = false, onShowOnGraph }: Fin
       </header>
       {open && (
         <div className="sg-finding__body">
+          {onSetVerdict && (
+            <div className="sg-finding__verdict">
+              <span className="sg-finding__verdict-label">
+                Verdict: {verdictStatus ?? "untriaged"}
+              </span>
+              <input
+                type="text"
+                className="sg-field__control sg-finding__verdict-note"
+                placeholder="note (optional)"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => onSetVerdict("false_positive", note)}
+              >
+                False positive
+              </button>
+              <button
+                type="button"
+                className="sg-button sg-button--ghost"
+                onClick={() => onSetVerdict("accepted", note)}
+              >
+                Accepted
+              </button>
+              {verdictStatus && onClearVerdict && (
+                <button
+                  type="button"
+                  className="sg-button sg-button--ghost"
+                  onClick={() => onClearVerdict()}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
           {finding.message && (
             <p className="sg-finding__message">{finding.message}</p>
           )}
