@@ -1,0 +1,5 @@
+{
+  "_note": "Per-example recall floor recorded from the first green run (feature 014). The guard test fails if current recall drops below these. Update intentionally when rules improve. Examples with no expected labels (recall N/A) are omitted.",
+  "SimpleAuction.sol": { "recall": 1.0 },
+  "OsTokenRedeemer.sol": { "recall": 1.0 }
+}
