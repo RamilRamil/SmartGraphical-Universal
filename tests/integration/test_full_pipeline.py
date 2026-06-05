@@ -26,7 +26,7 @@ EXPECTED_RULE_IDS = frozenset({
     "contract_version", "unallowed_manipulation", "staking",
     "pool_interactions", "local_points", "exceptions",
     "complicated_calculations", "check_order", "withdraw_check",
-    "similar_names", "outer_calls",
+    "similar_names", "outer_calls", "tainted_input_unguarded_sink",
 })
 
 

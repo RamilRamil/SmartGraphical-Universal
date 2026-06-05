@@ -109,6 +109,11 @@
       "slug": "unaligned_memory_access_ebpf",
       "primary_coverage": "model_unit",
       "notes": "tests/unit/test_c_rules_batch5.py"
+    },
+    "21": {
+      "slug": "tainted_input_unguarded_sink",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_tainted_input_rule.py + tests/unit/test_requires_dataflow_invoked.py (feature 015)"
     }
   },
   "primary_coverage_values_documented": [
