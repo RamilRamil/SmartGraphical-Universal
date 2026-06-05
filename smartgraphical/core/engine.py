@@ -186,10 +186,22 @@ def summarize_model(context):
     print(f"State entities: {state_count}")
     print(f"Guards: {guard_count}")
     print(f"Call edges: {len(model.call_edges)}")
-    print("Portable rule core candidates: " + ", ".join(model.second_language_poc.portable_rule_tasks))
-    print("Second-language PoC criteria:")
-    for criterion in model.second_language_poc.success_criteria:
-        print(f"- {criterion}")
+    poc = model.second_language_poc
+    if poc is not None:
+        print("Portable rule core candidates: " + ", ".join(poc.portable_rule_tasks))
+        print("Second-language PoC criteria:")
+        for criterion in poc.success_criteria:
+            print(f"- {criterion}")
+    taint_lines = [
+        f"  {t.name}.{f.name}: {p.get('source')} -> {p.get('sink')} (guarded={p.get('guarded')})"
+        for t in model.types
+        for f in t.functions
+        for p in (getattr(f, "taint_paths", None) or [])
+    ]
+    if taint_lines:
+        print("Taint source->sink paths (heuristic, feature 015):")
+        for line in taint_lines:
+            print(line)
 
 
 # ---------------------------------------------------------------------------

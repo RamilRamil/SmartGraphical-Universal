@@ -86,6 +86,7 @@ class NormalizedFunction:
     entrypoint_permissions: list = field(default_factory=list)
     findings_evidence_map: list = field(default_factory=list)
     exploration_statements: list = field(default_factory=list)
+    taint_paths: list = field(default_factory=list)
 
 
 @dataclass

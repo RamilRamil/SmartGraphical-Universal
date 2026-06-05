@@ -84,6 +84,11 @@
       "slug": "unstake_share_burn_order",
       "primary_coverage": "model_unit",
       "notes": "tests/unit/test_rules_knowdit_reentrancy.py"
+    },
+    "16": {
+      "slug": "tainted_input_unguarded_sink",
+      "primary_coverage": "model_unit",
+      "notes": "tests/unit/test_tainted_input_rule.py (feature 015 portable taint rule)"
     }
   },
   "primary_coverage_values_documented": [

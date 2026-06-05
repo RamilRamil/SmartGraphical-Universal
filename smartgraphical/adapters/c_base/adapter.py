@@ -49,6 +49,7 @@ from smartgraphical.core.model import (
 from smartgraphical.core.rules.c.c_specific.bank_lifecycle_refcount_concurrency import (
     run as run_bank_refcount,
 )
+from smartgraphical.core.rules.portable.tainted_input_unguarded_sink import run as run_tainted_input
 from smartgraphical.core.rules.c.c_specific.io_uring_submission_race_funk import (
     run as run_io_uring_race,
 )
@@ -810,6 +811,13 @@ def build_c_rule_registry():
             'control_flow_integrity', 'node_specific', 'high',
             'Add explicit alignment checks before VM pointer-cast memory access.',
             run_unaligned_mem_access,
+        ),
+        '21': RuleSpec(
+            '21', 21, 'tainted_input_unguarded_sink',
+            'Untrusted input reaches a sensitive sink without a guard',
+            'dataflow', 'portable', 'medium',
+            'Validate or guard untrusted input before it reaches the sink (heuristic intra-procedural taint).',
+            run_tainted_input,
         ),
     }
 

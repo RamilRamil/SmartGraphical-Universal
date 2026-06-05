@@ -29,6 +29,7 @@ from smartgraphical.adapters.solidity.helpers import (
 
 # Rule runner imports (Phase 2: no legacy dependency)
 from smartgraphical.core.rules.solidity.naming import run_contract_version, run_similar_names
+from smartgraphical.core.rules.portable.tainted_input_unguarded_sink import run as run_tainted_input
 from smartgraphical.core.rules.solidity.state_mutation import (
     run_unallowed_manipulation,
     run_pool_interactions,
@@ -89,6 +90,7 @@ def build_rule_registry():
         '13': RuleSpec('13', 13, 'read_only_oracle_reentrancy', 'Read-Only Reentrancy Window (Reserve Valuation)', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Finalize reserves or sync before external calls when pricing depends on reserves.', run_read_only_oracle_gap),
         '14': RuleSpec('14', 14, 'bridge_retry_reentrancy', 'Bridge Retry Idempotency Ordering', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Consume or finalize retry/relay records before payouts or other external effects.', run_bridge_retry_gap),
         '15': RuleSpec('15', 15, 'unstake_share_burn_order', 'Unstake Share Burn Ordering', 'AdvancedReentrancy', 'portable_with_adapter', 'medium', 'Reduce or burn staking shares before paying out rewards or principal.', run_unstake_share_order),
+        '16': RuleSpec('16', 16, 'tainted_input_unguarded_sink', 'Untrusted input reaches a sensitive sink without a guard', 'dataflow', 'portable', 'medium', 'Validate or guard untrusted input before it reaches the sink (heuristic intra-procedural taint).', run_tainted_input),
     }
 
 
