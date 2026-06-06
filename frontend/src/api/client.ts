@@ -4,6 +4,7 @@ import type {
   BatchUploadResponse,
   DiffResponse,
   Finding,
+  GraphDiffResponse,
   GraphResponse,
   HealthResponse,
   RunScanRequest,
@@ -130,6 +131,8 @@ export const api = {
   getGraph: (scanId: number) => request<GraphResponse>(`/scans/${scanId}/graph`),
   diffScans: (scanA: number, scanB: number) =>
     request<DiffResponse>(`/scans/${scanA}/diff/${scanB}`),
+  diffGraphs: (scanA: number, scanB: number) =>
+    request<GraphDiffResponse>(`/scans/${scanA}/graph-diff/${scanB}`),
   createScan: (artifactId: number, body: RunScanRequest) =>
     postJson<Scan>(`/artifacts/${artifactId}/scans`, body),
   deleteScan: (scanId: number) =>
