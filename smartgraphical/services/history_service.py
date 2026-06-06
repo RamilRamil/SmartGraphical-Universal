@@ -17,6 +17,7 @@ from smartgraphical.upload_limits import (
 )
 from smartgraphical.services import web_api
 from smartgraphical.services.web_api import WebApiError
+from smartgraphical.services.graph_diff import diff_graph_payloads
 from smartgraphical.persistence.verdict_repository import VALID_STATUSES
 
 
@@ -518,6 +519,30 @@ class HistoryService:
             "unchanged_count": unchanged_count,
             "suppressed_count": suppressed_count,
         }
+
+    def diff_graphs(self, scan_a_id, scan_b_id):
+        """Structural graph diff between two scans of the same artifact (feature 018).
+
+        Reuses the same same-artifact / not-found guards as ``diff_scans``. A scan
+        without a stored graph (e.g. a single-rule run) yields a result with
+        ``graph_available=False`` rather than an error.
+        """
+        scan_a = self._scans.get(scan_a_id)
+        scan_b = self._scans.get(scan_b_id)
+        if scan_a is None or scan_b is None:
+            raise HistoryError(ERROR_NOT_FOUND, "one of scans not found")
+        if scan_a["artifact_id"] != scan_b["artifact_id"]:
+            raise HistoryError(
+                ERROR_DIFF_MISMATCH,
+                "scans belong to different artifacts; diff is only allowed for the same file",
+            )
+        graph_a = self.get_graph(scan_a["id"])
+        graph_b = self.get_graph(scan_b["id"])
+        result = diff_graph_payloads(graph_a, graph_b)
+        result["scan_a_id"] = scan_a["id"]
+        result["scan_b_id"] = scan_b["id"]
+        result["artifact_id"] = scan_a["artifact_id"]
+        return result
 
     # ----- Finding verdicts (feature 013) -----
 
