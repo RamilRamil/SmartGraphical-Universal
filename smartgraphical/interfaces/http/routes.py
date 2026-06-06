@@ -278,6 +278,14 @@ def build_router() -> APIRouter:
     ):
         return service.diff_scans(scan_id, other_id)
 
+    @router.get("/scans/{scan_id}/graph-diff/{other_id}")
+    def diff_graphs(
+        scan_id: int,
+        other_id: int,
+        service: HistoryService = Depends(get_history_service),
+    ):
+        return service.diff_graphs(scan_id, other_id)
+
     @router.delete("/scans/{scan_id}")
     def soft_delete_scan(
         scan_id: int,
