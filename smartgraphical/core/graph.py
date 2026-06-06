@@ -13,9 +13,79 @@ FUNC_FILL_COLOR = "#D2E9E9"
 SYSFUNC_FILL_COLOR = "#E3F4F4"
 EDGE_COLOR = "#D77FA1"
 
+# Canonical node groups that are compound containers (become graphviz clusters)
+# rather than drawn leaf nodes. These mirror the web cytoscape compound parents.
+COMPOUND_GROUPS = frozenset({"type", "tile"})
+
+# group -> graphviz node attributes. Consulted via GROUP_STYLE.get(group, DEFAULT).
+DEFAULT_NODE_STYLE = {"shape": "rectangle", "style": "filled",
+                      "fillcolor": FUNC_FILL_COLOR, "color": FUNC_FILL_COLOR}
+GROUP_STYLE = {
+    "function": {"shape": "rectangle", "style": "filled",
+                 "fillcolor": FUNC_FILL_COLOR, "color": FUNC_FILL_COLOR},
+    "event": {"shape": "rectangle", "style": "filled",
+              "fillcolor": FUNC_FILL_COLOR, "color": FUNC_FILL_COLOR},
+    "state": {"shape": "ellipse", "style": "filled",
+              "fillcolor": VAR_FILL_COLOR, "color": VAR_FILL_COLOR},
+    "custom_error": {"shape": "note", "style": "filled",
+                     "fillcolor": FUNC_FILL_COLOR, "color": FUNC_FILL_COLOR},
+    "modifier": {"shape": "hexagon", "style": "filled",
+                 "fillcolor": VAR_FILL_COLOR, "color": VAR_FILL_COLOR},
+    "workspace": {"shape": "cylinder", "style": "filled",
+                  "fillcolor": VAR_FILL_COLOR, "color": VAR_FILL_COLOR},
+    "external": {"shape": "parallelogram", "style": "filled",
+                 "fillcolor": SYSFUNC_FILL_COLOR, "color": SYSFUNC_FILL_COLOR},
+    "external_import": {"shape": "parallelogram", "style": "filled",
+                        "fillcolor": SYSFUNC_FILL_COLOR, "color": SYSFUNC_FILL_COLOR},
+}
+
+# edge kind -> graphviz edge attributes. Consulted via EDGE_STYLE.get(kind, DEFAULT).
+DEFAULT_EDGE_STYLE = {"color": EDGE_COLOR}
+EDGE_STYLE = {
+    "import_dependency": {"color": EDGE_COLOR, "style": "dashed"},
+    "bundle_import": {"color": EDGE_COLOR, "style": "dashed"},
+    "function_to_include_template": {"color": EDGE_COLOR, "style": "dotted"},
+    "pointer_flow": {"color": EDGE_COLOR, "style": "dashed"},
+}
+
 
 def sanitize_graph_token(token):
     return re.sub(r"[^A-Za-z0-9_]", "_", token)
+
+
+def _plan_render(graph):
+    """Pure planning step: partition the canonical graph dict into graphviz
+    clusters (compound parents), their child nodes, top-level nodes, and edges.
+
+    Returns (clusters, top_nodes, edges) where ``clusters`` is an ordered dict
+    ``{parent_id: {"label": str, "children": [node, ...]}}``. No graphviz needed,
+    so this is what the parity test asserts against ``model_graph_to_dict``.
+    """
+    nodes = graph.get("nodes") or []
+    edges = graph.get("edges") or []
+
+    clusters = {}
+    compound_ids = set()
+    for node in nodes:
+        if str(node.get("group", "")) in COMPOUND_GROUPS:
+            cid = str(node.get("id", ""))
+            if not cid:
+                continue
+            compound_ids.add(cid)
+            clusters.setdefault(cid, {"label": str(node.get("label", "")), "children": []})
+
+    top_nodes = []
+    for node in nodes:
+        nid = str(node.get("id", ""))
+        if not nid or nid in compound_ids:
+            continue
+        parent = str(node.get("parent", "") or "")
+        if parent and parent in clusters:
+            clusters[parent]["children"].append(node)
+        else:
+            top_nodes.append(node)
+
+    return clusters, top_nodes, edges
 
 
 class GraphBuilder:
@@ -23,6 +93,13 @@ class GraphBuilder:
         if graphviz is None:
             print("Error: graphviz Python package is not installed.")
             return
+        # Render the SAME canonical projection the web cytoscape view consumes, so
+        # the two pillars cannot drift (feature 017, Constitution Principle V).
+        from smartgraphical.services.serializers import model_graph_to_dict
+
+        graph = model_graph_to_dict(model)
+        clusters, top_nodes, edges = _plan_render(graph)
+
         print("--------------------------------------------------------------------------")
         print("Generating plot ... ")
         dot = graphviz.Digraph(
@@ -32,90 +109,30 @@ class GraphBuilder:
         )
         dot.attr(rankdir="LR")
 
-        for index, type_entry in enumerate(model.types):
+        for index, (cluster_id, info) in enumerate(clusters.items()):
             with dot.subgraph(name=f"cluster_{index}") as cluster:
                 cluster.attr(
-                    label=type_entry.name,
+                    label=info["label"],
                     color=CLUSTER_BORDER_COLOR,
                     penwidth="2",
                     bgcolor=CLUSTER_BACKGROUND_COLOR,
                     fontcolor=CLUSTER_BORDER_COLOR,
                     fontsize="26pt",
                 )
-                with cluster.subgraph() as section:
-                    section.attr("node", shape="ellipse", style="filled")
-                    for state_entity in type_entry.state_entities:
-                        if state_entity.kind == "object_instance":
-                            continue
-                        section.node(
-                            f"var_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(state_entity.name)}",
-                            state_entity.name,
-                            fillcolor=VAR_FILL_COLOR,
-                            color=VAR_FILL_COLOR,
-                        )
+                for node in info["children"]:
+                    style = GROUP_STYLE.get(str(node.get("group", "")), DEFAULT_NODE_STYLE)
+                    cluster.node(str(node.get("id", "")), str(node.get("label", "")), **style)
 
-                    section.attr("node", shape="cylinder")
-                    for object_use in type_entry.objects:
-                        object_node = f"obj_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(object_use.object_name)}"
-                        object_label = f"{object_use.object_name}\nContract: {object_use.contract_name}"
-                        section.node(object_node, object_label, fillcolor=VAR_FILL_COLOR, color=VAR_FILL_COLOR)
+        for node in top_nodes:
+            style = GROUP_STYLE.get(str(node.get("group", "")), DEFAULT_NODE_STYLE)
+            dot.node(str(node.get("id", "")), str(node.get("label", "")), **style)
 
-                    section.attr("node", shape="rectangle")
-                    for function in type_entry.functions:
-                        function_node = f"func_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(function.name)}"
-                        function_label = f"{function.name}\nInputs: {function.inputs}\nConditionals: {function.conditionals}"
-                        section.node(function_node, function_label, fillcolor=FUNC_FILL_COLOR, color=FUNC_FILL_COLOR)
-                    for event in type_entry.events:
-                        event_node = f"func_{sanitize_graph_token(type_entry.name)}_{sanitize_graph_token(event.name)}"
-                        event_label = f"{event.name}\nInputs: {event.inputs}"
-                        section.node(event_node, event_label, fillcolor=FUNC_FILL_COLOR, color=FUNC_FILL_COLOR)
-
-        for edge in model.call_edges:
-            source_type = sanitize_graph_token(edge.source_type)
-            target_type = sanitize_graph_token(edge.target_type)
-            if edge.edge_kind in [
-                "state_to_function",
-                "state_to_function_read",
-                "state_to_function_write",
-                "cross_type_state",
-                "cross_type_state_read",
-                "cross_type_state_write",
-            ]:
-                dot.edge(
-                    f"var_{source_type}_{sanitize_graph_token(edge.source_name)}",
-                    f"func_{target_type}_{sanitize_graph_token(edge.target_name)}",
-                    color=EDGE_COLOR,
-                )
-            elif edge.edge_kind in ["function_to_function", "cross_type_call"]:
-                dot.edge(
-                    f"func_{source_type}_{sanitize_graph_token(edge.source_name)}",
-                    f"func_{target_type}_{sanitize_graph_token(edge.target_name)}",
-                    color=EDGE_COLOR,
-                )
-            elif edge.edge_kind == "function_to_system":
-                system_node = f"sysfunc_{target_type}_{sanitize_graph_token(edge.target_name)}"
-                dot.node(
-                    system_node,
-                    edge.target_name,
-                    shape="parallelogram",
-                    style="filled",
-                    fillcolor=SYSFUNC_FILL_COLOR,
-                    color=SYSFUNC_FILL_COLOR,
-                )
-                dot.edge(
-                    f"func_{source_type}_{sanitize_graph_token(edge.source_name)}",
-                    system_node,
-                    color=EDGE_COLOR,
-                )
-            elif edge.edge_kind == "function_to_object":
-                dot.edge(
-                    f"func_{source_type}_{sanitize_graph_token(edge.source_name)}",
-                    f"obj_{target_type}_{sanitize_graph_token(edge.target_name)}",
-                    xlabel=edge.label,
-                    fontsize="10pt",
-                    margin="1",
-                    pad="1",
-                    color=EDGE_COLOR,
-                )
+        for edge in edges:
+            attrs = dict(EDGE_STYLE.get(str(edge.get("kind", "")), DEFAULT_EDGE_STYLE))
+            label = str(edge.get("label", "") or "")
+            if label:
+                attrs.setdefault("xlabel", label)
+                attrs.setdefault("fontsize", "10pt")
+            dot.edge(str(edge.get("source", "")), str(edge.get("target", "")), **attrs)
 
         dot.render(output_label + ".gv", directory="", view=False)
