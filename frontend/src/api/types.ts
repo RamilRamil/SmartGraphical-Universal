@@ -206,6 +206,44 @@ export type DiffResponse = {
   suppressed_count?: number;
 };
 
+export type GraphDiffNode = {
+  id: string;
+  group: string;
+  label: string;
+  kind: string;
+};
+
+export type GraphDiffChangedNode = {
+  id: string;
+  before: { group: string; label: string; kind: string };
+  after: { group: string; label: string; kind: string };
+};
+
+export type GraphDiffEdge = {
+  source: string;
+  target: string;
+  kind: string;
+  label: string;
+};
+
+export type GraphDiffResponse = {
+  scan_a_id: number;
+  scan_b_id: number;
+  artifact_id: number;
+  graph_available: boolean;
+  added_nodes: GraphDiffNode[];
+  removed_nodes: GraphDiffNode[];
+  changed_nodes: GraphDiffChangedNode[];
+  added_edges: GraphDiffEdge[];
+  removed_edges: GraphDiffEdge[];
+  added_node_count: number;
+  removed_node_count: number;
+  changed_node_count: number;
+  added_edge_count: number;
+  removed_edge_count: number;
+  unchanged_node_count: number;
+};
+
 export type ApiError = {
   status: "error";
   code: string;

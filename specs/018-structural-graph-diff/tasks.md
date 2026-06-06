@@ -13,8 +13,17 @@ description: "Task list for feature 018 — Structural graph diff between two sc
 > 15 new tests (pure 11, history 4 incl. no-graph/mismatch/not-found, HTTP 2).
 > Full suite **513 passed**, 0 failed; findings diff + existing endpoints
 > unchanged. HTTP mismatch code is `diff_artifact_mismatch` (the project's actual
-> ERROR_DIFF_MISMATCH value). **US3 (web DiffPage visualization) is the remaining
-> increment** — once shipped, block D is fully closed.
+> ERROR_DIFF_MISMATCH value).
+>
+> **US3 (web DiffPage visualization) — DONE 2026-06-06.** Added frontend
+> `GraphDiff*` types, `api.diffGraphs` client, `useGraphDiff` hook, pure
+> `graph/graphDiffSummary.ts` (5 Vitest), and a `GraphDiffSection` in
+> `DiffPage.tsx` (counts + grouped added/removed/changed nodes + added/removed
+> edges; handles graph_available=false and identical-graph). Frontend: typecheck
+> clean, **81 vitest passed** (5 new), `vite build` ok. CSS classes
+> `sg-diff__subsection`/`sg-section__subtitle`/`sg-list` not added — `styles.css`
+> is the user's uncommitted WIP, left untouched (renders functional, maybe
+> unstyled). **Block D is now fully closed.**
 
 **Input**: Design documents from `specs/018-structural-graph-diff/`
 
@@ -114,6 +123,18 @@ payload shape, rule output, or existing endpoints (FR-007). Reuse the existing
   the remaining increment for full block-D closure.
 
 ---
+
+## Phase 6: User Story 3 — Graph diff in the web DiffPage (frontend)
+
+- [X] T013 [US3] Frontend `GraphDiff*` types (`api/types.ts`), `api.diffGraphs`
+  (`api/client.ts`), `useGraphDiff` + `queryKeys.graphDiff` (`api/hooks.ts`).
+- [X] T014 [US3] Pure `frontend/src/graph/graphDiffSummary.ts` + `.test.ts` (5
+  Vitest): total/empty/group-by-group/describe-edge/changed-fields.
+- [X] T015 [US3] `GraphDiffSection` in `frontend/src/pages/DiffPage.tsx` wired via
+  `useGraphDiff` (counts + grouped node lists + edge lists; graph_available=false
+  and identical-graph handled).
+- [X] T016 [US3] Verify: `npm run typecheck` clean, `npm test` 81 passed,
+  `npm run build` ok.
 
 ## Dependencies & ordering
 

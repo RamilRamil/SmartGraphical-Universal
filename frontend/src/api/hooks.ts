@@ -14,6 +14,7 @@ export const queryKeys = {
   findings: (id: number) => ["findings", id] as const,
   graph: (id: number) => ["graph", id] as const,
   diff: (a: number, b: number) => ["diff", a, b] as const,
+  graphDiff: (a: number, b: number) => ["graph-diff", a, b] as const,
 };
 
 export function useHealth(options?: Partial<UseQueryOptions<Awaited<ReturnType<typeof api.health>>>>) {
@@ -90,6 +91,22 @@ export function useDiff(scanA: number | undefined, scanB: number | undefined) {
         throw new Error("both scan ids are required");
       }
       return api.diffScans(scanA, scanB);
+    },
+    enabled: canRun,
+  });
+}
+
+export function useGraphDiff(scanA: number | undefined, scanB: number | undefined) {
+  const canRun = scanA !== undefined && scanB !== undefined;
+  return useQuery({
+    queryKey: canRun
+      ? queryKeys.graphDiff(scanA as number, scanB as number)
+      : ["graph-diff", "disabled"],
+    queryFn: () => {
+      if (scanA === undefined || scanB === undefined) {
+        throw new Error("both scan ids are required");
+      }
+      return api.diffGraphs(scanA, scanB);
     },
     enabled: canRun,
   });

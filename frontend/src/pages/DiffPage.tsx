@@ -1,9 +1,16 @@
 import { Link, useParams } from "react-router-dom";
 
 import { SgApiError } from "../api/client";
-import { useDiff } from "../api/hooks";
+import { useDiff, useGraphDiff } from "../api/hooks";
 import { FindingCard } from "../components/FindingCard";
-import type { Finding } from "../api/types";
+import type { Finding, GraphDiffResponse } from "../api/types";
+import {
+  changedFields,
+  describeEdge,
+  graphDiffTotalChanges,
+  groupNodesByGroup,
+  isGraphDiffEmpty,
+} from "../graph/graphDiffSummary";
 
 function formatApiError(err: unknown): string {
   if (err instanceof SgApiError) return `${err.code}: ${err.message}`;
@@ -50,11 +57,127 @@ function FindingsSection({
   );
 }
 
+function GraphDiffSection({ graph }: { graph: GraphDiffResponse }) {
+  if (!graph.graph_available) {
+    return (
+      <div className="sg-diff__section">
+        <h2 className="sg-section__title">Graph diff</h2>
+        <p className="sg-page__hint">
+          No graph to compare — one of these scans was a single-rule run without a
+          rendered graph. Run "all rules" on both scans to compare structure.
+        </p>
+      </div>
+    );
+  }
+
+  if (isGraphDiffEmpty(graph)) {
+    return (
+      <div className="sg-diff__section">
+        <h2 className="sg-section__title">Graph diff</h2>
+        <p className="sg-page__hint">
+          The graph structure is identical ({graph.unchanged_node_count} unchanged
+          nodes).
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sg-diff__section">
+      <h2 className="sg-section__title">
+        Graph diff{" "}
+        <span className="sg-diff__count">{graphDiffTotalChanges(graph)}</span>
+      </h2>
+      <div className="sg-meta">
+        <div>
+          <span className="sg-meta__label">Nodes +</span>
+          <span className="sg-meta__value">{graph.added_node_count}</span>
+        </div>
+        <div>
+          <span className="sg-meta__label">Nodes −</span>
+          <span className="sg-meta__value">{graph.removed_node_count}</span>
+        </div>
+        <div>
+          <span className="sg-meta__label">Nodes ~</span>
+          <span className="sg-meta__value">{graph.changed_node_count}</span>
+        </div>
+        <div>
+          <span className="sg-meta__label">Edges +</span>
+          <span className="sg-meta__value">{graph.added_edge_count}</span>
+        </div>
+        <div>
+          <span className="sg-meta__label">Edges −</span>
+          <span className="sg-meta__value">{graph.removed_edge_count}</span>
+        </div>
+      </div>
+
+      {graph.added_nodes.length > 0 ? (
+        <div className="sg-diff__subsection">
+          <h3 className="sg-section__subtitle">Added nodes</h3>
+          {groupNodesByGroup(graph.added_nodes).map((g) => (
+            <p key={`an-${g.group}`} className="sg-page__hint">
+              <strong>{g.group}</strong>: {g.nodes.map((n) => n.label).join(", ")}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {graph.removed_nodes.length > 0 ? (
+        <div className="sg-diff__subsection">
+          <h3 className="sg-section__subtitle">Removed nodes</h3>
+          {groupNodesByGroup(graph.removed_nodes).map((g) => (
+            <p key={`rn-${g.group}`} className="sg-page__hint">
+              <strong>{g.group}</strong>: {g.nodes.map((n) => n.label).join(", ")}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {graph.changed_nodes.length > 0 ? (
+        <div className="sg-diff__subsection">
+          <h3 className="sg-section__subtitle">Changed nodes</h3>
+          <ul className="sg-list">
+            {graph.changed_nodes.map((n) => (
+              <li key={`cn-${n.id}`}>
+                {n.id} — {changedFields(n).join(", ")} ({n.before.label} →{" "}
+                {n.after.label})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {graph.added_edges.length > 0 ? (
+        <div className="sg-diff__subsection">
+          <h3 className="sg-section__subtitle">Added edges</h3>
+          <ul className="sg-list">
+            {graph.added_edges.map((e, i) => (
+              <li key={`ae-${i}`}>{describeEdge(e)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {graph.removed_edges.length > 0 ? (
+        <div className="sg-diff__subsection">
+          <h3 className="sg-section__subtitle">Removed edges</h3>
+          <ul className="sg-list">
+            {graph.removed_edges.map((e, i) => (
+              <li key={`re-${i}`}>{describeEdge(e)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DiffPage() {
   const { scanA, scanB } = useParams<{ scanA: string; scanB: string }>();
   const parsedA = parseScanId(scanA);
   const parsedB = parseScanId(scanB);
   const diffQuery = useDiff(parsedA, parsedB);
+  const graphDiffQuery = useGraphDiff(parsedA, parsedB);
 
   if (parsedA === undefined || parsedB === undefined) {
     return (
@@ -185,6 +308,22 @@ export function DiffPage() {
         findings={diff.removed}
         emptyMessage="No findings disappeared."
       />
+
+      {graphDiffQuery.isPending ? (
+        <div className="sg-diff__section">
+          <h2 className="sg-section__title">Graph diff</h2>
+          <p className="sg-page__hint">Loading graph diff...</p>
+        </div>
+      ) : graphDiffQuery.data ? (
+        <GraphDiffSection graph={graphDiffQuery.data} />
+      ) : graphDiffQuery.error ? (
+        <div className="sg-diff__section">
+          <h2 className="sg-section__title">Graph diff</h2>
+          <p className="sg-page__hint">
+            Graph diff unavailable: {formatApiError(graphDiffQuery.error)}
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }
