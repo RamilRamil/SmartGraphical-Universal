@@ -14,11 +14,11 @@
 
 ### User Story 1 - Trustworthy write highlighting on graphs (Priority: P1)
 
-A security reviewer opens the contract graph for a Solidity vault/rewards module (e.g. `KeeperRewards`) and enables state-write highlighting. They select `view` helpers such as `isCollateralized`, `canHarvest`, and `isHarvestRequired`.
+A security reviewer opens the contract graph for a Solidity vault/rewards module (e.g. `RewardBase`) and enables state-write highlighting. They select `view` helpers such as `isCollateralized`, `canHarvest`, and `isHarvestRequired`.
 
 **Why this priority**: Incorrect write signals directly undermine the primary value of the visualization during audits.
 
-**Independent Test**: Analyze a fixture containing `KeeperRewards`-like patterns; confirm highlighted writers match functions that actually mutate the targeted state variable, and `view`/`pure` readers are not highlighted as writers.
+**Independent Test**: Analyze a fixture containing `RewardBase`-like patterns; confirm highlighted writers match functions that actually mutate the targeted state variable, and `view`/`pure` readers are not highlighted as writers.
 
 **Acceptance Scenarios**:
 
@@ -78,7 +78,7 @@ A reviewer runs Solidity rules that depend on `mutations` / `state_writes` (e.g.
 - **FR-005**: True storage writes MUST remain detectable, including assignment to `V[...]`, struct field updates via `storage` references bound to `V[...]`, and compound assignments targeting `V`.
 - **FR-006**: The graph payload MUST allow consumers to distinguish read access from write access for each function–state pair (via separate lists, edge kinds, or equivalent metadata documented in the plan).
 - **FR-007**: Rule engines consuming normalized `mutations` MUST inherit the corrected classification without requiring per-rule hotfixes for the known false-positive patterns.
-- **FR-008**: Regression fixtures MUST cover at least: `KeeperRewards`-style `view` readers, prefix-collision names, and a positive control with real `rewards` writes in `harvest` / internal collateralize paths.
+- **FR-008**: Regression fixtures MUST cover at least: `RewardBase`-style `view` readers, prefix-collision names, and a positive control with real `rewards` writes in `harvest` / internal collateralize paths.
 
 ### Key Entities
 
@@ -91,7 +91,7 @@ A reviewer runs Solidity rules that depend on `mutations` / `state_writes` (e.g.
 
 ### Measurable Outcomes
 
-- **SC-001**: In the `KeeperRewards` reference fixture, 100% of `view`/`pure` functions that only read `rewards` have empty `state_writes` for `rewards`.
+- **SC-001**: In the `RewardBase` reference fixture, 100% of `view`/`pure` functions that only read `rewards` have empty `state_writes` for `rewards`.
 - **SC-002**: In the same fixture, 100% of functions that actually update `rewards` storage (`harvest`, `_collateralize`) retain non-empty `state_writes` for `rewards`.
 - **SC-003**: Prefix-collision cases (`rewardsNonce`, `rewardsRoot`, etc.) produce zero spurious `rewards` write entries in functions that only touch those distinct variables.
 - **SC-004**: Automated regression tests added for this feature pass in CI with no degradation of existing Solidity adapter unit tests.
@@ -101,7 +101,7 @@ A reviewer runs Solidity rules that depend on `mutations` / `state_writes` (e.g.
 
 - Scope is limited to the Solidity adapter path (`smartgraphical/adapters/solidity/adapter.py` and related helpers); C/Rust adapters are out of scope unless explicitly added in planning.
 - Heuristic parsing remains acceptable; full Solidity AST parsing is not required for v1 if word-boundary and operator rules resolve the documented false positives.
-- `KeeperRewards.sol` (or an extracted minimal fixture) is the canonical acceptance example discussed with the user.
+- `RewardBase.sol` (or an extracted minimal fixture) is the canonical acceptance example discussed with the user.
 - Git feature branch creation via Spec Kit hooks may be done by the user separately if automated hooks are not run in this session.
 - Frontend changes are limited to consuming improved read/write metadata; large UI redesign is out of scope.
 
@@ -109,4 +109,4 @@ A reviewer runs Solidity rules that depend on `mutations` / `state_writes` (e.g.
 
 - Proving storage semantics for all possible Solidity patterns (e.g. inline assembly, delegatecall storage aliasing).
 - Renaming state variables in user contracts to avoid name collisions.
-- Changing business logic of example contracts (`KeeperRewards`).
+- Changing business logic of example contracts (`RewardBase`).

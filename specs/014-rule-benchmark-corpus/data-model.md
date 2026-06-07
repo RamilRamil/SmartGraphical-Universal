@@ -20,12 +20,12 @@ One declared finding in a label file, addressed by the benchmark match key.
 
 | Field | Meaning |
 |-------|---------|
-| `example` | example filename under `examples/` |
+| `example` | example filename under `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/` |
 | `expected` | list of Label entries that are **real** findings (ground truth) |
 | `false_positives` | list of Label entries that are emitted but **not real** |
 
 Validation:
-- `example` MUST reference an existing file under `examples/`.
+- `example` MUST reference an existing file under `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/`.
 - each entry MUST have `rule_id` and `type_name`; `function_name` may be empty.
 - malformed JSON or missing required fields → clear error naming the file (FR-010).
 

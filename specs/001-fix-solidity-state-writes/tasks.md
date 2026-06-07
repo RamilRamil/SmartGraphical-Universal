@@ -27,7 +27,7 @@
 
 **Purpose**: Fixtures and module scaffold before classification logic
 
-- [x] T001 Create minimal Solidity fixture `tests/fixtures/solidity/keeper_rewards_state_access.sol` with view read patterns, `rewardsNonce` prefix collision, and write paths (`harvest`-style storage alias, `_collateralize`-style direct assign)
+- [x] T001 Create minimal Solidity fixture `tests/fixtures/solidity/CollateralStateFixture.sol` with view read patterns, `rewardsNonce` prefix collision, and write paths (`harvest`-style storage alias, `_collateralize`-style direct assign)
 - [x] T002 [P] Create module scaffold `smartgraphical/adapters/solidity/state_access.py` with documented public helpers (token match, write detection, aliases, view/pure gate) stubbed for import from `adapter.py`
 
 ---
@@ -38,7 +38,7 @@
 
 - [x] T003 Implement whole-token matching and comparison-safe write-operator detection in `smartgraphical/adapters/solidity/state_access.py` (exclude `==`, `!=`, `<=`, `>=`, `=>`; allow `=`, `+=`, `-=`)
 - [x] T004 Implement local storage load vs write, `storage` alias binding map, and `collect_function_state_accesses(body, state_names, modifiers)` returning reads/writes in `smartgraphical/adapters/solidity/state_access.py`
-- [x] T005 Add `tests/unit/test_solidity_state_access.py` with table-driven cases from `specs/001-fix-solidity-state-writes/research.md` and `KeeperRewards` snippets (token boundary, `!=`, local load, alias field write, view/pure empty writes)
+- [x] T005 Add `tests/unit/test_solidity_state_access.py` with table-driven cases from `specs/001-fix-solidity-state-writes/research.md` and `RewardBase` snippets (token boundary, `!=`, local load, alias field write, view/pure empty writes)
 
 ---
 

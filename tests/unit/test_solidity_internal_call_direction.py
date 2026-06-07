@@ -106,22 +106,22 @@ class SolidityInternalCallDirectionTests(unittest.TestCase):
         self.assertFalse(callee.get("calls_internal"))
 
 
-class EthMetaVaultInternalCallDirectionTests(unittest.TestCase):
-    _EXAMPLE = os.path.join(
+class ImportModifierInternalCallDirectionTests(unittest.TestCase):
+    _FIXTURE = os.path.join(
         os.path.dirname(__file__),
         "..",
         "fixtures",
         "solidity",
-        "EthMetaVault.sol",
+        "ImportModifierFixture.sol",
     )
 
     @classmethod
     def setUpClass(cls):
-        cls._example_path = os.path.normpath(cls._EXAMPLE)
-        if not os.path.isfile(cls._example_path):
-            raise unittest.SkipTest(f"missing fixture {cls._example_path}")
+        cls._fixture_path = os.path.normpath(cls._FIXTURE)
+        if not os.path.isfile(cls._fixture_path):
+            raise unittest.SkipTest(f"missing fixture {cls._fixture_path}")
         adapter = SolidityAdapterV0()
-        ctx = adapter.parse_source(cls._example_path, expand_local_imports=False)
+        ctx = adapter.parse_source(cls._fixture_path, expand_local_imports=False)
         cls.graph = model_graph_to_dict(ctx.normalized_model)
 
     def test_update_state_and_deposit_calls_deposit(self):

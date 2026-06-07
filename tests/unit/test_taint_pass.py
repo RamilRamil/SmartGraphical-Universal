@@ -68,7 +68,7 @@ class ComputeTaintTests(unittest.TestCase):
         self.assertEqual(taint._sink_token(stmt, muts2), "lastReward")
 
     def test_overlapping_mutation_names_give_stable_sink(self):
-        # Mirrors the keeper_rewards fixture shape: a tainted input flows into a
+        # Mirrors the collateral state fixture shape: a tainted input flows into a
         # statement where several mutation names are substrings of each other.
         f = fn(
             inputs=["vault"],

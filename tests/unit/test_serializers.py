@@ -26,7 +26,7 @@ from smartgraphical.core.model import (
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOL_FIXTURE = os.path.join(REPO_ROOT, "tests", "fixtures", "solidity", "MinimalGuard.sol")
 # Optional repo-root golden contract used only for cytoscape graph shape assertions below.
-SIMPLE_AUCTION_AT_ROOT = os.path.join(REPO_ROOT, "SimpleAuction.sol")
+LOCAL_GOLDEN_AT_ROOT = os.path.join(REPO_ROOT, "LocalGolden.sol")
 
 
 class SerializerHelpersTests(unittest.TestCase):
@@ -109,11 +109,11 @@ class SerializerHelpersTests(unittest.TestCase):
         self.assertGreaterEqual(len(graph["nodes"]), 1)
 
     def test_model_graph_shape_is_cytoscape_ready(self):
-        if not os.path.isfile(SIMPLE_AUCTION_AT_ROOT):
+        if not os.path.isfile(LOCAL_GOLDEN_AT_ROOT):
             self.skipTest(
-                "SimpleAuction.sol not at repo root (optional golden for graph-shape test)"
+                "LocalGolden.sol not at repo root (optional golden for graph-shape test)"
             )
-        context = SolidityAdapterV0().parse_source(SIMPLE_AUCTION_AT_ROOT)
+        context = SolidityAdapterV0().parse_source(LOCAL_GOLDEN_AT_ROOT)
         graph = model_graph_to_dict(context.normalized_model)
         type_nodes = [node for node in graph["nodes"] if node["group"] == "type"]
         function_nodes = [

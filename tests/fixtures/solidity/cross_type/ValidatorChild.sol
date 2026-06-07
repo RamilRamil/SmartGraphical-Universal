@@ -1,8 +1,8 @@
 pragma solidity ^0.8.0;
 
-import {KeeperRewards} from "./KeeperRewards.sol";
+import {RewardBase} from "./RewardBase.sol";
 
-contract KeeperValidators is KeeperRewards {
+contract ValidatorChild is RewardBase {
     function approveValidators() external {
         _collateralize(address(0));
     }

@@ -10,22 +10,22 @@ from smartgraphical.adapters.solidity.import_resolve import (
 )
 from smartgraphical.adapters.solidity.reader import ContractReader
 
-KEEPER_DIR = os.path.join(
+CROSS_TYPE_DIR = os.path.join(
     os.path.dirname(__file__),
     "..",
     "fixtures",
     "solidity",
     "cross_type",
 )
-VALIDATORS = os.path.join(KEEPER_DIR, "KeeperValidators.sol")
-REWARDS = os.path.join(KEEPER_DIR, "KeeperRewards.sol")
+VALIDATOR_CHILD = os.path.join(CROSS_TYPE_DIR, "ValidatorChild.sol")
+REWARD_BASE = os.path.join(CROSS_TYPE_DIR, "RewardBase.sol")
 
 
 class TestImportResolve(unittest.TestCase):
     def test_extracts_relative_sol_paths(self):
-        text = 'import {KeeperRewards} from "./KeeperRewards.sol";'
+        text = 'import {RewardBase} from "./RewardBase.sol";'
         paths = extract_local_sol_import_paths(text)
-        self.assertIn("./KeeperRewards.sol", paths)
+        self.assertIn("./RewardBase.sol", paths)
 
     def test_skips_at_prefixed_imports(self):
         text = 'import "@openzeppelin/contracts/token/ERC20.sol";'
@@ -33,15 +33,15 @@ class TestImportResolve(unittest.TestCase):
         self.assertEqual(paths, [])
 
     def test_resolve_beside_file(self):
-        resolved = resolve_import_path(VALIDATORS, "./KeeperRewards.sol")
-        self.assertEqual(os.path.abspath(resolved or ""), os.path.abspath(REWARDS))
+        resolved = resolve_import_path(VALIDATOR_CHILD, "./RewardBase.sol")
+        self.assertEqual(os.path.abspath(resolved or ""), os.path.abspath(REWARD_BASE))
 
-    def test_transitive_collect_includes_rewards(self):
+    def test_transitive_collect_includes_parent_contract(self):
         reader = ContractReader()
-        lines = collect_lines_with_imports(VALIDATORS, reader.read_file)
+        lines = collect_lines_with_imports(VALIDATOR_CHILD, reader.read_file)
         blob = "".join(lines)
-        self.assertIn("contract KeeperValidators", blob)
-        self.assertIn("contract KeeperRewards", blob)
+        self.assertIn("contract ValidatorChild", blob)
+        self.assertIn("contract RewardBase", blob)
 
 
 class TestInheritanceCrossTypeCalls(unittest.TestCase):
@@ -61,18 +61,18 @@ class TestInheritanceCrossTypeCalls(unittest.TestCase):
         ]
 
     def test_single_file_resolves_parent_and_call_direction(self):
-        context = self.adapter.parse_source(VALIDATORS)
+        context = self.adapter.parse_source(VALIDATOR_CHILD)
         type_names = {t.name for t in context.normalized_model.types}
-        self.assertIn("KeeperValidators", type_names)
-        self.assertIn("KeeperRewards", type_names)
+        self.assertIn("ValidatorChild", type_names)
+        self.assertIn("RewardBase", type_names)
 
         collateralize_edges = [
             e
             for e in self._cross_type_edges(context)
             if e.source_name == "approveValidators"
             and e.target_name == "_collateralize"
-            and e.source_type == "KeeperValidators"
-            and e.target_type == "KeeperRewards"
+            and e.source_type == "ValidatorChild"
+            and e.target_type == "RewardBase"
         ]
         self.assertEqual(
             len(collateralize_edges),
@@ -81,7 +81,7 @@ class TestInheritanceCrossTypeCalls(unittest.TestCase):
         )
 
     def test_no_reversed_collateralize_to_approve_edge(self):
-        context = self.adapter.parse_source(VALIDATORS)
+        context = self.adapter.parse_source(VALIDATOR_CHILD)
         reversed_edges = [
             e
             for e in self._cross_type_edges(context)
@@ -92,12 +92,12 @@ class TestInheritanceCrossTypeCalls(unittest.TestCase):
 
     def test_bundle_mode_does_not_inline_sibling_contracts(self):
         context = self.adapter.parse_source(
-            VALIDATORS,
+            VALIDATOR_CHILD,
             expand_local_imports=False,
         )
         type_names = [t.name for t in context.normalized_model.types]
-        self.assertEqual(type_names, ["KeeperValidators"])
-        self.assertNotIn("KeeperRewards", type_names)
+        self.assertEqual(type_names, ["ValidatorChild"])
+        self.assertNotIn("RewardBase", type_names)
 
 
 if __name__ == "__main__":

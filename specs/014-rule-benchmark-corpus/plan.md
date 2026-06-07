@@ -19,9 +19,9 @@ Grounding (from the code):
   the runner uses (no subprocess; same facade used everywhere).
 - The shared finding identity is `history_service._finding_key`
   `(rule_id, type_name, function_name, source_statement|statement, message)`.
-- `examples/` has 8 Solidity contracts (SimpleAuction, Stratax, OsTokenRedeemer,
-  EthMetaVault, VaultState, ActionEncoder, ERC20Upgradeable, OpenZeppelin-ERC20);
-  none are measured today.
+- Checked-in synthetic fixtures under `tests/fixtures/solidity/` (MinimalGuard,
+  ImportModifierFixture, MultiStateFields, cross_type pair, benchmark label seeds);
+  local untracked contracts are not in git and are not measured by default.
 
 ## Technical Context
 
@@ -58,7 +58,7 @@ metrics module, label files, a baseline, a runner CLI, and the guard/unit tests.
 | I. Pragmatic Parsing Over Full AST | PASS — no parsing; measurement over emitted findings. |
 | II. Auditor-Centric, Human-in-the-Loop | DIRECTLY SERVES — labels are human ground truth; the tool measures against them, it never self-grades or auto-labels. |
 | III. Normalized Model Is the Contract | PASS — reads findings via the facade; no adapter/model change. |
-| IV. Portability Across Languages | PASS — label format is language-neutral; Solidity first (that is what `examples/` holds). |
+| IV. Portability Across Languages | PASS — label format is language-neutral; Solidity first (that is what `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/` holds). |
 | V. Two Pillars Stay Connected | N/A (rules pillar measurement); no graph change. |
 | VI. Stable, Machine-Readable Contracts | DIRECTLY SERVES — consumes the stable JSON findings + shared identity; labels/baseline are additive versioned files; analyzer output unchanged. |
 | VII. Test & Traceability Gates | DIRECTLY SERVES — the benchmark is reproducible test/traceability infra with a recall-regression guard. |
@@ -90,9 +90,9 @@ smartgraphical/benchmark/
 
 tests/benchmark/
 ├── labels/
-│   ├── SimpleAuction.sol.json    # NEW: expected + false_positive labels (>=3 examples)
-│   ├── Stratax.sol.json
-│   └── OsTokenRedeemer.sol.json
+│   ├── GuardedWithdrawFixture.sol.json    # NEW: expected + false_positive labels (>=3 examples)
+│   ├── StakingPoolFixture.sol.json
+│   └── TokenRedeemFixture.sol.json
 ├── baseline.json                 # NEW: per-example recall baseline (recorded)
 └── test_benchmark.py             # NEW: unit metrics tests + corpus recall guard
 

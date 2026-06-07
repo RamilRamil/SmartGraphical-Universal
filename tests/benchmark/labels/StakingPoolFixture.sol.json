@@ -1,13 +1,13 @@
 {
-  "example": "Stratax.sol",
-  "_note": "PROVISIONAL SEED — author's reading + KNOWN_QUIRKS; review against the contract. These heuristics over-fire here with no location, so they are seeded as false positives; revise if a real issue is identified.",
+  "example": "StakingPoolFixture.sol",
+  "_note": "PROVISIONAL SEED for benchmark triage on a synthetic fixture.",
   "expected": [],
   "false_positives": [
     {
       "rule_id": "complicated_calculations",
       "type_name": "",
       "function_name": "",
-      "note": "fires many times with no type/function location — unactionable noise for the benchmark"
+      "note": "fires many times with no type/function location -- unactionable noise for the benchmark"
     },
     {
       "rule_id": "contract_version",
@@ -17,7 +17,7 @@
     },
     {
       "rule_id": "contract_version",
-      "type_name": "Stratax",
+      "type_name": "StakingPoolFixture",
       "function_name": "",
       "note": "version/rewrite heuristic noise (contract-level)"
     }

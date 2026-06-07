@@ -74,7 +74,7 @@ conformance test (FR-003), a fully green suite (SC-002), and a CI gate (FR-006).
 
 - [X] T010 [US3] Update the stale Solidity golden in `tests/integration/test_solidity_adapter_fixtures.py::test_minimal_guard_phase5_shape_snapshot` so `state_entities` includes `amount` (the adapter now correctly detects it after spec 008); confirm `amount` is a legitimate state entity of `MinimalGuard` before changing the golden.
 - [X] T011 [US3] Confirm the full suite is green: `.venv/bin/python -m pytest -q` reports `0 failed` (SC-002), per quickstart §6.
-- [X] T012 [US3] Add `.github/workflows/ci.yml` per `specs/011-adapter-contract-ci/contracts/ci-workflow.md`: trigger on `push` + `pull_request`; matrix Python `3.10` and `3.12` on `ubuntu-latest`; steps install `requirements.txt` + pytest, run `python -m pytest -q`, then run `python sg_cli.py examples/SimpleAuction.sol all auditor --format json` and assert the stdout parses as JSON; fail the job on any failure.
+- [X] T012 [US3] Add `.github/workflows/ci.yml` per `specs/011-adapter-contract-ci/contracts/ci-workflow.md`: trigger on `push` + `pull_request`; matrix Python `3.10` and `3.12` on `ubuntu-latest`; steps install `requirements.txt` + pytest, run `python -m pytest -q`, then run `python sg_cli.py tests/fixtures/solidity/MinimalGuard.sol all auditor --format json` and assert the stdout parses as JSON; fail the job on any failure.
 - [X] T013 [US3] Validate the gate per quickstart §5: confirm the workflow passes on the green branch and that a deliberate failing test (scratch commit) is reported as a blocking failure; remove the scratch commit.
 
 **Checkpoint**: green suite enforced automatically.

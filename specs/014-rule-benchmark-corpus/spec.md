@@ -10,7 +10,7 @@
 
 ## Context
 
-SmartGraphical's rules are heuristic and evolve constantly, but their quality is judged by feel today: `docs/testing_*_coverage_matrix.md` are hand-written prose, and the real contracts under `examples/` are never measured against. This feature adds a **labeled benchmark**: human-authored ground truth for a curated set of examples, plus a runner that compares emitted findings to the labels and reports precision/recall, with a guard so recall cannot silently drop. It measures over the existing analyzer output and changes no rules.
+SmartGraphical's rules are heuristic and evolve constantly, but their quality is judged by feel today: `docs/testing_*_coverage_matrix.md` are hand-written prose, and the real contracts under `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/` are never measured against. This feature adds a **labeled benchmark**: human-authored ground truth for a curated set of examples, plus a runner that compares emitted findings to the labels and reports precision/recall, with a guard so recall cannot silently drop. It measures over the existing analyzer output and changes no rules.
 
 The matching identity is the **same stable finding key** the diff and verdicts (feature 013) already use, so "the finding the benchmark expects" is exactly "the finding the tool emits."
 
@@ -123,7 +123,7 @@ The runner emits a human-readable summary (text/markdown) and a machine-readable
 
 ## Assumptions
 
-- Solidity examples first (that is what `examples/` mostly contains); the format is language-neutral so C/Rust can be added later.
+- Solidity examples first (that is what `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/` mostly contains); the format is language-neutral so C/Rust can be added later.
 - "Ground truth" is the maintainer's expert judgment per contract; the corpus starts small and curated (a few examples), not exhaustive.
 - The recall baseline is recorded from the first green run and updated intentionally when rules improve.
 - Precision is measured only over the labeled surface (true positives + labeled false positives); unlabeled emitted findings are surfaced but excluded from precision until judged.
@@ -135,4 +135,4 @@ The runner emits a human-readable summary (text/markdown) and a machine-readable
 - Machine-learning or automatic label generation.
 - Exhaustive labeling of every emitted finding across all examples.
 - Hard CI score-threshold gates beyond the recall-regression guard.
-- Languages beyond what `examples/` currently provides (Solidity first).
+- Languages beyond what `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/` currently provides (Solidity first).

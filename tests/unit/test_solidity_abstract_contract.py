@@ -6,15 +6,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SolidityAbstractContractTests(unittest.TestCase):
-    def test_examples_erc20_upgradeable_is_abstract_in_context_and_model(self):
+    def test_abstract_mintable_fixture_is_abstract_in_context_and_model(self):
         from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 
-        path = str(ROOT / "tests" / "fixtures" / "solidity" / "ERC20Upgradeable.sol")
+        path = str(ROOT / "tests" / "fixtures" / "solidity" / "AbstractMintable.sol")
         ctx = SolidityAdapterV0().parse_source(path)
-        self.assertEqual(ctx.solidity_unit_kinds.get("ERC20Upgradeable"), "abstract")
+        self.assertEqual(ctx.solidity_unit_kinds.get("AbstractMintable"), "abstract")
         self.assertTrue(ctx.normalized_model.types)
         t0 = ctx.normalized_model.types[0]
-        self.assertEqual(t0.name, "ERC20Upgradeable")
+        self.assertEqual(t0.name, "AbstractMintable")
         self.assertTrue(t0.is_abstract)
         self.assertEqual(t0.solidity_unit_kind, "abstract")
 
@@ -32,13 +32,13 @@ class SolidityAbstractContractTests(unittest.TestCase):
         from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
         from smartgraphical.services.serializers import model_graph_to_dict
 
-        path = str(ROOT / "tests" / "fixtures" / "solidity" / "ERC20Upgradeable.sol")
+        path = str(ROOT / "tests" / "fixtures" / "solidity" / "AbstractMintable.sol")
         ctx = SolidityAdapterV0().parse_source(path)
         graph = model_graph_to_dict(ctx.normalized_model)
         type_nodes = [n for n in graph["nodes"] if n.get("group") == "type"]
         self.assertTrue(type_nodes)
-        erc = next(n for n in type_nodes if n.get("label") == "ERC20Upgradeable")
-        self.assertEqual(erc.get("solidity_kind"), "abstract")
+        abstract_node = next(n for n in type_nodes if n.get("label") == "AbstractMintable")
+        self.assertEqual(abstract_node.get("solidity_kind"), "abstract")
 
     def test_graph_omits_solidity_kind_for_concrete_contract(self):
         from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0

@@ -13,7 +13,7 @@
     "1": {
       "slug": "contract_version",
       "primary_coverage": "model_unit",
-      "notes": "ContractVersionRuleTests plus optional golden SimpleAuction.sol pipeline."
+      "notes": "ContractVersionRuleTests plus optional LocalGolden.sol pipeline."
     },
     "2": {
       "slug": "unallowed_manipulation",

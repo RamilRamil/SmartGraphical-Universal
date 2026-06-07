@@ -32,7 +32,7 @@
 ## Notes
 
 - **Context**/**Key Entities** reference existing concepts (the stable finding
-  key, JSON findings, `examples/`) as grounding/dependencies; FRs and SCs stay
+  key, JSON findings, `local untracked contracts (not in git); checked-in fixtures live under tests/fixtures/solidity/`) as grounding/dependencies; FRs and SCs stay
   behavior- and outcome-focused.
 - Precision is scoped to the **labeled surface** (TP + labeled FP); unlabeled
   emitted findings are surfaced but excluded from precision — an explicit,

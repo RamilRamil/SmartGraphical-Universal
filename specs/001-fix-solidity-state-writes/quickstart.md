@@ -15,11 +15,11 @@ python -m pytest tests/unit/test_serializers.py -q
 python -m pytest tests/unit/test_rules_state_mutation.py -q
 ```
 
-## 2. Analyze KeeperRewards fixture
+## 2. Analyze RewardBase fixture
 
 From repo root, use the project's existing Solidity ingest path (CLI or API) on:
 
-`examples/keeper/KeeperRewards.sol`
+`tests/fixtures/solidity/CollateralStateFixture.sol`
 
 Expected graph checks:
 
@@ -38,7 +38,7 @@ Expected read edges:
 
 ## 3. UI smoke (frontend)
 
-1. Upload / open graph for `KeeperRewards`.
+1. Upload / open graph for `RewardBase`.
 2. Select state node `rewards`:
    - **Readers** lists view helpers + `harvest` (reads before write).
    - **Writers** lists only `harvest` and `_collateralize` (if visible on graph).

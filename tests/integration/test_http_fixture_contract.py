@@ -1,6 +1,6 @@
 """HTTP ingest + scan + findings JSON shape using a checked-in Solidity fixture.
 
-Avoids relying on SimpleAuction.sol at repo root for this contract (phase 3).
+Avoids relying on a local golden contract at repo root for this contract (phase 3).
 """
 import os
 import tempfile

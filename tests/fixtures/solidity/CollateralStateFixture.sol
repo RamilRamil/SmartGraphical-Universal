@@ -6,7 +6,7 @@ struct Reward {
     uint256 assets;
 }
 
-contract KeeperRewardsStateAccessFixture {
+contract CollateralStateFixture {
     mapping(address => Reward) public rewards;
     uint64 public rewardsNonce;
     bytes32 public rewardsRoot;

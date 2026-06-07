@@ -1,0 +1,20 @@
+{
+  "example": "GuardedWithdrawFixture.sol",
+  "_note": "PROVISIONAL SEED for benchmark triage on a synthetic fixture; review against the contract.",
+  "expected": [
+    {
+      "rule_id": "check_order",
+      "type_name": "GuardedWithdrawFixture",
+      "function_name": "withdraw",
+      "note": "withdraw performs a transfer; ordering heuristic is a plausible review concern"
+    }
+  ],
+  "false_positives": [
+    {
+      "rule_id": "check_order",
+      "type_name": "GuardedWithdrawFixture",
+      "function_name": "endAuction",
+      "note": "endAuction transferring to the beneficiary at close is expected; ordering heuristic is noise here"
+    }
+  ]
+}

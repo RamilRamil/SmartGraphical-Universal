@@ -18,11 +18,11 @@ python is 3.9). Pure Python tooling — fully verifiable headless.
 
 **Fully implemented + verified (pure Python).** `benchmark/corpus.py`
 (match_key / load_labels / evaluate / run_corpus) + 16 tests; 3 labeled examples
-(SimpleAuction, OsTokenRedeemer, Stratax — a PROVISIONAL human-review seed);
+(GuardedWithdrawFixture, TokenRedeemFixture, StakingPoolFixture — a PROVISIONAL human-review seed);
 `baseline.json` + recall guard (bite proven); `sg_benchmark.py` CLI (text +
 deterministic `--json`). Full suite **471 passed, 0 failed** (analyzer output
 unchanged, SC-005). Current corpus: overall recall 100%, precision 29%, with 5
-unlabeled Stratax findings surfaced for triage. Done: T001–T012.
+unlabeled StakingPoolFixture findings surfaced for triage. Done: T001–T012.
 
 - **Remaining**: T013 docs (README / NEXT_STEPS). The seed labels reflect the
   author's reading + KNOWN_QUIRKS and should be reviewed/extended by the
@@ -37,7 +37,7 @@ unlabeled Stratax findings surfaced for triage. Done: T001–T012.
 
 ## Phase 1: Setup
 
-- [X] T001 Baseline + sanity: `.venv/bin/python -m pytest -q` is green; confirm `web_api.analyze_all('examples/SimpleAuction.sol', 'solidity')` returns a `findings` list (the runner's source).
+- [X] T001 Baseline + sanity: `.venv/bin/python -m pytest -q` is green; confirm `web_api.analyze_all('tests/fixtures/solidity/MinimalGuard.sol', 'solidity')` returns a `findings` list (the runner's source).
 
 ---
 
@@ -58,7 +58,7 @@ unlabeled Stratax findings surfaced for triage. Done: T001–T012.
 
 **Independent Test**: labels load and enumerate; malformed/stale labels error clearly.
 
-- [X] T004 [US1] Author `tests/benchmark/labels/<example>.json` for >= 3 examples (e.g. SimpleAuction.sol, Stratax.sol, OsTokenRedeemer.sol) by running `web_api.analyze_all` and triaging each emitted finding into `expected` (real) or `false_positives` (not real), with a human `note`; optionally add known misses to `expected`.
+- [X] T004 [US1] Author `tests/benchmark/labels/<example>.json` for >= 3 examples (e.g. GuardedWithdrawFixture.sol, StakingPoolFixture.sol, TokenRedeemFixture.sol) by running `web_api.analyze_all` and triaging each emitted finding into `expected` (real) or `false_positives` (not real), with a human `note`; optionally add known misses to `expected`.
 - [X] T005 [US1] Tests in `tests/benchmark/test_benchmark.py`: `load_labels` rejects malformed JSON, a missing required field, and a label referencing a non-existent example file — each with a clear, file-named error (FR-010).
 
 **Checkpoint**: a reviewable ground-truth corpus exists.

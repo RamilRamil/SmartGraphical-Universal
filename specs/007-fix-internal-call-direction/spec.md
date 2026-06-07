@@ -14,7 +14,7 @@
 
 **Why this priority**: Misleading call direction blocks audit reasoning and contradicts `cross_type_call` semantics fixed in spec 002.
 
-**Independent Test**: Parse a minimal Solidity fixture or `examples/EthMetaVault.sol` and assert exactly one `function_to_function` edge with source caller and target callee for a known call pair.
+**Independent Test**: Parse a minimal Solidity fixture or `tests/fixtures/solidity/ImportModifierFixture.sol` and assert exactly one `function_to_function` edge with source caller and target callee for a known call pair.
 
 **Acceptance Scenarios**:
 
@@ -50,7 +50,7 @@
 - **FR-001**: Solidity `function_to_function` edges MUST use `source` = caller function, `target` = callee function within the same contract.
 - **FR-002**: Call metadata (`callsite`, `args_map`, `line_numbers`) MUST be extracted from the caller body invoking the callee.
 - **FR-003**: Reversed callee->caller edges for the same call pair MUST NOT appear in the payload.
-- **FR-004**: Regression tests MUST cover a minimal synthetic contract and optionally `examples/EthMetaVault.sol` (`updateStateAndDeposit` -> `deposit`).
+- **FR-004**: Regression tests MUST cover a minimal synthetic contract and optionally `tests/fixtures/solidity/ImportModifierFixture.sol` (`updateStateAndDeposit` -> `deposit`).
 
 ### Key Entities
 
@@ -61,7 +61,7 @@
 
 ### Measurable Outcomes
 
-- **SC-001**: For EthMetaVault (when fixture present), graph shows `updateStateAndDeposit` -> `deposit`, never `deposit` -> `updateStateAndDeposit`.
+- **SC-001**: For ImportModifierFixture (when fixture present), graph shows `updateStateAndDeposit` -> `deposit`, never `deposit` -> `updateStateAndDeposit`.
 - **SC-002**: Unit tests for internal call direction pass in CI.
 - **SC-003**: `cross_type_call` inheritance tests from spec 002 remain green.
 

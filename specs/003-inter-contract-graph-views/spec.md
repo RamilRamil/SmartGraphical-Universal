@@ -12,17 +12,17 @@
 
 ### US1 - Full graph without bundle noise (P1)
 
-**Given** a Solidity bundle (e.g. `examples/keeper/`) is loaded on the **full** graph, **When** the user explores contracts and functions, **Then** `cross_type_call` / `cross_type_state*` / `extends` edges between contract compounds are **not** rendered and **not** selectable; internal `function_to_function` and state read/write edges within a contract remain visible.
+**Given** a Solidity bundle (e.g. `tests/fixtures/solidity/cross_type/`) is loaded on the **full** graph, **When** the user explores contracts and functions, **Then** `cross_type_call` / `cross_type_state*` / `extends` edges between contract compounds are **not** rendered and **not** selectable; internal `function_to_function` and state read/write edges within a contract remain visible.
 
 **Why this priority**: Full graph already shows call structure inside each contract; bundle-level `extends` and cross-type links duplicate inter-contract semantics.
 
-**Independent Test**: Open keeper bundle, full graph, confirm no red `extends KeeperOracles` edge between `KeeperValidators` and `KeeperOracles` type nodes; panel cannot show that edge after click.
+**Independent Test**: Open cross_type fixture bundle, full graph, confirm no red `extends OraclePeer` edge between `ValidatorChild` and `OraclePeer` type nodes; panel cannot show that edge after click.
 
 ---
 
 ### US2 - Cross-contract toggle on full graph (P1)
 
-**Given** full graph view (keeper), **When** user views the graph with toggle on or off, **Then** **contract-compound** links (`cross_type_*` with both endpoints `group: type`, or label `extends …`) are **never** shown (e.g. no `KeeperValidators` -> `KeeperRewards` `extends KeeperRewards`).
+**Given** full graph view (keeper), **When** user views the graph with toggle on or off, **Then** **contract-compound** links (`cross_type_*` with both endpoints `group: type`, or label `extends …`) are **never** shown (e.g. no `ValidatorChild` -> `RewardBase` `extends RewardBase`).
 
 **Given** toggle is **on**, **When** user explores the full graph, **Then** **function-level** `cross_type_call` (e.g. `approveValidators` -> `_collateralize`) and `cross_contract_call` / `function_to_object` become visible via visibility-only update (no Cytoscape rebuild).
 
@@ -34,7 +34,7 @@
 
 ### US3 - Inter-contract shows semantic links only (P1)
 
-**Given** inter-contract overview for keeper bundle, **When** `KeeperValidators` extends and imports `KeeperOracles`, **Then** exactly one directed link between those contract nodes is shown for semantics (`cross_type_call` / `extends KeeperOracles`), and **no** parallel `bundle_import` / `solidity_import` edge for the same pair.
+**Given** inter-contract overview for cross_type fixture bundle, **When** `ValidatorChild` extends and imports `OraclePeer`, **Then** exactly one directed link between those contract nodes is shown for semantics (`cross_type_call` / `extends OraclePeer`), and **no** parallel `bundle_import` / `solidity_import` edge for the same pair.
 
 **Why this priority**: File import is implied by inheritance; two arrows between the same contracts confuse the overview.
 
@@ -74,9 +74,9 @@
 
 ## Success Criteria
 
-- **SC-001**: Keeper bundle full graph (toggle on **or** off): no visible/selectable `extends KeeperRewards` between type nodes `KeeperValidators` and `KeeperRewards`.
-- **SC-001b**: Keeper bundle full graph (toggle on): `approveValidators` -> `_collateralize` `cross_type_call` visible if present in payload.
-- **SC-002**: Keeper bundle inter-contract: single Validators -> Oracles semantic edge; no `solidity_import` duplicate.
+- **SC-001**: cross_type fixture bundle full graph (toggle on **or** off): no visible/selectable `extends RewardBase` between type nodes `ValidatorChild` and `RewardBase`.
+- **SC-001b**: cross_type fixture bundle full graph (toggle on): `approveValidators` -> `_collateralize` `cross_type_call` visible if present in payload.
+- **SC-002**: cross_type fixture bundle inter-contract: single Validators -> Oracles semantic edge; no `solidity_import` duplicate.
 - **SC-003**: `frontend/src/graph/interContractOverview.test.ts` passes dedupe and full-graph filter cases.
 - **SC-004**: Import-only two-contract bundle still shows one `bundle_import` in inter-contract when no `cross_type_*` edge exists.
 

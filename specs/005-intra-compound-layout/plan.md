@@ -55,4 +55,4 @@ flowchart TB
 ## Testing
 
 - Vitest: `intraCompoundLayout.test.ts` (tiers, sandwich, entrypoint, overlap)
-- Manual: `examples/OsTokenRedeemer.sol` full graph after reload
+- Manual: `tests/fixtures/solidity/benchmark_corpus/TokenRedeemFixture.sol` full graph after reload

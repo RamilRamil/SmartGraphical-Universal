@@ -69,11 +69,11 @@ npm run dev                          # Vite dev server, proxies API to :8765
 The CLI works without FastAPI / Node.
 
 ```bash
-python3 sg_cli.py SimpleAuction.sol                # auto-detect language, run all tasks
-python3 sg_cli.py SimpleAuction.sol 8              # single task
-python3 sg_cli.py SimpleAuction.sol all auditor    # all tasks, auditor output
+python3 sg_cli.py tests/fixtures/solidity/MinimalGuard.sol                # auto-detect language, run all tasks
+python3 sg_cli.py tests/fixtures/solidity/MinimalGuard.sol 8              # single task
+python3 sg_cli.py tests/fixtures/solidity/MinimalGuard.sol all auditor    # all tasks, auditor output
 python3 sg_cli.py contracts/parser.c all explore   # C file, explore mode
-python3 sg_cli.py SimpleAuction.sol 8 auditor json # single task, JSON (positional <format>)
+python3 sg_cli.py tests/fixtures/solidity/MinimalGuard.sol 8 auditor json # single task, JSON (positional <format>)
 ```
 
 Output modes:

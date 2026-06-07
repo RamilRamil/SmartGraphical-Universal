@@ -51,7 +51,7 @@ Register `cytoscape-fcose` with compound-aware defaults.
 
 ## Sandwich refinement (2026-05-24)
 
-Audit feedback (dense contracts e.g. `OsTokenRedeemer.sol`): vertical tier stack still produced many crossings.
+Audit feedback (dense contracts e.g. `TokenRedeemFixture.sol`): vertical tier stack still produced many crossings.
 
 | Change | Rationale |
 |--------|-----------|

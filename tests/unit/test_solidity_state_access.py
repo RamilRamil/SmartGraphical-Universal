@@ -86,13 +86,11 @@ class TestStateAccessHelpers(unittest.TestCase):
         self.assertTrue(any(w.entity_name == "rewardsRoot" for w in writes))
 
 
-class TestKeeperRewardsFixtureIntegration(unittest.TestCase):
+class TestCollateralStateFixtureIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.reader = ContractReader()
-        cls.fixture_path = (
-            "tests/fixtures/solidity/keeper_rewards_state_access.sol"
-        )
+        cls.fixture_path = "tests/fixtures/solidity/CollateralStateFixture.sol"
 
     def _build_model(self):
         lines = self.reader.read_file(self.fixture_path)

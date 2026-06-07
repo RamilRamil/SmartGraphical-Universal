@@ -1,8 +1,7 @@
 """Integration tests: full adapter -> AnalysisService pipeline invariants.
 
-Primary reference is SimpleAuction.sol at repo root when present. Checked-in
-fixtures under tests/fixtures/solidity/ always run so CI does not depend on
-that optional file.
+Optional LocalGolden.sol at repo root when present. Checked-in fixtures under
+tests/fixtures/solidity/ always run so CI does not depend on that optional file.
 
 Assertions mirror phase 3 of docs/testing_practices_implementation_plan.md:
 known rule_id subset, mandatory finding metadata, no duplicate messages per rule,
@@ -19,7 +18,7 @@ from tests.integration.pipeline_invariant_helpers import assert_pipeline_finding
 
 TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(TESTS_DIR)
-SIMPLE_AUCTION_PATH = os.path.join(REPO_ROOT, "SimpleAuction.sol")
+LOCAL_GOLDEN_PATH = os.path.join(REPO_ROOT, "LocalGolden.sol")
 FIXTURE_SOL_DIR = os.path.join(TESTS_DIR, "fixtures", "solidity")
 
 EXPECTED_RULE_IDS = frozenset({
@@ -46,17 +45,17 @@ class FullPipelineMixin:
 
 
 @unittest.skipUnless(
-    os.path.isfile(SIMPLE_AUCTION_PATH),
-    "SimpleAuction.sol not present at repo root (optional golden contract)",
+    os.path.isfile(LOCAL_GOLDEN_PATH),
+    "LocalGolden.sol not present at repo root (optional local golden contract)",
 )
-class FullPipelineSimpleAuctionTests(FullPipelineMixin, unittest.TestCase):
+class FullPipelineOptionalGoldenTests(FullPipelineMixin, unittest.TestCase):
     findings = []
     expected_rule_ids = EXPECTED_RULE_IDS
 
     @classmethod
     def setUpClass(cls):
         service = AnalysisService()
-        context = service.analyze(SIMPLE_AUCTION_PATH)
+        context = service.analyze(LOCAL_GOLDEN_PATH)
         cls.findings = service.run_all(context)
 
 

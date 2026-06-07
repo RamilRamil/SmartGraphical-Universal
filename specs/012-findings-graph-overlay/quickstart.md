@@ -15,7 +15,7 @@ mixed-confidence aggregation (max + count), multi-match, and unmapped.
 
 ## 2. Manual: see findings on the graph (US1)
 
-- Run a `task = all` scan on a contract with findings (e.g. `EthMetaVault.sol`).
+- Run a `task = all` scan on a contract with findings (e.g. `ImportModifierFixture.sol`).
 - Open Scan detail → Graph tab.
 - Confirm: function/contract nodes that own findings show a count badge and a
   color by highest confidence; a low-only node is visibly muted vs a high node;

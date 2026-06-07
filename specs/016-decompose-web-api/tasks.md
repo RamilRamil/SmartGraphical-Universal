@@ -16,7 +16,7 @@ description: "Task list for feature 016 — Decompose the web_api god-module"
 >    fully acyclic.
 > 2. **Pre-existing taint nondeterminism found (NOT from this refactor).** The
 >    SC-002 snapshot oracle differed only inside `tainted_input_unguarded_sink`
->    findings on `keeper_rewards_state_access.sol`: sink name/line vary with
+>    findings on `CollateralStateFixture.sol`: sink name/line vary with
 >    `PYTHONHASHSEED` (feature 015 iterates a set of tainted names). The taint
 >    code is byte-identical pre/post refactor; all graph payloads and every other
 >    fixture matched, and the suite is green. Flagged as a separate latent bug.

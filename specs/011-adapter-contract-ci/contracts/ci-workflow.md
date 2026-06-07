@@ -20,7 +20,7 @@ pull request, and a machine-readable CLI smoke confirms the public contract.
   4. `python -m pytest -q` — MUST exit 0 (FR-006, FR-007).
   5. CLI JSON smoke — positional args (`<file> <task> <mode> <format>`); use a
      single task so stdout is pure JSON (task `all` also renders the graph to
-     stdout): `python sg_cli.py examples/SimpleAuction.sol 11 auditor json`
+     stdout): `python sg_cli.py tests/fixtures/solidity/MinimalGuard.sol 11 auditor json`
      and assert the output parses as JSON with a report shape.
      (Note: the CLI uses positional `<format>`, not a `--format` flag — the
      README example is being corrected in this feature's Polish phase.)

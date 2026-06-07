@@ -8,7 +8,7 @@
 
 **Decision**: Treat current behavior as three independent heuristic bugs in `_collect_mutations` / `_collect_state_accesses` (`smartgraphical/adapters/solidity/adapter.py`).
 
-**Rationale** (validated on `KeeperRewards.sol`):
+**Rationale** (validated on `RewardBase.sol`):
 
 | Pattern | Example | Why flagged today |
 |---------|---------|-------------------|
@@ -49,7 +49,7 @@
 
 **Decision**: Within a function body, track bindings `storage <id> = V[...]` (heuristic regex). Subsequent assignments to `<id>.<field>` count as writes to `V`.
 
-**Rationale**: `KeeperRewards.harvest` updates `rewards` via `lastReward.nonce` / `lastReward.assets` without literal `rewards` on LHS of field writes.
+**Rationale**: `RewardBase.harvest` updates `rewards` via `lastReward.nonce` / `lastReward.assets` without literal `rewards` on LHS of field writes.
 
 **Alternatives considered**:
 
@@ -110,7 +110,7 @@ Stop emitting undifferentiated `state_to_function` / `cross_type_state` for **ne
 **Decision**:
 
 1. Unit tests for new helper functions (comparison, token match, storage alias, view filter).  
-2. Integration test: minimal Solidity snippet fixture mirroring `KeeperRewards` patterns → `build_normalized_model` → `model_graph_to_dict` assertions on `state_writes` and edge kinds.  
+2. Integration test: minimal Solidity snippet fixture mirroring `RewardBase` patterns → `build_normalized_model` → `model_graph_to_dict` assertions on `state_writes` and edge kinds.  
 3. Extend `tests/unit/test_serializers.py` for new edge kinds.
 
 **Rationale**: SC-004; regression lock for SC-001–SC-003.

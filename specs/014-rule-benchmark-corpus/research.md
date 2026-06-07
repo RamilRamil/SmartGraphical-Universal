@@ -40,13 +40,13 @@ collapse to one match unit — documented; rare and acceptable for v1.
 **Decision**: One JSON file per example under `tests/benchmark/labels/<file>.json`:
 ```jsonc
 {
-  "example": "SimpleAuction.sol",
+  "example": "GuardedWithdrawFixture.sol",
   "expected": [
-    { "rule_id": "withdraw_release_check", "type_name": "SimpleAuction",
+    { "rule_id": "withdraw_release_check", "type_name": "GuardedWithdrawFixture",
       "function_name": "withdraw", "note": "real reentrancy-order concern" }
   ],
   "false_positives": [
-    { "rule_id": "unallowed_manipulation", "type_name": "SimpleAuction",
+    { "rule_id": "unallowed_manipulation", "type_name": "GuardedWithdrawFixture",
       "function_name": "bid", "note": "amount is local, not economic state" }
   ]
 }
@@ -73,7 +73,7 @@ maintainer can extend the labels, but never silently counted as right or wrong.
 ## D5. Baseline + recall guard
 
 **Decision**: `tests/benchmark/baseline.json` records, per example, the recall
-measured on the first green run (e.g. `{"SimpleAuction.sol": {"recall": 1.0}}`).
+measured on the first green run (e.g. `{"GuardedWithdrawFixture.sol": {"recall": 1.0}}`).
 The guard test asserts current recall >= baseline (minus a tiny epsilon for float)
 per example, and names any newly-missed expected finding. Baseline is updated
 intentionally (committed) when rules improve.

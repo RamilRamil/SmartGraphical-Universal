@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-24
 
-**Input**: Full graph view packs children inside contract (`type`) compounds poorly: heavy overlap, some nodes far from the cluster, compound tiles grow too large (e.g. `EthMetaVault.sol`).
+**Input**: Full graph view packs children inside contract (`type`) compounds poorly: heavy overlap, some nodes far from the cluster, compound tiles grow too large (e.g. `ImportModifierFixture.sol`).
 
 ## User Scenarios
 
@@ -14,7 +14,7 @@
 
 **Why this priority**: Primary audit workflow is reading one contract at a time; unreadable inner layout blocks the tool.
 
-**Independent Test**: Automated layout metrics on a fixed graph fixture (EthMetaVault or keeper contract): zero bbox intersections among direct layout cells; no outlier beyond 3x median neighbor distance.
+**Independent Test**: Automated layout metrics on a fixed graph fixture (ImportModifierFixture or keeper contract): zero bbox intersections among direct layout cells; no outlier beyond 3x median neighbor distance.
 
 ---
 

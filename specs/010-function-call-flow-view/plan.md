@@ -70,4 +70,4 @@ flowchart LR
 ## Testing
 
 - Vitest: upstream/downstream/both, depth, cap, empty graph, cycle.
-- Manual: EthMetaVault `updateStateAndDeposit`, keeper bundle cross-type chain.
+- Manual: ImportModifierFixture `updateStateAndDeposit`, cross_type fixture bundle cross-type chain.

@@ -13,7 +13,7 @@ Fix inverted `function_to_function` edges in the Solidity adapter: emit caller -
 ## Touch points
 
 - `smartgraphical/adapters/solidity/adapter.py` — `function_to_function` edge loop + metadata arguments
-- `tests/unit/test_solidity_internal_call_direction.py` (new) — synthetic + optional EthMetaVault
+- `tests/unit/test_solidity_internal_call_direction.py` (new) — synthetic + optional ImportModifierFixture
 - `docs/graph_schema_logic.md` — document caller -> callee for `function_to_function`
 - `specs/007-fix-internal-call-direction/tasks.md`
 

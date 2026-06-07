@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-24
 
-**Input**: Graph for `examples/VaultState.sol` omits most state variables (e.g. `_donatedAssets`, `_totalShares`) while showing only `mapping` fields (`_exitRequests`, `_balances`).
+**Input**: Graph for `tests/fixtures/solidity/MultiStateFields.sol` omits most state variables (e.g. `_donatedAssets`, `_totalShares`) while showing only `mapping` fields (`_exitRequests`, `_balances`).
 
 ## User Scenarios & Testing
 
@@ -18,7 +18,7 @@
 
 **Acceptance Scenarios**:
 
-1. **Given** `VaultState.sol`, **When** analyzed, **Then** `_donatedAssets`, `_totalShares`, `_totalAssets`, `_capacity` appear as state nodes.
+1. **Given** `MultiStateFields.sol`, **When** analyzed, **Then** `_donatedAssets`, `_totalShares`, `_totalAssets`, `_capacity` appear as state nodes.
 2. **Given** existing `mapping` variables, **When** analyzed, **Then** `_exitRequests` and `_balances` still appear (no regression).
 
 ---
@@ -44,11 +44,11 @@
 - **FR-001**: `ContractReader.extract_variables` MUST detect state declarations whose type starts with `uint<N>`, `int<N>`, `bytes<N>`, or `bool`.
 - **FR-002**: FR-001 MUST NOT break detection of `mapping`, `address`, and `string` storage.
 - **FR-003**: Reader SHOULD detect `TypeName` or `Lib.TypeName` storage with `internal`/`private`/`public` visibility before the variable name.
-- **FR-004**: Regression tests MUST include VaultState subset and a minimal synthetic Solidity fixture.
+- **FR-004**: Regression tests MUST include MultiStateFields subset and a minimal synthetic Solidity fixture.
 
 ## Success Criteria
 
-- **SC-001**: VaultState graph lists at least 10 state variables including `_donatedAssets` and `_exitQueue`.
+- **SC-001**: MultiStateFields graph lists at least 10 state variables including `_donatedAssets` and `_exitQueue`.
 - **SC-002**: No duplicate state nodes for the same variable name in one contract.
 - **SC-003**: Existing Solidity adapter integration tests remain green.
 

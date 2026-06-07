@@ -8,7 +8,7 @@
 
 ## Summary
 
-SmartGraphical’s Solidity adapter uses naive substring checks (`name in stmt`, `'=' in stmt`) to detect storage mutations. That produces false writes on `view` functions (e.g. `KeeperRewards.rewards`) and pollutes rules and graph highlighting. This plan introduces whole-token matching, comparison-safe assignment detection, storage-alias write tracking, a `view`/`pure` write ban, and new graph edge kinds so reviewers can separate readers from writers on the state node panel.
+SmartGraphical’s Solidity adapter uses naive substring checks (`name in stmt`, `'=' in stmt`) to detect storage mutations. That produces false writes on `view` functions (e.g. `RewardBase.rewards`) and pollutes rules and graph highlighting. This plan introduces whole-token matching, comparison-safe assignment detection, storage-alias write tracking, a `view`/`pure` write ban, and new graph edge kinds so reviewers can separate readers from writers on the state node panel.
 
 ## Technical Context
 
@@ -92,7 +92,7 @@ tests/unit/
 └── test_serializers.py             # Extend edge kind assertions
 
 tests/fixtures/solidity/
-└── keeper_rewards_state_access.sol # NEW minimal patterns (or symlink to excerpt)
+└── CollateralStateFixture.sol # NEW minimal patterns
 ```
 
 **Structure Decision**: Single Python package + frontend consumer; feature-local docs under `specs/001-fix-solidity-state-writes/`.
@@ -110,7 +110,7 @@ tests/fixtures/solidity/
 
 Refactor `_collect_mutations` and `_collect_state_accesses` in `adapter.py` to call these helpers.
 
-**Acceptance**: Unit tests for each helper + table-driven cases from `KeeperRewards` snippets.
+**Acceptance**: Unit tests for each helper + table-driven cases from `RewardBase` snippets.
 
 ### Phase B — Function-level aggregation
 
@@ -198,4 +198,4 @@ Suggested task order:
 - [data-model.md](./data-model.md) — entities and pipeline  
 - [contracts/graph-state-access-v1.1.md](./contracts/graph-state-access-v1.1.md) — API contract  
 - [quickstart.md](./quickstart.md) — verification steps  
-- Root cause example: `examples/keeper/KeeperRewards.sol`
+- Root cause example: `tests/fixtures/solidity/CollateralStateFixture.sol`

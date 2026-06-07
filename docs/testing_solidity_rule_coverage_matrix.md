@@ -37,7 +37,7 @@ Shared finding-shape checks: `tests/integration/pipeline_invariant_helpers.py` (
 
 End-to-end pipeline invariants (`tests/integration/test_full_pipeline.py`):
 
-- Repo-root `SimpleAuction.sol`: optional golden file; suite is skipped if missing.
+- Repo-root `GuardedWithdrawFixture.sol`: optional golden file; suite is skipped if missing.
 - Always-on: `WithdrawNoGuard.sol`, `ExternalMint.sol` under `tests/fixtures/solidity/`.
 
 HTTP JSON shape (`task: 0` or `all`): `tests/integration/test_http_fixture_contract.py` uses `MinimalGuard.sol`; skipped if FastAPI is not installed.

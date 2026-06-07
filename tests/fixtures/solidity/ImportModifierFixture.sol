@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 import {ISample} from "./SampleInterface.sol";
 import {ExternalMint} from "./ExternalMint.sol";
 
-contract EthMetaVault {
+contract ImportModifierFixture {
     uint256 public total;
 
     function deposit() public {

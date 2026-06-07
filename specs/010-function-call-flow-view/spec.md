@@ -78,7 +78,7 @@ Limited depth remains configurable 1-4 per direction when not in expand-all mode
 
 **Given** full graph with `updateStateAndDeposit` visible, **When** user selects that function and clicks **Call flow**, **Then** a modal shows a directed graph with upstream callers and downstream callees within depth 2.
 
-**Independent Test**: Vitest on `buildCallFlowSubgraph`; manual open on EthMetaVault function.
+**Independent Test**: Vitest on `buildCallFlowSubgraph`; manual open on ImportModifierFixture function.
 
 ---
 

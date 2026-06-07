@@ -1,4 +1,4 @@
-"""Graph regressions for import wiring and modifier parsing (EthMetaVault)."""
+"""Graph regressions for import wiring and modifier parsing."""
 import os
 import unittest
 
@@ -6,38 +6,39 @@ from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 from smartgraphical.services.serializers import model_graph_to_dict
 
 
-class EthMetaVaultImportModifierGraphTests(unittest.TestCase):
-    _EXAMPLE = os.path.join(
+class ImportModifierFixtureGraphTests(unittest.TestCase):
+    _FIXTURE = os.path.join(
         os.path.dirname(__file__),
         "..",
         "fixtures",
         "solidity",
-        "EthMetaVault.sol",
+        "ImportModifierFixture.sol",
     )
+    _TYPE_NAME = "ImportModifierFixture"
 
     @classmethod
     def setUpClass(cls):
-        cls._example_path = os.path.normpath(cls._EXAMPLE)
-        if not os.path.isfile(cls._example_path):
-            raise unittest.SkipTest(f"missing fixture {cls._example_path}")
+        cls._fixture_path = os.path.normpath(cls._FIXTURE)
+        if not os.path.isfile(cls._fixture_path):
+            raise unittest.SkipTest(f"missing fixture {cls._fixture_path}")
         adapter = SolidityAdapterV0()
-        ctx = adapter.parse_source(cls._example_path, expand_local_imports=False)
+        ctx = adapter.parse_source(cls._fixture_path, expand_local_imports=False)
         cls.graph = model_graph_to_dict(ctx.normalized_model)
 
-    def test_no_phantom_external_eth_meta_vault_node(self):
+    def test_no_phantom_external_contract_node(self):
         nodes = self.graph.get("nodes") or []
         for node in nodes:
             node_id = str(node.get("id", ""))
             group = str(node.get("group", ""))
             label = str(node.get("label", ""))
-            if label == "EthMetaVault" and group == "external":
+            if label == self._TYPE_NAME and group == "external":
                 self.fail(f"unexpected external stub node: {node_id}")
-            if node_id == "external:EthMetaVault":
-                self.fail("contract-level imports must not spawn external:EthMetaVault")
+            if node_id == f"external:{self._TYPE_NAME}":
+                self.fail("contract-level imports must not spawn external stub for primary type")
 
     def test_unused_import_edges_origin_from_type_node(self):
         edges = self.graph.get("edges") or []
-        type_id = "type:EthMetaVault"
+        type_id = f"type:{self._TYPE_NAME}"
         for edge in edges:
             if edge.get("kind") != "import_dependency":
                 continue
@@ -45,7 +46,7 @@ class EthMetaVaultImportModifierGraphTests(unittest.TestCase):
                 continue
             self.assertEqual(edge.get("source"), type_id)
             return
-        self.fail("expected at least one import_dependency edge from type:EthMetaVault")
+        self.fail(f"expected at least one import_dependency edge from {type_id}")
 
     def test_no_split_override_modifier_nodes(self):
         nodes = self.graph.get("nodes") or []

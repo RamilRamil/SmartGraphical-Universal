@@ -16,11 +16,11 @@ precision = TP/(TP+labeled_FP), missed and unexpected lists correct, and the
 ```bash
 # See what a labeled example currently emits, to triage real vs false positive:
 .venv/bin/python -c "from smartgraphical.services import web_api, history_service; \
-  r=web_api.analyze_all('examples/SimpleAuction.sol','solidity'); \
+  r=web_api.analyze_all('tests/fixtures/solidity/MinimalGuard.sol','solidity'); \
   print(len(r['findings']),'findings'); \
   [print(f['rule_id'], f['evidences'][0].get('type_name'), f['evidences'][0].get('function_name')) for f in r['findings']]"
 ```
-Then a label file `tests/benchmark/labels/SimpleAuction.sol.json` lists the real
+Then a label file `tests/benchmark/labels/GuardedWithdrawFixture.sol.json` lists the real
 ones under `expected` and the wrong ones under `false_positives`.
 
 ## 3. Run the benchmark report (US5)

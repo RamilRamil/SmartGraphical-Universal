@@ -160,13 +160,13 @@ class RealCorpusTests(unittest.TestCase):
 
     def test_known_examples_recall(self):
         ex = self.result["examples"]
-        self.assertEqual(ex["SimpleAuction.sol"]["recall"], 1.0)
-        self.assertEqual(ex["OsTokenRedeemer.sol"]["recall"], 1.0)
+        self.assertEqual(ex["GuardedWithdrawFixture.sol"]["recall"], 1.0)
+        self.assertEqual(ex["TokenRedeemFixture.sol"]["recall"], 1.0)
         self.assertEqual(self.result["overall"]["recall"], 1.0)
 
     def test_precision_measured_over_labeled_surface(self):
         ex = self.result["examples"]
-        self.assertEqual(ex["SimpleAuction.sol"]["precision"], 0.5)  # 1 TP, 1 labeled FP
+        self.assertEqual(ex["GuardedWithdrawFixture.sol"]["precision"], 0.5)  # 1 TP, 1 labeled FP
         self.assertIsInstance(self.result["overall"]["precision"], float)
 
     def test_deterministic(self):
