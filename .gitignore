@@ -23,4 +23,11 @@ PROJECT_VISION.md
 KNOWN_QUIRKS.md
 2603.08580v2.pdf
 
-examples/
+# Ignore bulk examples locally; track CI/benchmark fixtures explicitly.
+examples/*
+!examples/SimpleAuction.sol
+!examples/Stratax.sol
+!examples/OsTokenRedeemer.sol
+!examples/ERC20Upgradeable.sol
+!examples/keeper/
+!examples/keeper/**
