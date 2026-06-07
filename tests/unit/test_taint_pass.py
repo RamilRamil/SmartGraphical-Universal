@@ -56,6 +56,31 @@ class ComputeTaintTests(unittest.TestCase):
         f = fn(inputs=["v"], stmts=["balance = v", "transfer(to, v)"])
         self.assertEqual(taint.compute_taint(f), taint.compute_taint(f))
 
+    def test_sink_token_picks_longest_mutation_name_deterministically(self):
+        # Regression for the PYTHONHASHSEED nondeterminism (feature 015) found
+        # during 016: when several mutation names match the statement, the choice
+        # must be stable (longest-first), not set-iteration-order dependent.
+        stmt = "Reward storage lastReward = rewards[vault]"
+        muts = {"reward", "lastReward", "rewards", "vault"}
+        self.assertEqual(taint._sink_token(stmt, muts), "lastReward")
+        # Same set built in a different insertion order yields the same answer.
+        muts2 = {"vault", "rewards", "lastReward", "reward"}
+        self.assertEqual(taint._sink_token(stmt, muts2), "lastReward")
+
+    def test_overlapping_mutation_names_give_stable_sink(self):
+        # Mirrors the keeper_rewards fixture shape: a tainted input flows into a
+        # statement where several mutation names are substrings of each other.
+        f = fn(
+            inputs=["vault"],
+            stmts=["Reward storage lastReward = rewards[vault]"],
+            mutations=["reward", "lastReward", "rewards"],
+        )
+        first = taint.compute_taint(f)
+        again = taint.compute_taint(f)
+        self.assertEqual(first, again)
+        self.assertTrue(first)
+        self.assertTrue(all(p["sink"] == "lastReward" for p in first))
+
 
 class ApplyTaintTests(unittest.TestCase):
     def test_apply_sets_field_on_functions(self):

@@ -75,7 +75,11 @@ def _sink_token(stmt, mutation_names):
     for tok in SINK_TOKENS:
         if tok in low:
             return tok
-    for name in mutation_names:
+    # `mutation_names` is a set; iterate in a stable (sorted) order so the chosen
+    # sink is deterministic regardless of PYTHONHASHSEED (feature 015 nondeterminism
+    # bug found during feature 016). Longest-first then alphabetical keeps the most
+    # specific matching name (e.g. "lastReward" over its substring "reward").
+    for name in sorted(mutation_names, key=lambda n: (-len(n), n)):
         if name and name in stmt:
             return name
     return None
