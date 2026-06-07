@@ -58,7 +58,7 @@ class MinimalStateVariableTests(unittest.TestCase):
 
 class VaultStateExampleTests(unittest.TestCase):
     _PATH = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "examples", "VaultState.sol"),
+        os.path.join(os.path.dirname(__file__), "..", "fixtures", "solidity", "VaultState.sol"),
     )
 
     @classmethod

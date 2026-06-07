@@ -10,8 +10,8 @@ class EthMetaVaultImportModifierGraphTests(unittest.TestCase):
     _EXAMPLE = os.path.join(
         os.path.dirname(__file__),
         "..",
-        "..",
-        "examples",
+        "fixtures",
+        "solidity",
         "EthMetaVault.sol",
     )
 

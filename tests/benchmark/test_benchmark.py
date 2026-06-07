@@ -140,7 +140,7 @@ class RunCorpusTests(unittest.TestCase):
 _BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BENCH_DIR))
 _LABELS = os.path.join(_BENCH_DIR, "labels")
-_EXAMPLES = os.path.join(_REPO_ROOT, "examples")
+_EXAMPLES = os.path.join(_REPO_ROOT, "tests", "fixtures", "solidity", "corpus")
 _BASELINE = os.path.join(_BENCH_DIR, "baseline.json")
 
 try:
@@ -155,7 +155,7 @@ except Exception:  # pragma: no cover
 class RealCorpusTests(unittest.TestCase):
     def setUp(self):
         if not (os.path.isdir(_LABELS) and os.path.isdir(_EXAMPLES)):
-            self.skipTest("labels/examples not present")
+            self.skipTest("labels/corpus fixtures not present")
         self.result = corpus.run_corpus(_LABELS, _EXAMPLES, web_api.analyze_all)
 
     def test_known_examples_recall(self):

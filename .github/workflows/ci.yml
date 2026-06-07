@@ -38,5 +38,5 @@ jobs:
         # stdout). graphviz is intentionally not installed: rendering degrades
         # gracefully and is not needed for the JSON payload.
         run: |
-          python sg_cli.py examples/SimpleAuction.sol 11 auditor json > cli_smoke.json
+          python sg_cli.py tests/fixtures/solidity/corpus/SimpleAuction.sol 11 auditor json > cli_smoke.json
           python -c "import json; d=json.load(open('cli_smoke.json')); assert d['task']=='11' and 'findings_count' in d, d; print('CLI JSON smoke OK:', d)"
