@@ -25,4 +25,5 @@
 
 ## Notes
 
-- Implementation blocked on user confirmation of Option C (two-phase grid + fcose).
+- Sandwich layout phases 1-3 implemented 2026-05-24; inner layout is grid-only.
+- Contract: `contracts/intra-compound-sandwich-layout-v1.md`.

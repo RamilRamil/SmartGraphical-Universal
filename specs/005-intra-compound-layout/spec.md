@@ -56,6 +56,12 @@
 - **FR-004**: Algorithm MUST be tunable via constants (cell spacing, tier order) without backend changes.
 - **FR-005**: Inter-contract overview MUST keep current layout path.
 - **FR-006**: Vitest coverage for position assignment pure functions and overlap/outlier metrics.
+- **FR-007**: State variables MUST be placed on a single horizontal row inside each compound.
+- **FR-008**: Modifiers MUST be placed in the top-left corner, separate from the main vertical stack.
+- **FR-009**: Functions with `public` or `external` visibility MUST appear above the state row; other functions below.
+- **FR-010**: Events and `custom_error` nodes MUST appear in a column to the right of the main stack.
+- **FR-011**: When a function band has more than six nodes, it MUST split into two sub-rows; higher effective degree (including entrypoint bonus) MUST be closer to the state line.
+- **FR-012**: Intra-compound positions MUST come from deterministic grid seeds only (no per-tier fcose) so the sandwich geometry is preserved.
 
 ### Key Entities
 
@@ -76,8 +82,20 @@
 - `cytoscape-fcose` already in dependencies may be used for outer layout; no new npm packages.
 - Modifier rings remain visual compounds in v1 (no schema change to flatten rings).
 
+## Product decisions (sandwich layout, 2026-05-24)
+
+| Topic | Decision |
+|-------|----------|
+| Modifier corner | Top-left |
+| State | Single horizontal line |
+| Functions | Above/below state by visibility; max 6 per sub-row |
+| Entrypoints | Degree bonus pulls toward state |
+| Events | Right column |
+| Inner fcose | Disabled (grid only) |
+
 ## Out of Scope
 
 - Edge routing / label placement optimization.
 - Animated layout transitions.
 - User-draggable manual layout persistence.
+- Horizontal seriation by state connectivity (future).

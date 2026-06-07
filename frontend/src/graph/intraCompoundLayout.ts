@@ -17,8 +17,18 @@ export const CELL_WIDTH = 98;
 export const CELL_HEIGHT = 76;
 export const COL_GAP = 32;
 export const ROW_GAP = 28;
-/** Vertical gap between state / modifier / function / event bands. */
+/** Vertical gap between state / function / event bands. */
 export const REGION_GAP = 72;
+/** Gap between modifier corner column and main tier content. */
+export const MODIFIER_CORNER_GAP = 40;
+/** Max functions per row before splitting into two sub-rows. */
+export const MAX_FUNCTIONS_PER_ROW = 6;
+/** Gap between function sub-rows and the state line. */
+export const FUNCTION_BAND_GAP = 36;
+/** Gap between main content and the side event column. */
+export const EVENT_SIDE_GAP = 48;
+/** Added to function degree when is_entrypoint (pulls node toward state band). */
+export const ENTRYPOINT_DEGREE_BONUS = 8;
 
 const COMPOUND_ROOT_GROUPS = new Set(["type", "tile"]);
 
@@ -36,17 +46,16 @@ export type LayoutCell = {
   anchorId: string;
   tier: number;
   sortKey: string;
+  visibility?: string;
+  isEntrypoint?: boolean;
+};
+
+export type LayoutEdgeHint = {
+  source: string;
+  target: string;
 };
 
 export type GridPosition = { x: number; y: number };
-
-type TierRegion = {
-  tier: number;
-  cells: LayoutCell[];
-  cols: number;
-  rowCount: number;
-  height: number;
-};
 
 export function tierForGroup(group: string | undefined): number | null {
   if (!group) return null;
@@ -55,34 +64,239 @@ export function tierForGroup(group: string | undefined): number | null {
 
 export function colsForTier(tier: number, cellCount: number): number {
   if (cellCount <= 0) return 1;
-  if (tier === TIER_FUNCTION) {
-    return Math.max(1, Math.ceil(Math.sqrt(cellCount * 1.35)));
+  if (tier === TIER_STATE) {
+    return cellCount;
   }
-  if (tier === TIER_STATE || tier === TIER_MODIFIER) {
-    return Math.min(cellCount, Math.max(3, Math.ceil(Math.sqrt(cellCount))));
+  if (tier === TIER_MODIFIER) {
+    return 1;
   }
   return Math.max(1, Math.ceil(Math.sqrt(cellCount)));
 }
 
-function buildTierRegions(cells: LayoutCell[]): TierRegion[] {
-  const byTier = new Map<number, LayoutCell[]>();
-  for (const cell of cells) {
-    const bucket = byTier.get(cell.tier) ?? [];
-    bucket.push(cell);
-    byTier.set(cell.tier, bucket);
+export function isAboveStateVisibility(visibility: string | undefined): boolean {
+  const v = (visibility || "").toLowerCase();
+  return v === "public" || v === "external";
+}
+
+export function computeFunctionDegrees(
+  functionIds: ReadonlySet<string>,
+  edgeHints: readonly LayoutEdgeHint[],
+): Map<string, number> {
+  const degrees = new Map<string, number>();
+  for (const id of functionIds) {
+    degrees.set(id, 0);
+  }
+  for (const edge of edgeHints) {
+    if (functionIds.has(edge.source)) {
+      degrees.set(edge.source, (degrees.get(edge.source) ?? 0) + 1);
+    }
+    if (functionIds.has(edge.target)) {
+      degrees.set(edge.target, (degrees.get(edge.target) ?? 0) + 1);
+    }
+  }
+  return degrees;
+}
+
+/** Edge degree plus entrypoint bonus for sandwich row ordering. */
+export function effectiveFunctionDegrees(
+  functions: LayoutCell[],
+  edgeHints: readonly LayoutEdgeHint[],
+): Map<string, number> {
+  const functionIds = new Set(functions.map((f) => f.anchorId));
+  const degrees = computeFunctionDegrees(functionIds, edgeHints);
+  for (const cell of functions) {
+    if (cell.isEntrypoint) {
+      degrees.set(
+        cell.anchorId,
+        (degrees.get(cell.anchorId) ?? 0) + ENTRYPOINT_DEGREE_BONUS,
+      );
+    }
+  }
+  return degrees;
+}
+
+function compareCellsByDegree(
+  a: LayoutCell,
+  b: LayoutCell,
+  degrees: Map<string, number>,
+): number {
+  const da = degrees.get(a.anchorId) ?? 0;
+  const db = degrees.get(b.anchorId) ?? 0;
+  if (db !== da) return db - da;
+  return a.sortKey.localeCompare(b.sortKey);
+}
+
+/**
+ * Wrap functions into a balanced grid (~sqrt(n) columns) so large bands stay
+ * compact instead of stretching into one or two very wide rows. Cells are
+ * degree-ordered (highest first), so the leading row is the busiest.
+ *
+ * Bands at or below MAX_FUNCTIONS_PER_ROW stay a single row.
+ */
+export function splitFunctionRows(
+  cells: LayoutCell[],
+  degrees: Map<string, number>,
+): LayoutCell[][] {
+  const ordered = [...cells].sort((a, b) => compareCellsByDegree(a, b, degrees));
+  if (ordered.length <= MAX_FUNCTIONS_PER_ROW) {
+    return [ordered];
+  }
+  const cols = colsForTier(TIER_FUNCTION, ordered.length);
+  const rows: LayoutCell[][] = [];
+  for (let i = 0; i < ordered.length; i += cols) {
+    rows.push(ordered.slice(i, i + cols));
+  }
+  return rows;
+}
+
+function placeRowCentered(
+  cells: LayoutCell[],
+  centerY: number,
+  out: Map<string, GridPosition>,
+): void {
+  if (cells.length === 0) return;
+  const gridW =
+    cells.length * CELL_WIDTH + Math.max(0, cells.length - 1) * COL_GAP;
+  cells.forEach((cell, index) => {
+    const x =
+      index * (CELL_WIDTH + COL_GAP) - gridW / 2 + CELL_WIDTH / 2;
+    out.set(cell.anchorId, { x, y: centerY });
+  });
+}
+
+function placeEventsOnSide(
+  events: LayoutCell[],
+  main: Map<string, GridPosition>,
+  out: Map<string, GridPosition>,
+): void {
+  if (events.length === 0) return;
+  const sorted = [...events].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+  let maxX = 0;
+  let minY = 0;
+  let maxY = 0;
+  let hasMain = false;
+  for (const pos of main.values()) {
+    hasMain = true;
+    maxX = Math.max(maxX, pos.x);
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y);
   }
 
-  const regions: TierRegion[] = [];
-  for (const tier of TIER_ORDER) {
-    const row = byTier.get(tier);
-    if (!row?.length) continue;
-    row.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-    const cols = colsForTier(tier, row.length);
-    const rowCount = Math.ceil(row.length / cols);
-    const height = rowCount * CELL_HEIGHT + Math.max(0, rowCount - 1) * ROW_GAP;
-    regions.push({ tier, cells: row, cols, rowCount, height });
+  const baseX = hasMain
+    ? maxX + CELL_WIDTH / 2 + EVENT_SIDE_GAP + COL_GAP
+    : CELL_WIDTH;
+  const midY = hasMain ? (minY + maxY) / 2 : 0;
+  const rowStep = CELL_HEIGHT + ROW_GAP;
+
+  sorted.forEach((cell, index) => {
+    const offset = (index - (sorted.length - 1) / 2) * rowStep;
+    out.set(cell.anchorId, {
+      x: baseX + CELL_WIDTH / 2,
+      y: midY + offset,
+    });
+  });
+}
+
+function layoutFunctionBandAbove(
+  cells: LayoutCell[],
+  degrees: Map<string, number>,
+  stateTopY: number,
+  out: Map<string, GridPosition>,
+): void {
+  const rows = splitFunctionRows(cells, degrees);
+  let yBottom = stateTopY - FUNCTION_BAND_GAP;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]!;
+    yBottom -= CELL_HEIGHT;
+    placeRowCentered(row, yBottom + CELL_HEIGHT / 2, out);
+    if (i > 0) yBottom -= ROW_GAP;
   }
-  return regions;
+}
+
+function layoutFunctionBandBelow(
+  cells: LayoutCell[],
+  degrees: Map<string, number>,
+  stateBottomY: number,
+  out: Map<string, GridPosition>,
+): void {
+  const rows = splitFunctionRows(cells, degrees);
+  let yTop = stateBottomY + FUNCTION_BAND_GAP;
+  for (const row of rows) {
+    placeRowCentered(row, yTop + CELL_HEIGHT / 2, out);
+    yTop += CELL_HEIGHT + ROW_GAP;
+  }
+}
+
+/** State line at y=0; public/external above; other functions below; events on the right. */
+export function gridPositionsForMainCells(
+  cells: LayoutCell[],
+  edgeHints: readonly LayoutEdgeHint[] = [],
+): Map<string, GridPosition> {
+  const out = new Map<string, GridPosition>();
+  const states = cells
+    .filter((c) => c.tier === TIER_STATE)
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  const functions = cells.filter((c) => c.tier === TIER_FUNCTION);
+  const events = cells.filter((c) => c.tier === TIER_EVENT);
+
+  const degrees = effectiveFunctionDegrees(functions, edgeHints);
+
+  const aboveFns = functions.filter((f) => isAboveStateVisibility(f.visibility));
+  const belowFns = functions.filter((f) => !isAboveStateVisibility(f.visibility));
+
+  const stateY = 0;
+  placeRowCentered(states, stateY, out);
+
+  const stateTopY = stateY - CELL_HEIGHT / 2;
+  const stateBottomY = stateY + CELL_HEIGHT / 2;
+
+  if (aboveFns.length > 0) {
+    layoutFunctionBandAbove(aboveFns, degrees, stateTopY, out);
+  }
+  if (belowFns.length > 0) {
+    layoutFunctionBandBelow(belowFns, degrees, stateBottomY, out);
+  }
+  placeEventsOnSide(events, out, out);
+
+  return out;
+}
+
+function gridPositionsForModifierCorner(
+  modifiers: LayoutCell[],
+  main: Map<string, GridPosition>,
+): Map<string, GridPosition> {
+  const out = new Map<string, GridPosition>();
+  if (modifiers.length === 0) return out;
+
+  const sorted = [...modifiers].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  const colStep = CELL_WIDTH + COL_GAP;
+  const rowStep = CELL_HEIGHT + ROW_GAP;
+
+  let anchorMinX = 0;
+  let topEdgeY = 0;
+  if (main.size > 0) {
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const pos of main.values()) {
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+    }
+    anchorMinX = minX;
+    topEdgeY = minY - CELL_HEIGHT / 2;
+  }
+
+  const blockW = colStep;
+  const baseX =
+    anchorMinX - MODIFIER_CORNER_GAP - blockW / 2 - CELL_WIDTH / 2;
+
+  sorted.forEach((cell, index) => {
+    out.set(cell.anchorId, {
+      x: baseX,
+      y: topEdgeY + index * rowStep + CELL_HEIGHT / 2,
+    });
+  });
+  return out;
 }
 
 /** Contract compounds that own interior layout (exclude type nested under tile). */
@@ -108,34 +322,18 @@ export function pickInteriorLayoutRootIds(
   return roots.sort();
 }
 
-/** Place cells in separated horizontal bands per semantic tier. */
-export function gridPositionsForCells(cells: LayoutCell[]): Map<string, GridPosition> {
-  const out = new Map<string, GridPosition>();
-  const regions = buildTierRegions(cells);
-  if (regions.length === 0) return out;
-
-  const totalHeight =
-    regions.reduce((sum, r) => sum + r.height, 0) +
-    Math.max(0, regions.length - 1) * REGION_GAP;
-  let yTop = -totalHeight / 2;
-
-  for (const region of regions) {
-    const gridW = region.cols * CELL_WIDTH + Math.max(0, region.cols - 1) * COL_GAP;
-    region.cells.forEach((cell, index) => {
-      const col = index % region.cols;
-      const row = Math.floor(index / region.cols);
-      const x =
-        col * (CELL_WIDTH + COL_GAP) -
-        gridW / 2 +
-        CELL_WIDTH / 2;
-      const y =
-        yTop +
-        row * (CELL_HEIGHT + ROW_GAP) +
-        CELL_HEIGHT / 2;
-      out.set(cell.anchorId, { x, y });
-    });
-    yTop += region.height + REGION_GAP;
-  }
+/**
+ * Sandwich layout + modifier corner; optional edge hints for function degree ordering.
+ */
+export function gridPositionsForCells(
+  cells: LayoutCell[],
+  edgeHints: readonly LayoutEdgeHint[] = [],
+): Map<string, GridPosition> {
+  const modifiers = cells.filter((c) => c.tier === TIER_MODIFIER);
+  const mainCells = cells.filter((c) => c.tier !== TIER_MODIFIER);
+  const out = gridPositionsForMainCells(mainCells, edgeHints);
+  const corner = gridPositionsForModifierCorner(modifiers, out);
+  corner.forEach((pos, id) => out.set(id, pos));
   return out;
 }
 
@@ -231,32 +429,42 @@ function collectLayoutCells(compound: NodeSingular): LayoutCell[] {
       anchorId: anchor.id(),
       tier,
       sortKey: (anchor.data("label") as string | undefined) ?? anchor.id(),
+      visibility: anchor.data("visibility") as string | undefined,
+      isEntrypoint: Boolean(anchor.data("is_entrypoint")),
     });
   });
   return cells;
 }
 
-export function assignTieredGridSeeds(compound: NodeSingular): void {
+function collectInteriorEdgeHints(
+  compound: NodeSingular,
+  anchorIds: ReadonlySet<string>,
+): LayoutEdgeHint[] {
+  const hints: LayoutEdgeHint[] = [];
+  compound.cy().edges().forEach((edge) => {
+    const source = edge.source().id();
+    const target = edge.target().id();
+    if (anchorIds.has(source) && anchorIds.has(target)) {
+      hints.push({ source, target });
+    }
+  });
+  return hints;
+}
+
+export function assignTieredGridSeeds(
+  compound: NodeSingular,
+  center: GridPosition = { x: 0, y: 0 },
+): void {
   const cells = collectLayoutCells(compound);
-  const positions = gridPositionsForCells(cells);
+  const anchorIds = new Set(cells.map((c) => c.anchorId));
+  const edgeHints = collectInteriorEdgeHints(compound, anchorIds);
+  const positions = gridPositionsForCells(cells, edgeHints);
   positions.forEach((pos, id) => {
     const node = compound.cy().getElementById(id);
     if (node.nonempty()) {
-      node.position(pos);
+      node.position({ x: center.x + pos.x, y: center.y + pos.y });
     }
   });
-}
-
-function tierNodeClosure(compound: NodeSingular, tier: number): NodeCollection {
-  const cy = compound.cy();
-  let collection = cy.collection();
-  for (const cell of collectLayoutCells(compound)) {
-    if (cell.tier !== tier) continue;
-    const anchor = cy.getElementById(cell.anchorId);
-    if (anchor.empty()) continue;
-    collection = collection.union(anchor.union(anchor.descendants()));
-  }
-  return collection;
 }
 
 export function interiorFcoseOptions() {
@@ -282,12 +490,6 @@ export function interiorFcoseOptions() {
 
 function layoutCompoundInterior(compound: NodeSingular): void {
   assignTieredGridSeeds(compound);
-  for (const tier of TIER_ORDER) {
-    const nodes = tierNodeClosure(compound, tier);
-    if (nodes.length > 1) {
-      nodes.layout(interiorFcoseOptions()).run();
-    }
-  }
 }
 
 function outerLayoutNodes(cy: Core): NodeCollection {
@@ -344,7 +546,12 @@ function interiorLayoutRoots(cy: Core): NodeCollection {
   });
 }
 
-/** Grouped tier bands + per-tier fcose inside; spread seeds + force between compounds. */
+/**
+ * Three phases: (1) seed each compound's interior as a balanced tier grid;
+ * (2) force-spread the compounds between each other (cose-bilkent); (3) re-impose
+ * the deterministic interior grid at each compound's final center, so the force
+ * layout's interior reflow does not override the compact arrangement.
+ */
 export function applyFullGraphTwoPhaseLayout(cy: Core): void {
   const roots = interiorLayoutRoots(cy);
   roots.forEach((compound) => {
@@ -358,4 +565,15 @@ export function applyFullGraphTwoPhaseLayout(cy: Core): void {
   if (outer.length > 0) {
     outer.layout(outerCoseBilkentOptions()).run();
   }
+
+  // Phase 3: the outer compound layout (cose-bilkent) reflows interior children,
+  // discarding the tier grid. Re-apply the grid at each compound's final center
+  // so the interior stays a compact balanced grid in the rendered graph.
+  roots.forEach((compound) => {
+    assignTieredGridSeeds(compound, {
+      x: compound.position("x"),
+      y: compound.position("y"),
+    });
+  });
+  cy.style().update();
 }
