@@ -642,6 +642,93 @@ body {
   margin-top: 4px;
 }
 
+.sg-call-flow-backdrop {
+  z-index: 1100;
+}
+
+.sg-call-flow-modal {
+  background: #0e1116;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  width: min(1100px, 96vw);
+  height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.sg-call-flow-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sg-call-flow-modal__title {
+  margin: 0;
+  font-size: 16px;
+  color: #e6edf3;
+}
+
+.sg-call-flow-modal__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+}
+
+.sg-call-flow-modal__fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.sg-call-flow-modal__radio {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
+.sg-call-flow-modal__depth {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sg-call-flow-modal__depth select {
+  background: #161b22;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.sg-call-flow-modal__check {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
+.sg-call-flow-modal__stats {
+  margin: 0;
+}
+
+.sg-call-flow-modal__canvas {
+  flex: 1;
+  min-height: 320px;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  background: #0e1116;
+}
+
+.sg-graph__details-actions {
+  margin: 0 0 10px 0;
+}
+
 .sg-diff__section {
   margin-top: 16px;
   border-left: 3px solid transparent;

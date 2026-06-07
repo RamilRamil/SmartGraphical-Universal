@@ -49,6 +49,21 @@ Register `cytoscape-fcose` with compound-aware defaults.
 
 **Verdict**: **Selected** for FR-001..FR-003.
 
+## Sandwich refinement (2026-05-24)
+
+Audit feedback (dense contracts e.g. `OsTokenRedeemer.sol`): vertical tier stack still produced many crossings.
+
+| Change | Rationale |
+|--------|-----------|
+| State hub line | Most edges touch storage; one row minimizes vertical spread |
+| Modifiers top-left | Declarations rarely need center placement |
+| Functions above/below by visibility | Matches call direction mental model |
+| Events on right | Decouples emit edges from function grid |
+| No inner fcose | Force pass broke single state row and sandwich |
+| Entrypoint degree bonus | Entry functions visually anchor near state |
+
+Contract: [intra-compound-sandwich-layout-v1.md](./contracts/intra-compound-sandwich-layout-v1.md).
+
 ## Option D - Flatten modifier_ring compounds
 
 Replace ring compounds with function border styling only.
