@@ -9,7 +9,7 @@ class SolidityAbstractContractTests(unittest.TestCase):
     def test_examples_erc20_upgradeable_is_abstract_in_context_and_model(self):
         from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 
-        path = str(ROOT / "examples" / "ERC20Upgradeable.sol")
+        path = str(ROOT / "tests" / "fixtures" / "solidity" / "ERC20Upgradeable.sol")
         ctx = SolidityAdapterV0().parse_source(path)
         self.assertEqual(ctx.solidity_unit_kinds.get("ERC20Upgradeable"), "abstract")
         self.assertTrue(ctx.normalized_model.types)
@@ -32,7 +32,7 @@ class SolidityAbstractContractTests(unittest.TestCase):
         from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
         from smartgraphical.services.serializers import model_graph_to_dict
 
-        path = str(ROOT / "examples" / "ERC20Upgradeable.sol")
+        path = str(ROOT / "tests" / "fixtures" / "solidity" / "ERC20Upgradeable.sol")
         ctx = SolidityAdapterV0().parse_source(path)
         graph = model_graph_to_dict(ctx.normalized_model)
         type_nodes = [n for n in graph["nodes"] if n.get("group") == "type"]

@@ -13,9 +13,9 @@ from smartgraphical.adapters.solidity.reader import ContractReader
 KEEPER_DIR = os.path.join(
     os.path.dirname(__file__),
     "..",
-    "..",
-    "examples",
-    "keeper",
+    "fixtures",
+    "solidity",
+    "cross_type",
 )
 VALIDATORS = os.path.join(KEEPER_DIR, "KeeperValidators.sol")
 REWARDS = os.path.join(KEEPER_DIR, "KeeperRewards.sol")
