@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/smartgraphical/smartgraphical/docs/contracts/analyzer-cli-v1.schema.json",
+  "title": "SmartGraphical analyzer CLI report (schema_version 1)",
+  "description": "The single JSON document written to stdout by `python -m smartgraphical analyze` on success, and to stderr on failure. Additive fields keep schema_version 1; any removal or rename bumps it.",
+  "oneOf": [
+    {"$ref": "#/definitions/ok_report"},
+    {"$ref": "#/definitions/error_report"}
+  ],
+  "definitions": {
+    "tool": {
+      "type": "object",
+      "description": "Which build produced this document.",
+      "required": ["name", "version", "rules_catalog_hash"],
+      "properties": {
+        "name": {"type": "string", "const": "smartgraphical"},
+        "version": {"type": "string", "description": "Build identity from SG_TOOL_VERSION, or \"unknown\"."},
+        "rules_catalog_hash": {"type": "string", "description": "SHA-256 over the shipped rule catalogs; \"\" when none ship."}
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["kind", "summary", "type_name", "function_name", "statement", "source_statement", "confidence_reason", "line_number", "line_numbers"],
+      "properties": {
+        "kind": {"type": "string"},
+        "summary": {"type": "string"},
+        "type_name": {"type": "string"},
+        "function_name": {"type": "string"},
+        "statement": {"type": "string"},
+        "source_statement": {"type": "string"},
+        "confidence_reason": {"type": "string"},
+        "line_number": {"type": "integer"},
+        "line_numbers": {"type": "array", "items": {"type": "integer"}}
+      },
+      "additionalProperties": true
+    },
+    "finding": {
+      "type": "object",
+      "required": ["task_id", "legacy_code", "rule_id", "title", "category", "portability", "confidence", "message", "remediation_hint", "evidences", "source_file"],
+      "properties": {
+        "task_id": {"type": "string"},
+        "legacy_code": {"type": "integer"},
+        "rule_id": {"type": "string"},
+        "title": {"type": "string"},
+        "category": {"type": "string"},
+        "portability": {"type": "string"},
+        "confidence": {"type": "string"},
+        "message": {"type": "string"},
+        "remediation_hint": {"type": "string"},
+        "source_file": {"type": "string", "description": "Bundle-relative member name, or the file's basename for a single-file target."},
+        "evidences": {"type": "array", "items": {"$ref": "#/definitions/evidence"}}
+      },
+      "additionalProperties": true
+    },
+    "graph_node": {
+      "type": "object",
+      "description": "Node fields vary by group; id and group are guaranteed.",
+      "required": ["id", "group"],
+      "properties": {
+        "id": {"type": "string"},
+        "group": {"type": "string"},
+        "label": {"type": "string"},
+        "parent": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "graph_edge": {
+      "type": "object",
+      "required": ["source", "target"],
+      "properties": {
+        "source": {"type": "string"},
+        "target": {"type": "string"},
+        "kind": {"type": "string"},
+        "label": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "graph": {
+      "type": "object",
+      "description": "Present only when --graph was passed; null otherwise. nodes and edges are top-level here by contract.",
+      "required": ["graph_schema_version", "nodes", "edges", "stats"],
+      "properties": {
+        "graph_schema_version": {"type": "string"},
+        "nodes": {"type": "array", "items": {"$ref": "#/definitions/graph_node"}},
+        "edges": {"type": "array", "items": {"$ref": "#/definitions/graph_edge"}},
+        "stats": {
+          "type": "object",
+          "required": ["types_count", "functions_count", "state_entities_count", "guards_count", "call_edges_count"],
+          "properties": {
+            "types_count": {"type": "integer"},
+            "functions_count": {"type": "integer"},
+            "state_entities_count": {"type": "integer"},
+            "guards_count": {"type": "integer"},
+            "call_edges_count": {"type": "integer"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ok_report": {
+      "type": "object",
+      "description": "Analysis ran to completion. findings_count 0 means clean, not failed.",
+      "required": ["schema_version", "status", "tool", "artifact", "language", "mode", "task", "rules_run", "findings", "findings_count", "graph"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "status": {"type": "string", "const": "ok"},
+        "tool": {"$ref": "#/definitions/tool"},
+        "artifact": {"type": "string", "description": "The target path exactly as given on the command line."},
+        "language": {"type": "string", "enum": ["solidity", "c", "rust", "go"]},
+        "mode": {"type": "string", "enum": ["legacy", "auditor", "explore"]},
+        "task": {"type": "string", "description": "\"0\" when every rule ran, otherwise the single rule id."},
+        "rules_run": {"type": "array", "items": {"type": "string"}},
+        "findings": {"type": "array", "items": {"$ref": "#/definitions/finding"}},
+        "findings_count": {"type": "integer"},
+        "graph": {"oneOf": [{"$ref": "#/definitions/graph"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "error_report": {
+      "type": "object",
+      "description": "Analysis did not run. Written to stderr; the process exit code is non-zero.",
+      "required": ["schema_version", "status", "code", "message", "tool"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "status": {"type": "string", "const": "error"},
+        "code": {
+          "type": "string",
+          "enum": ["invalid_arguments", "invalid_path", "invalid_language", "invalid_task", "invalid_mode", "internal_error"]
+        },
+        "message": {"type": "string"},
+        "tool": {"$ref": "#/definitions/tool"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

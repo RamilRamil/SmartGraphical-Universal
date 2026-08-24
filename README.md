@@ -31,6 +31,8 @@ upstream later, this fork should stay aligned with it.
 - `NEXT_STEPS_PLAN.md` - phased roadmap (CLI, tests, web layer, second language).
 - `KNOWN_QUIRKS.md` - intentional heuristic trade-offs and parser limitations.
 - `docs/graph_schema_logic_c.md` - C graph payload: target contract vs `c_base` implementation matrix.
+- `docs/analyzer-cli.md` - batch/programmatic integration: the single-shot analyzer
+  CLI, its versioned JSON contract, exit codes and the sandboxed analyzer image.
 
 ## Quick start
 
@@ -88,8 +90,36 @@ CLI arguments are positional: `sg_cli.py <file> <task> <mode> <format>` (there
 is no `--format` flag).
 
 Continuous integration: a GitHub Actions workflow (`.github/workflows/ci.yml`)
-runs the full test suite and a CLI JSON smoke on Python 3.10 and 3.12 for every
-push and pull request.
+runs the full test suite plus CLI and analyzer-CLI JSON smokes on Python 3.10
+and 3.12 for every push and pull request. A second workflow
+(`.github/workflows/analyzer-image.yml`) builds the analyzer image, re-verifies
+its sandbox guarantees, and publishes it to GHCR on tags.
+
+### Option D. Batch analyzer (scripts, CI, agents)
+
+For programmatic use there is a single-shot command: one target in, one JSON
+document on stdout, no server.
+
+```bash
+python3 -m smartgraphical analyze tests/fixtures/solidity/WithdrawNoGuard.sol --mode auditor --graph
+```
+
+stdout is JSON and only JSON; diagnostics and error envelopes go to stderr, and
+exit codes distinguish "clean" (0 with `findings_count: 0`) from "did not run"
+(non-zero). The envelope carries `schema_version` and is validated against
+`docs/contracts/analyzer-cli-v1.schema.json` by a contract test.
+
+There is a dedicated image for it, separate from the web service, that runs
+unprivileged with no network and a read-only root:
+
+```bash
+docker build -f Dockerfile.analyzer -t smartgraphical-analyzer:local .
+docker run --rm --network none --cap-drop ALL --read-only \
+  -v "$PWD/contracts:/audit:ro" smartgraphical-analyzer:local /audit/T.sol --mode auditor
+```
+
+Do not integrate against `smartgraphical.services.web_api` directly: it is an
+internal seam with no stability guarantee. Full contract: `docs/analyzer-cli.md`.
 
 ## Web UI
 

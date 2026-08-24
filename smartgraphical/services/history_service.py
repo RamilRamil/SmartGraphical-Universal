@@ -15,7 +15,7 @@ from smartgraphical.upload_limits import (
     MAX_MULTIPART_SOURCE_FILES,
     MAX_UPLOAD_BYTES_PER_FILE,
 )
-from smartgraphical.services import web_api
+from smartgraphical.services import provenance, web_api
 from smartgraphical.services.web_api import WebApiError
 from smartgraphical.services.graph_diff import diff_graph_payloads
 from smartgraphical.persistence.verdict_repository import VALID_STATUSES
@@ -138,21 +138,12 @@ def _detect_tool_version(repo_root):
 
 
 def _hash_rules_catalog(repo_root):
-    candidates = [
-        os.path.join(repo_root, "docs", "c_node_rules_catalog.json"),
-        os.path.join(repo_root, "docs", "rust_stellar", "soroban_rules_catalog.json"),
-        os.path.join(repo_root, "docs", "rust", "language_rules_catalog.json"),
-    ]
-    digest = hashlib.sha256()
-    used_any = False
-    for path in candidates:
-        if os.path.isfile(path):
-            with open(path, "rb") as handle:
-                digest.update(handle.read())
-            used_any = True
-    if not used_any:
-        return ""
-    return digest.hexdigest()
+    """Fingerprint of the shipped rule catalogs.
+
+    Delegates to ``provenance`` so a scan record and an analyzer-CLI report of
+    the same build always report the same hash.
+    """
+    return provenance.rules_catalog_hash(repo_root)
 
 
 def _finding_key(finding):

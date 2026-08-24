@@ -32,6 +32,18 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
+      - name: Analyzer CLI smoke (batch contract)
+        # The batch surface: stdout must be exactly one JSON document, and a bad
+        # path must be a JSON error on stderr with a non-zero exit.
+        run: |
+          python -m smartgraphical analyze tests/fixtures/solidity/WithdrawNoGuard.sol --mode auditor --graph > analyzer_smoke.json
+          python -c "import json; d=json.load(open('analyzer_smoke.json')); assert d['schema_version']==1 and d['status']=='ok' and d['graph']['nodes'], d"
+          if python -m smartgraphical analyze __missing__.sol 2>analyzer_err.json 1>analyzer_out.txt; then
+            echo "expected a non-zero exit for a missing path"; exit 1
+          fi
+          test ! -s analyzer_out.txt || { echo "stdout must stay empty on error"; exit 1; }
+          python -c "import json; d=json.loads(open('analyzer_err.json').read().strip().splitlines()[-1]); assert d['status']=='error' and d['code']=='invalid_path', d"
+
       - name: CLI JSON smoke (public contract)
         # Positional CLI args: <file> <task> <mode> <format>. A single task is
         # used so stdout is pure JSON (task `all` also renders the graph to

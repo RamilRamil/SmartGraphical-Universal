@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.6
+#
+# The batch analyzer image: ENTRYPOINT is the single-shot CLI, not the web
+# service. Built to run under `--network none --cap-drop ALL --read-only` with
+# the target mounted read-only, as a non-root user.
+#
+# Build:  docker build -f Dockerfile.analyzer --build-arg SG_TOOL_VERSION=v1.2.3 -t smartgraphical-analyzer:v1.2.3 .
+# Run:    docker run --rm --network none --cap-drop ALL --read-only \
+#           -v "$PWD/contracts:/audit:ro" smartgraphical-analyzer:v1.2.3 /audit/T.sol --mode auditor
+
+# For byte-reproducible builds, override with a digest:
+#   --build-arg BASE_IMAGE=python:3.12-slim@sha256:<digest>
+ARG BASE_IMAGE=python:3.12-slim
+
+FROM ${BASE_IMAGE} AS analyzer
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONHASHSEED=0 \
+    PYTHONPATH=/opt/smartgraphical
+
+# Build identity; surfaced as tool.version in every report.
+ARG SG_TOOL_VERSION=analyzer-unversioned
+ENV SG_TOOL_VERSION=${SG_TOOL_VERSION}
+
+WORKDIR /opt/smartgraphical
+
+# No pip install: the analyzer path imports nothing outside the standard
+# library, so there is no dependency set to drift. fastapi/uvicorn belong to the
+# web service and are deliberately absent here.
+COPY smartgraphical ./smartgraphical
+# docs/ ships whole so tool.rules_catalog_hash matches a repo checkout of the
+# same commit.
+COPY docs ./docs
+
+RUN useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin sg
+
+USER 10001:10001
+WORKDIR /
+
+ENTRYPOINT ["python", "-m", "smartgraphical", "analyze"]
+CMD ["--help"]
