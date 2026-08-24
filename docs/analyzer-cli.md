@@ -152,6 +152,12 @@ docker build -f Dockerfile.analyzer --build-arg SG_TOOL_VERSION=v1.2.3 \
 For a bit-reproducible build, pin the base image by digest with
 `--build-arg BASE_IMAGE=python:3.12-slim@sha256:<digest>`.
 
+`BASE_IMAGE` accepts any base, including one that already defines
+`SG_TOOL_VERSION`. The build arg still wins, and with no build arg you get the
+honest `analyzer-unversioned` placeholder rather than a value leaked from the
+base -- so `tool.version` always describes the build in front of you. Covered by
+`AnalyzerImageProvenanceTests`.
+
 ## Relationship to the other entry points
 
 | Entry point | Audience | Stability |

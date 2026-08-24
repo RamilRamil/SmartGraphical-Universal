@@ -205,5 +205,100 @@ class AnalyzerImageSandboxTests(unittest.TestCase):
         self.assertEqual(first.stdout, second.stdout)
 
 
+@unittest.skipUnless(os.path.isfile(DOCKERFILE), "Dockerfile.analyzer missing")
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+class AnalyzerImageProvenanceTests(unittest.TestCase):
+    """`tool.version` must report the build, never a value inherited from a base.
+
+    `Dockerfile.analyzer` writes the build arg into the environment with
+    `ENV SG_TOOL_VERSION=${SG_TOOL_VERSION}`, and exposes `BASE_IMAGE` so
+    consumers can pin a digest. Those two features meet in an awkward place: a
+    base image is free to define `SG_TOOL_VERSION` itself, and if that value
+    ever won, every report from the image would carry a wrong provenance string
+    while looking perfectly well-formed. Docker resolves it the safe way today.
+    These tests exist so it keeps doing so -- and so the `ENV` line, which is
+    what blocks the inherited value, is not deleted as redundant.
+    """
+
+    base_image = "sg-analyzer-basefixture:pytest"
+    poisoned_version = "POISONED-FROM-BASE"
+    _built = []
+    _tempdir = None
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+
+        cls._tempdir = tempfile.TemporaryDirectory()
+        dockerfile = os.path.join(cls._tempdir.name, "Dockerfile")
+        with open(dockerfile, "w", encoding="utf-8") as handle:
+            handle.write(
+                "FROM python:3.12-slim\n"
+                f"ENV SG_TOOL_VERSION={cls.poisoned_version}\n"
+            )
+        build = subprocess.run(
+            ["docker", "build", "-f", dockerfile, "-t", cls.base_image, cls._tempdir.name],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if build.returncode != 0:
+            raise unittest.SkipTest(f"base fixture build failed:\n{build.stderr[-2000:]}")
+        cls._built.append(cls.base_image)
+
+    @classmethod
+    def tearDownClass(cls):
+        for tag in cls._built:
+            subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
+        if cls._tempdir is not None:
+            cls._tempdir.cleanup()
+
+    def build_on_poisoned_base(self, tag, tool_version=None):
+        command = [
+            "docker", "build", "-f", DOCKERFILE,
+            "--build-arg", f"BASE_IMAGE={self.base_image}",
+        ]
+        if tool_version is not None:
+            command += ["--build-arg", f"SG_TOOL_VERSION={tool_version}"]
+        command += ["-t", tag, REPO_ROOT]
+        build = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+        self.assertEqual(build.returncode, 0, build.stderr[-2000:])
+        self._built.append(tag)
+        return tag
+
+    def reported_version(self, tag):
+        result = subprocess.run(
+            ["docker", "run", "--rm", *SANDBOX_FLAGS, "--entrypoint", "printenv",
+             tag, "SG_TOOL_VERSION"],
+            capture_output=True, text=True, timeout=300,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_build_arg_wins_over_a_base_image_that_defines_the_variable(self):
+        tag = self.build_on_poisoned_base("sg-analyzer-prov-arg:pytest", "v9.9.9-expected")
+        self.assertEqual(self.reported_version(tag), "v9.9.9-expected")
+
+    def test_arg_default_wins_when_no_build_arg_is_passed(self):
+        # The dangerous case: nothing is passed, so a leaked base value would be
+        # taken for a real build identity instead of the honest placeholder.
+        tag = self.build_on_poisoned_base("sg-analyzer-prov-default:pytest")
+        version = self.reported_version(tag)
+        self.assertNotEqual(version, self.poisoned_version)
+        self.assertEqual(version, "analyzer-unversioned")
+
+    def test_reported_version_reaches_the_json_report(self):
+        import tempfile
+
+        tag = self.build_on_poisoned_base("sg-analyzer-prov-report:pytest", "v8.8.8-expected")
+        with tempfile.TemporaryDirectory() as audit_dir:
+            shutil.copy(SOL_FIXTURE, os.path.join(audit_dir, "T.sol"))
+            result = subprocess.run(
+                ["docker", "run", "--rm", *SANDBOX_FLAGS,
+                 "-v", f"{audit_dir}:/audit:ro", tag, "/audit/T.sol"],
+                capture_output=True, text=True, timeout=600,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["tool"]["version"], "v8.8.8-expected")
+
+
 if __name__ == "__main__":
     unittest.main()
