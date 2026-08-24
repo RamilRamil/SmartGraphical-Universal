@@ -1,10 +1,8 @@
-# syntax=docker/dockerfile:1.6
-#
 # The batch analyzer image: ENTRYPOINT is the single-shot CLI, not the web
 # service. Built to run under `--network none --cap-drop ALL --read-only` with
 # the target mounted read-only, as a non-root user.
 #
-# Build:  docker build -f Dockerfile.analyzer --build-arg SG_TOOL_VERSION=v1.2.3 -t smartgraphical-analyzer:v1.2.3 .
+# Build:  docker build -f Dockerfile.analyzer --build-arg SG_ANALYZER_VERSION=v1.2.3 -t smartgraphical-analyzer:v1.2.3 .
 # Run:    docker run --rm --network none --cap-drop ALL --read-only \
 #           -v "$PWD/contracts:/audit:ro" smartgraphical-analyzer:v1.2.3 /audit/T.sol --mode auditor
 
@@ -21,14 +19,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Build identity; surfaced as tool.version in every report.
 #
-# The ENV line is load-bearing, not a redundant restatement of the ARG. BASE_IMAGE
-# lets a consumer substitute any base, and a base image is free to define
-# SG_TOOL_VERSION itself; without this line that inherited value would survive
-# into the runtime environment and every report would carry a wrong provenance
-# string while looking perfectly well-formed. Assigning the ARG here shadows it.
-# Pinned by AnalyzerImageProvenanceTests in tests/integration/test_analyzer_sandbox.py.
-ARG SG_TOOL_VERSION=analyzer-unversioned
-ENV SG_TOOL_VERSION=${SG_TOOL_VERSION}
+# The build arg is deliberately NOT named SG_TOOL_VERSION. BASE_IMAGE lets a
+# consumer substitute any base, and a base image is free to define
+# SG_TOOL_VERSION itself -- our own web image does. When the names collide, the
+# classic (non-BuildKit) builder resolves `${SG_TOOL_VERSION}` to the inherited
+# ENV and discards the build arg entirely, so every report carries a wrong
+# provenance string while looking perfectly well-formed. BuildKit happens to
+# resolve it the other way, which is what makes the bug easy to miss.
+#
+# Distinct names remove the collision, so both builders agree. That matters
+# because the classic builder is exactly what BASE_IMAGE serves: behind a
+# registry wall BuildKit cannot fetch a `# syntax=` frontend, which is also why
+# this file carries no syntax directive and no BuildKit-only instructions.
+#
+# Pinned by AnalyzerImageProvenanceTests in tests/integration/test_analyzer_sandbox.py,
+# which runs under both builders.
+ARG SG_ANALYZER_VERSION=analyzer-unversioned
+ENV SG_TOOL_VERSION=${SG_ANALYZER_VERSION}
 
 WORKDIR /opt/smartgraphical
 

@@ -145,18 +145,35 @@ file against the candidate image and refuses to push if any guarantee is gone.
 Building it yourself:
 
 ```bash
-docker build -f Dockerfile.analyzer --build-arg SG_TOOL_VERSION=v1.2.3 \
+docker build -f Dockerfile.analyzer --build-arg SG_ANALYZER_VERSION=v1.2.3 \
   -t smartgraphical-analyzer:v1.2.3 .
 ```
+
+The build arg is `SG_ANALYZER_VERSION`, not `SG_TOOL_VERSION`. The names are
+deliberately different — see the note below. `SG_TOOL_VERSION` remains the
+*runtime* environment variable, so `docker run -e SG_TOOL_VERSION=...` still
+overrides what a report says.
 
 For a bit-reproducible build, pin the base image by digest with
 `--build-arg BASE_IMAGE=python:3.12-slim@sha256:<digest>`.
 
 `BASE_IMAGE` accepts any base, including one that already defines
-`SG_TOOL_VERSION`. The build arg still wins, and with no build arg you get the
-honest `analyzer-unversioned` placeholder rather than a value leaked from the
-base -- so `tool.version` always describes the build in front of you. Covered by
-`AnalyzerImageProvenanceTests`.
+`SG_TOOL_VERSION` — the project's own web image does. That is why the build arg
+is named `SG_ANALYZER_VERSION` instead: when the two names collide, the classic
+(non-BuildKit) builder resolves the expansion to the *inherited* value and
+discards your build arg, so the image would report a wrong `tool.version` while
+looking perfectly well-formed. BuildKit resolves the same Dockerfile the other
+way, which is what makes the bug easy to miss. With distinct names both builders
+agree: your build arg wins, and with no build arg you get the honest
+`analyzer-unversioned` placeholder rather than a leaked value.
+
+For the same reason this Dockerfile carries no `# syntax=` parser directive and
+no BuildKit-only instructions: that directive makes BuildKit pull a frontend
+image from a registry, which is impossible in the air-gapped setting
+`BASE_IMAGE` exists for. The file builds offline under either builder.
+
+`AnalyzerImageProvenanceTests` covers all of this, running every case under both
+builders.
 
 ## Relationship to the other entry points
 

@@ -148,7 +148,7 @@ class AnalyzerImageSandboxTests(unittest.TestCase):
             build = subprocess.run(
                 [
                     "docker", "build", "-f", DOCKERFILE,
-                    "--build-arg", "SG_TOOL_VERSION=pytest",
+                    "--build-arg", "SG_ANALYZER_VERSION=pytest",
                     "-t", cls.image, REPO_ROOT,
                 ],
                 capture_output=True, text=True, timeout=1800,
@@ -210,14 +210,17 @@ class AnalyzerImageSandboxTests(unittest.TestCase):
 class AnalyzerImageProvenanceTests(unittest.TestCase):
     """`tool.version` must report the build, never a value inherited from a base.
 
-    `Dockerfile.analyzer` writes the build arg into the environment with
-    `ENV SG_TOOL_VERSION=${SG_TOOL_VERSION}`, and exposes `BASE_IMAGE` so
-    consumers can pin a digest. Those two features meet in an awkward place: a
-    base image is free to define `SG_TOOL_VERSION` itself, and if that value
-    ever won, every report from the image would carry a wrong provenance string
-    while looking perfectly well-formed. Docker resolves it the safe way today.
-    These tests exist so it keeps doing so -- and so the `ENV` line, which is
-    what blocks the inherited value, is not deleted as redundant.
+    BASE_IMAGE lets a consumer substitute any base, and a base image may define
+    SG_TOOL_VERSION itself -- the project's own web image does. If that value
+    ever won, every report would carry a wrong provenance string while looking
+    perfectly well-formed, which is the worst failure mode for a field whose
+    only job is to say which build ran.
+
+    Every case runs under BOTH builders. That is the point of this class: the
+    classic builder resolves ARG/ENV collisions differently from BuildKit, and
+    it is precisely the builder BASE_IMAGE exists for -- behind a registry wall
+    BuildKit cannot fetch a `# syntax=` frontend. Testing only the default
+    builder would leave the flag's real audience uncovered.
     """
 
     base_image = "sg-analyzer-basefixture:pytest"
@@ -251,16 +254,27 @@ class AnalyzerImageProvenanceTests(unittest.TestCase):
         if cls._tempdir is not None:
             cls._tempdir.cleanup()
 
-    def build_on_poisoned_base(self, tag, tool_version=None):
+    def build_on_poisoned_base(self, tag, buildkit, version=None):
+        """Build the analyzer on a base that defines SG_TOOL_VERSION.
+
+        Returns None if this builder is unavailable, so the removal of the
+        deprecated classic builder degrades to a skip rather than a failure.
+        """
         command = [
             "docker", "build", "-f", DOCKERFILE,
             "--build-arg", f"BASE_IMAGE={self.base_image}",
         ]
-        if tool_version is not None:
-            command += ["--build-arg", f"SG_TOOL_VERSION={tool_version}"]
+        if version is not None:
+            command += ["--build-arg", f"SG_ANALYZER_VERSION={version}"]
         command += ["-t", tag, REPO_ROOT]
-        build = subprocess.run(command, capture_output=True, text=True, timeout=1800)
-        self.assertEqual(build.returncode, 0, build.stderr[-2000:])
+        environment = dict(os.environ, DOCKER_BUILDKIT="1" if buildkit else "0")
+        build = subprocess.run(
+            command, capture_output=True, text=True, timeout=1800, env=environment,
+        )
+        if build.returncode != 0:
+            if not buildkit and "legacy builder" in (build.stderr + build.stdout):
+                return None
+            self.fail(f"build failed (buildkit={buildkit}):\n{build.stderr[-2000:]}")
         self._built.append(tag)
         return tag
 
@@ -274,30 +288,67 @@ class AnalyzerImageProvenanceTests(unittest.TestCase):
         return result.stdout.strip()
 
     def test_build_arg_wins_over_a_base_image_that_defines_the_variable(self):
-        tag = self.build_on_poisoned_base("sg-analyzer-prov-arg:pytest", "v9.9.9-expected")
-        self.assertEqual(self.reported_version(tag), "v9.9.9-expected")
+        for buildkit in (True, False):
+            with self.subTest(buildkit=buildkit):
+                tag = self.build_on_poisoned_base(
+                    f"sg-analyzer-prov-arg-{int(buildkit)}:pytest", buildkit, "v9.9.9-expected",
+                )
+                if tag is None:
+                    self.skipTest("classic builder unavailable")
+                self.assertEqual(self.reported_version(tag), "v9.9.9-expected")
 
     def test_arg_default_wins_when_no_build_arg_is_passed(self):
         # The dangerous case: nothing is passed, so a leaked base value would be
         # taken for a real build identity instead of the honest placeholder.
-        tag = self.build_on_poisoned_base("sg-analyzer-prov-default:pytest")
-        version = self.reported_version(tag)
-        self.assertNotEqual(version, self.poisoned_version)
-        self.assertEqual(version, "analyzer-unversioned")
+        for buildkit in (True, False):
+            with self.subTest(buildkit=buildkit):
+                tag = self.build_on_poisoned_base(
+                    f"sg-analyzer-prov-default-{int(buildkit)}:pytest", buildkit,
+                )
+                if tag is None:
+                    self.skipTest("classic builder unavailable")
+                version = self.reported_version(tag)
+                self.assertNotEqual(version, self.poisoned_version)
+                self.assertEqual(version, "analyzer-unversioned")
 
     def test_reported_version_reaches_the_json_report(self):
         import tempfile
 
-        tag = self.build_on_poisoned_base("sg-analyzer-prov-report:pytest", "v8.8.8-expected")
-        with tempfile.TemporaryDirectory() as audit_dir:
-            shutil.copy(SOL_FIXTURE, os.path.join(audit_dir, "T.sol"))
-            result = subprocess.run(
-                ["docker", "run", "--rm", *SANDBOX_FLAGS,
-                 "-v", f"{audit_dir}:/audit:ro", tag, "/audit/T.sol"],
-                capture_output=True, text=True, timeout=600,
-            )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["tool"]["version"], "v8.8.8-expected")
+        for buildkit in (True, False):
+            with self.subTest(buildkit=buildkit):
+                tag = self.build_on_poisoned_base(
+                    f"sg-analyzer-prov-report-{int(buildkit)}:pytest", buildkit, "v8.8.8-expected",
+                )
+                if tag is None:
+                    self.skipTest("classic builder unavailable")
+                with tempfile.TemporaryDirectory() as audit_dir:
+                    shutil.copy(SOL_FIXTURE, os.path.join(audit_dir, "T.sol"))
+                    result = subprocess.run(
+                        ["docker", "run", "--rm", *SANDBOX_FLAGS,
+                         "-v", f"{audit_dir}:/audit:ro", tag, "/audit/T.sol"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    json.loads(result.stdout)["tool"]["version"], "v8.8.8-expected",
+                )
+
+    def test_dockerfile_carries_no_buildkit_only_syntax_directive(self):
+        # A `# syntax=` line makes BuildKit pull a frontend image from a
+        # registry, which fails in exactly the air-gapped setting BASE_IMAGE
+        # serves. The file must stay buildable by both builders offline.
+        with open(DOCKERFILE, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        # Docker honours the directive only as a parser directive at the very
+        # top, so that is the only line worth asserting on; prose mentioning it
+        # further down is documentation, not an instruction.
+        self.assertFalse(
+            lines[0].replace(" ", "").startswith("#syntax="),
+            f"first line declares a BuildKit frontend: {lines[0]!r}",
+        )
+        body = "\n".join(lines)
+        self.assertNotIn("RUN --mount", body)
+        self.assertNotIn("COPY --link", body)
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ jobs:
       - name: Build analyzer image
         run: |
           docker build -f Dockerfile.analyzer \
-            --build-arg SG_TOOL_VERSION=${{ steps.version.outputs.value }} \
+            --build-arg SG_ANALYZER_VERSION=${{ steps.version.outputs.value }} \
             -t analyzer:candidate .
 
       # The image is not published until it has proven it still runs with no
