@@ -21,7 +21,7 @@ from smartgraphical.services.graph_diff import diff_graph_payloads
 from smartgraphical.persistence.verdict_repository import VALID_STATUSES
 
 
-ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs")
+ALLOWED_EXTENSIONS = (".sol", ".c", ".h", ".rs", ".go")
 
 BUNDLE_MANIFEST_BASENAME = "sg_bundle_manifest.json"
 MAX_BUNDLE_BYTES_TOTAL = 64 * 1024 * 1024
@@ -197,6 +197,8 @@ class HistoryService:
             language = "solidity"
         elif extension == ".rs":
             language = "rust"
+        elif extension == ".go":
+            language = "go"
         else:
             language = "c"
         sha256 = _compute_sha256(bytes(data))
@@ -266,6 +268,8 @@ class HistoryService:
                     language = "solidity"
                 elif extension == ".rs":
                     language = "rust"
+                elif extension == ".go":
+                    language = "go"
                 else:
                     language = "c"
                 languages.append(language)
@@ -281,7 +285,7 @@ class HistoryService:
                     ERROR_INVALID_PAYLOAD,
                     "bundle must be single-language "
                     "(for C, .c and .h may be mixed in one bundle; "
-                    "Solidity only .sol; Rust only .rs)",
+                    "Solidity only .sol; Rust only .rs; Go only .go)",
                 )
             language = languages[0]
             paths_only = [r[1] for r in normalized_rows]
@@ -315,6 +319,8 @@ class HistoryService:
                     language = "solidity"
                 elif extension == ".rs":
                     language = "rust"
+                elif extension == ".go":
+                    language = "go"
                 else:
                     language = "c"
                 languages.append(language)
@@ -330,7 +336,7 @@ class HistoryService:
                     ERROR_INVALID_PAYLOAD,
                     "bundle must be single-language "
                     "(for C, .c and .h may be mixed in one bundle; "
-                    "Solidity only .sol; Rust only .rs)",
+                    "Solidity only .sol; Rust only .rs; Go only .go)",
                 )
             language = languages[0]
             if total_size > MAX_BUNDLE_BYTES_TOTAL:

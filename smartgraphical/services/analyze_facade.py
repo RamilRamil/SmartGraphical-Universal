@@ -123,7 +123,7 @@ def health():
     return {
         "status": "ok",
         "service": "smartgraphical",
-        "supported_languages": ["solidity", "c", "rust"],
+        "supported_languages": ["solidity", "c", "rust", "go"],
         "supported_modes": list(ALLOWED_MODES),
     }
 

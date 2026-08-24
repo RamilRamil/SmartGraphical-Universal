@@ -31,6 +31,7 @@ class WebApiHealthTests(unittest.TestCase):
         self.assertIn("solidity", report["supported_languages"])
         self.assertIn("c", report["supported_languages"])
         self.assertIn("rust", report["supported_languages"])
+        self.assertIn("go", report["supported_languages"])
         self.assertIn("auditor", report["supported_modes"])
 
 
@@ -67,7 +68,7 @@ class WebApiAnalyzeTests(unittest.TestCase):
 
     def test_analyze_rejects_invalid_language(self):
         with self.assertRaises(WebApiError) as ctx:
-            web_api.analyze(SOL_FIXTURE, "11", language="go")
+            web_api.analyze(SOL_FIXTURE, "11", language="python")
         self.assertEqual(ctx.exception.code, ERROR_INVALID_LANGUAGE)
 
     def test_analyze_rejects_unknown_task(self):
@@ -1121,8 +1122,15 @@ class WebApiListTasksTests(unittest.TestCase):
 
     def test_list_tasks_rejects_unknown_language(self):
         with self.assertRaises(WebApiError) as ctx:
-            web_api.list_tasks("go")
+            web_api.list_tasks("python")
         self.assertEqual(ctx.exception.code, ERROR_INVALID_LANGUAGE)
+
+    def test_list_tasks_go_registry(self):
+        payload = web_api.list_tasks("go")
+        self.assertEqual(payload["language"], "go")
+        ids = [t["id"] for t in payload["tasks"]]
+        self.assertEqual(ids[0], "0")
+        self.assertIn("18", ids)
 
     def test_list_tasks_rejects_empty_language(self):
         with self.assertRaises(WebApiError) as ctx:

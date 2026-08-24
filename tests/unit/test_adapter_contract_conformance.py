@@ -15,6 +15,7 @@ import unittest
 
 from smartgraphical.adapters.base import AnalysisAdapter
 from smartgraphical.adapters.c_base.adapter import CBaseAdapterV0
+from smartgraphical.adapters.go.adapter import GoAdapterV0
 from smartgraphical.adapters.rust_stellar.adapter import RustStellarAdapterV0
 from smartgraphical.adapters.solidity.adapter import SolidityAdapterV0
 from smartgraphical.core.model import AnalysisContext
@@ -27,6 +28,7 @@ CASES = [
     ("solidity", SolidityAdapterV0(), os.path.join(FIXTURES, "solidity", "MinimalGuard.sol")),
     ("c", CBaseAdapterV0(), os.path.join(FIXTURES, "c", "MinimalTu.c")),
     ("rust", RustStellarAdapterV0(), os.path.join(FIXTURES, "rust", "SorobanViolations.rs")),
+    ("go", GoAdapterV0(), os.path.join(FIXTURES, "go", "GoViolations.go")),
 ]
 
 

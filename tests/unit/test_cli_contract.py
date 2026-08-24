@@ -12,6 +12,7 @@ from smartgraphical.interfaces.cli.main import (
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOL_FIXTURE = os.path.join(REPO_ROOT, "tests", "fixtures", "solidity", "MinimalGuard.sol")
+GO_FIXTURE = os.path.join(REPO_ROOT, "tests", "fixtures", "go", "GoViolations.go")
 
 
 @unittest.skipUnless(os.path.isfile(SOL_FIXTURE), "solidity fixture MinimalGuard.sol missing")
@@ -55,7 +56,12 @@ class CliArgumentContractTests(unittest.TestCase):
 
     def test_parse_cli_args_rejects_invalid_language(self):
         with self.assertRaises(CliUserError):
-            parse_cli_args(["sg_cli.py", SOL_FIXTURE, "11", "auditor", "json", "go"])
+            parse_cli_args(["sg_cli.py", SOL_FIXTURE, "11", "auditor", "json", "python"])
+
+    @unittest.skipUnless(os.path.isfile(GO_FIXTURE), "go fixture GoViolations.go missing")
+    def test_parse_cli_args_infers_go_from_extension(self):
+        _, _, _, _, language = parse_cli_args(["sg_cli.py", GO_FIXTURE, "1"])
+        self.assertEqual(language, "go")
 
 
 if __name__ == "__main__":

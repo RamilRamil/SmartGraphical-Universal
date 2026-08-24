@@ -71,6 +71,7 @@ class HttpContractTests(unittest.TestCase):
         self.assertIn("solidity", langs)
         self.assertIn("c", langs)
         self.assertIn("rust", langs)
+        self.assertIn("go", langs)
 
     def test_tasks_for_solidity(self):
         response = self.client.get("/api/languages/solidity/tasks")
@@ -91,9 +92,18 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(ids[0], "0")
 
     def test_tasks_for_unknown_language(self):
-        response = self.client.get("/api/languages/go/tasks")
+        response = self.client.get("/api/languages/python/tasks")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "invalid_language")
+
+    def test_tasks_for_go_language(self):
+        response = self.client.get("/api/languages/go/tasks")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["language"], "go")
+        ids = [task["id"] for task in payload["tasks"]]
+        self.assertEqual(ids[0], "0")
+        self.assertIn("18", ids)
 
     def test_openapi_is_exposed(self):
         response = self.client.get("/api/openapi.json")
